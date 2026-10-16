@@ -20,8 +20,8 @@
 Внедрен 4-уровневый фильтр на входе (`CyberPipe.Router`), отсекающий платные запросы к ИИ:
 1. **`Tier 0` (Deterministic Fast-Path, `< 1 мс`, `0 токенов`):** Слэш-команды (`/play`, `/vol 40`, `/stop`) и регулярные шаблоны (*«включи музыку»*, *«пауза»*, *«потише»*) сразу вызывают компилированные C#-скиллы.
 2. **`Tier 1` (Local ONNX Semantic Router + Cache, `5–15 мс`, `0 токенов`):** Локальная модель эмбеддингов в памяти (`multilingual-e5-small` + SIMD `TensorPrimitives`) понимает фразы своими словами и с опечатками, сопоставляя их со скиллами или забирая готовый ответ из локального `SemanticResponseCache`.
-3. **`Tier 2` (Local SLM / Flash-Lite + Dynamic Tool Pruning, `~150 мс`):** Локальная микро-модель (`Ollama` 1.5B–3B за 0$) или самая дешевая модель парсит сложные аргументы. В промпт передаются только **2–3 подходящих тула** вместо 50 (экономия ~80% входных токенов).
-4. **`Tier 3` (Cloud LLM + Sandbox):** Включается только для сложных задач (~5–10% запросов) с жесткой обрезкой вывода тулов (`ToolOutputTruncator` до 1 500 символов) и кэшированием системного префикса.
+3. **`Tier 2` (Выбор пользователя в UI: `🏠 Local [0$]` или `☁️ RemoteCloud [$]` + Dynamic Tool Pruning, `~150 мс`):** Быстрый парсинг сложных аргументов легкой локальной моделью (из Curated-списка 15 моделей) или дешевой облачной моделью. В промпт передаются только **2–3 подходящих тула** вместо 50 (экономия ~80% входных токенов).
+4. **`Tier 3` (Выбор пользователя в UI: `🏠 Local [0$]` или `☁️ RemoteCloud [$]` + Sandbox):** Включается только для сложных задач (~5–10% запросов) с жесткой обрезкой вывода тулов (`ToolOutputTruncator` до 1 500 символов) и кэшированием системного префикса.
 
 ---
 
@@ -41,14 +41,34 @@
 
 ---
 
+### 6. Расширение до полноценного Личного, Инженерного и Бизнес-Помощника (`12-assistant-capabilities-and-skills.md`)
+* **Системные возможности ядра:**
+  * Локальное распознавание голоса (`Whisper.net` ONNX) перед роутером — **0 облачных токенов** на голосовые сообщения из Telegram и записи встреч.
+  * Долговременная гибридная память **`KnowledgeVault` (`SQLite FTS5 + SIMD TensorPrimitives`)** для заметок, контактов, финансов и базы решенных ошибок.
+  * Проактивный планировщик **`ProactiveScheduler` (`Cronos`)** для утренних/вечерних брифингов, контроля подписок и мониторинга серверов.
+* **Личные дела:** инбокс «Второго мозга» с авто-тегами, умные напоминания с кнопкой подтверждения `[✅ Выполнено]`, учет расходов и радар подписок, рабочие профили (`/mode coding`, `/mode call`, `/focus`).
+* **Программирование и DevOps:** локальный радар Git-репозиториев (`/repos`, `/standup` за 0 токенов), фоновый тест-раннер с умной выжимкой ошибок (`ToolOutputTruncator`), пре-ревью диффов и мониторинг инфраструктуры/Docker/SSL.
+* **Бизнес и коммуникации:** персональная CRM с контролем Follow-up, запись и протоколирование созвонов через `NAudio` + `Whisper.net` (выжимка **Action Items**), проверка договоров (PDF/DOCX) на риски и генерация КП по шаблонам.
+
+---
+
+### 7. Ручной выбор моделей по Tiers (`Local` vs `RemoteCloud`) и Помощник Совместимости с ПК (`13-model-advisor-and-tier-configuration.md`)
+* **Явное разделение `Local` и `RemoteCloud`:** Пользователь из Avalonia UI сам назначает желаемую модель на каждый Tier (`Tier 2`, `Tier 3`), при этом и приложение, и пользователь четко видят тип хостинга (`ModelHostingType.Local` — 0$, контроль RAM/VRAM; `ModelHostingType.RemoteCloud` — учет $ в `TokenBudgetGovernor`).
+* **Связка двух сервисов (`IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor`):** Сервис `IHardwareCapabilitiesProbe` собирает характеристики ПК (Total/Free RAM, CPU AVX2, GPU VRAM) и передает их в класс-помощник `IModelCompatibilityAdvisor`, который рассчитывает совместимость каждой модели (`🟢 Оптимально`, `🟡 Совместимо`, `🔴 Мало памяти`).
+* **Curated-каталоги моделей:** Встроен полный каталог из **15 проверенных локальных моделей** (`Qwen3-8B`, `Gemma 3n E2B`, `Llama 3.1 8B`, `Phi-4 Mini`, `Mistral 7B`, `SmolLM3-3B`, `Qwen3-4B`, `DeepSeek-R1 Distill`, `Gemma 3 4B`, `GLM-4-9B`, `Qwen3-0.6B`, `TinyLlama 1.1B`, `Phi-4 Mini Reasoning`, `StableLM Zephyr 3B`, `Qwen3-1.7B`) и **Curated-список платных моделей** для легких и сложных задач.
+
+---
+
 ### Сводка затронутых файлов документации:
-* [`01-principles.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/01-principles.md) — Добавлены принципы простоты, 4-Tier роутера, защиты хоста из Telegram и контроллера бюджета.
-* [`02-architecture-diagram.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md) — Новая схема с быстрым путем (Fast-Path < 15 мс), `HostAndMediaSafetyGuard`, `TokenBudgetGovernor` и `Kill-Switch`.
-* [`03-tech-stack-libraries.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md) — Замена тяжелых брокеров на `Channels`, `SQLite WAL`, `ONNX Runtime + TensorPrimitives`, `NAudio` и `Tokenizers`.
-* [`04-agent-mesh-proposals.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md) — Детальное проектирование 4-Tier роутера, экономии токенов, авто-паузы бюджета и мгновенного `/stop`.
+* [`01-principles.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/01-principles.md) — Принципы простоты, 4-Tier роутера (`Local` vs `RemoteCloud`), `IModelCompatibilityAdvisor`, защиты хоста и контроллера бюджета.
+* [`02-architecture-diagram.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md) — Схема с Fast-Path (< 15 мс), `IHardwareCapabilitiesProbe` ➔ `IModelCompatibilityAdvisor`, `Whisper.net`, `KnowledgeVault` и `TokenBudgetGovernor`.
+* [`03-tech-stack-libraries.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md) — Стек дополнен поддержкой `Local`/`RemoteCloud` пайплайна, `IModelCompatibilityAdvisor`, `Whisper.net`, `SQLite FTS5`, `LibGit2Sharp` и `Cronos`.
+* [`04-agent-mesh-proposals.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md) — Детальное проектирование 4-Tier роутера с выбором `Local`/`RemoteCloud` для каждого Tier, авто-паузой бюджета и `/stop`.
 * [`05-security-agent.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md) — Правила защиты от вайпа ПК, `Volume Clamp` (60%/25%), NSFW/18+ фильтр для Telegram и детерминированный `SecurityGuard`.
-* [`06-solution-structure.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md) — Оптимизированное дерево проектов с модулями `CyberPipe.Router`, `CyberPipe.Skills.Host` и `CyberPipe.Security.Budget`.
-* [`07-ui-isolation-and-arch-tests.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md) — Дашборд экономии токенов в UI и тесты `ArchUnitNET`, запрещающие обход роутера и запуск Raw Shell из скиллов.
-* [`08-implementation-roadmap.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md) — Перестроен план спринтов: Спринт 1 и 2 сразу дают рабочего, безопасного и экономного Telegram-помощника.
-* [`09-data-protection-and-state-hub.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md) — Локальный `SemanticResponseCache` в SQLite WAL, `DPAPI` сейф секретов и пример единого конфига лимитов.
-* [`10-sandbox-telemetry-and-heuristics.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md) — Защита ПК от тормозов (`Resource Circuit Breaker`) и двойная обрезка логов (`ToolOutputTruncator` до 1 500 символов для экономии токенов).
+* [`06-solution-structure.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md) — Оптимизированное дерево проектов с доменными пакетами скиллов и сервисами `IHardwareCapabilitiesProbe` / `IModelCompatibilityAdvisor`.
+* [`07-ui-isolation-and-arch-tests.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md) — Конфигуратор моделей по Tiers в UI, дашборд экономии токенов и тесты `ArchUnitNET`.
+* [`08-implementation-roadmap.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md) — План спринтов с поэтапным запуском ядра, помощника выбора моделей, памяти и скиллов.
+* [`09-data-protection-and-state-hub.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md) — Локальный `SemanticResponseCache`, `KnowledgeVault`, `PersonalCrm` в SQLite WAL и настройка `TierModels` (`Local`/`RemoteCloud`).
+* [`10-sandbox-telemetry-and-heuristics.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md) — Инспекция железа `IHardwareCapabilitiesProbe`, защита ПК от тормозов (`Resource Circuit Breaker`) и обрезка логов (`ToolOutputTruncator`).
+* [`12-assistant-capabilities-and-skills.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/12-assistant-capabilities-and-skills.md) — Полный каталог системных возможностей и скиллов для личных дел, программирования и бизнеса.
+* [`13-model-advisor-and-tier-configuration.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md) — Архитектура `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor`, таблица 15 локальных моделей и Curated-список платных моделей.

@@ -16,7 +16,7 @@
    *Быстрый локальный стек без лишних зависимостей: `System.Threading.Channels`, `SQLite WAL`, `ONNX Runtime + SIMD TensorPrimitives` (локальные эмбеддинги), `NAudio`, `Telegram.Bot`, `Microsoft.Extensions.AI` + `Tokenizers`.*
 
 4. [**04. Каскадный Маршрутизатор (Zero-Token Fast-Path), Контроль Бюджета и Пауза/Стоп**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md)  
-   *Архитектура `Tier 0` (Regex) ➔ `Tier 1` (Local ONNX + Semantic Cache) ➔ `Tier 2` (Local SLM + Dynamic Tool Pruning) ➔ `Tier 3` (Cloud LLM). Механизмы авто-паузы с кнопками в Telegram и мгновенного `/stop` (< 50 мс).*
+   *Архитектура `Tier 0` (Regex) ➔ `Tier 1` (ONNX + Semantic Cache) ➔ `Tier 2` (Легкая задача: `Local` или `RemoteCloud` по выбору из UI + Dynamic Tool Pruning) ➔ `Tier 3` (Сложная задача: `Local` или `RemoteCloud`). Авто-пауза в Telegram и мгновенный `/stop` (< 50 мс).*
 
 5. [**05. Безопасность Хоста (Anti-Wipe & Media Guard), Периметр Telegram и SecurityGuard**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md)  
    *Whitelist авторизация Telegram (`Owner` vs `Guest`), запрет Raw Shell из чата, жесткий потолок громкости (`Volume Clamp` 60%/25%), локальный фильтр 18+/NSFW, AST-анализ скриптов и Stealth OSINT.*
@@ -25,16 +25,22 @@
    *Прозрачное дерево проектов с выделенными модулями `CyberPipe.Router`, `CyberPipe.Skills.Host`, `CyberPipe.Security.Guards`, `CyberPipe.Security.Budget` и `CyberPipe.Storage.Sqlite`.*
 
 7. [**07. Изоляция UI, Панель Контроля Расходов и Архитектурные Тесты (ArchUnitNET)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md)  
-   *Дашборд экономии токенов и безопасности в Avalonia UI + автоматические тесты `ArchUnitNET`, гарантирующие невозможность запуска шелла из скиллов хоста или обхода фильтра бюджета.*
+   *Дашборд экономии токенов, Конфигуратор моделей по Tiers (`Local` vs `RemoteCloud`) в Avalonia UI + автоматические тесты `ArchUnitNET`.*
 
 8. [**08. План поэтапной реализации**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md)  
-   *Прагматичный план на 5 спринтов: уже в Спринте 1–2 запускается быстрый и безопасный Telegram-помощник с управлением музыкой за 0 токенов и контролем бюджета.*
+   *Прагматичный план на 5 спринтов: уже в Спринте 1–2 запускается быстрый и безопасный Telegram-помощник с управлением музыкой за 0 токенов, помощником выбора моделей и контролем бюджета.*
 
 9. [**09. Защита данных, Санитизация, Локальный Кэш и Хранение (SQLite WAL)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md)  
-   *Очистка секретов (`[REDACTED]`), локальный сейф ключей (`DPAPI` / `AES-256-GCM`), `SemanticResponseCache` в SQLite WAL и единый прозрачный конфиг лимитов.*
+   *Очистка секретов (`[REDACTED]`), локальный сейф ключей (`DPAPI` / `AES-256-GCM`), `SemanticResponseCache` в SQLite WAL и единый прозрачный конфиг лимитов и моделей.*
 
 10. [**10. Мониторинг Ресурсов ПК и Сжатие Телеметрии Песочниц**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md)  
-    *Защита ПК от фризов (`Resource Circuit Breaker`), обрезка вывода тулов (`ToolOutputTruncator` до 1 500 символов для экономии 99% токенов на логах) и внеполосный дайджест песочниц.*
+    *Инспекция железа `IHardwareCapabilitiesProbe`, защита ПК от фризов (`Resource Circuit Breaker`), обрезка вывода тулов (`ToolOutputTruncator` до 1 500 символов) и внеполосный дайджест песочниц.*
 
 11. [**11. Лог архитектурных изменений (Changelog ревизии)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/11-changelog.md)  
     *Краткая сводка всех внесенных улучшений: отказ от избыточного брокера, каскадная экономия токенов, защита от вайпа и 18+ на полной громкости, механизмы паузы и остановки.*
+
+12. [**12. Каталог функций и возможностей: Личный, Инженерный и Бизнес-Помощник**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/12-assistant-capabilities-and-skills.md)  
+    *Полный перечень системных возможностей (локальный голос `Whisper.net` за 0 токенов, гибридная память «Второй мозг» на `SQLite FTS5 + SIMD`, проактивные брифинги) и прикладных скиллов для личных дел, программирования (`Git Radar`, `Build/Test Watchdog`, мониторинг серверов) и бизнеса (`Personal CRM`, запись и выжимка созвонов через `NAudio`, проверка договоров).*
+
+13. [**13. Конфигурация Tiers (Local vs Remote), Сервис Совместимости Железа и Curated-Каталог Моделей**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md)  
+    *Четкое разделение `Local` и `RemoteCloud` моделей в UI и ядре, связка сервисов `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor`, полный Curated-каталог из 15 локальных моделей (с оценкой RAM/Q4) и Curated-список платных облачных моделей для легких и сложных задач.*

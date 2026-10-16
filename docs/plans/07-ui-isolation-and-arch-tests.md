@@ -16,6 +16,14 @@
 3. **Настройки Защиты Хоста и Медиа (`Host & Media Safety Panel`):**
    * Ползунок **Максимального потолка громкости** для команд из Telegram (по умолчанию `60%` днем / `25%` ночью).
    * Список разрешенных `TelegramUserId` (Владелец / Гости) и лог заблокированных попыток (например, срабатываний фильтра 18+ или стоп-слов).
+4. **Хаб Продуктивности, Dev-Радар и Ассистент Встреч (`Personal, Dev & Business Hub`):**
+   * **Быстрые рабочие сцены (1 клик):** `[💻 Кодинг]`, `[📞 Созвон (Запись + Выжимка)]`, `[🎯 Фокус 50м]`, `[🌙 Отдых]`.
+   * **Git & Infra Радар:** живой статус локальных репозиториев в `source\repos` (незакоммиченные файлы, статус сборки) и индикаторы здоровья рабочих серверов/SSL.
+   * **«Второй мозг» и CRM:** быстрый поиск по заметкам, карточкам клиентов, напоминаниям и ближайшим списаниям подписок.
+5. **Конфигуратор Моделей по Tiers и Помощник Совместимости с ПК (`Tier Model Selector & Compatibility Wizard`):**
+   * Для каждого уровня (`Tier 2` — легкие задачи, `Tier 3` — сложные задачи) пользователь сам выбирает модель с четким разделением **`[🏠 Локальная 0$]`** vs **`[☁️ Удаленная платная $]`**.
+   * Встроенный помощник (`IModelCompatibilityAdvisor`) получает параметры ПК от `IHardwareCapabilitiesProbe` и подсвечивает каждую из **15 Curated локальных моделей** индикатором совместимости: `🟢 Оптимально для вашего ПК`, `🟡 Совместимо (нагрузка на CPU/RAM)`, `🔴 Мало памяти (риск фризов)`.
+   * Для облачного режима доступен **Curated-список платных моделей** (отдельно быстрые/дешевые для `Tier 2` и флагманские для `Tier 3`).
 
 ---
 
@@ -89,6 +97,17 @@ public class ArchitectureIntegrityTests
             .That().ResideInAssembly(typeof(CyberPipe.Gateway.Telegram.TelegramBotService).Assembly)
             .Should().NotDependOnAny(forbiddenDirectCalls)
             .Because("Telegram-шлюз обязан проводить все запросы через AuthGuard, IntentRouter и SafetyGuard!")
+            .Check(Architecture);
+    }
+
+    [Fact]
+    public void ModelCompatibilityAdvisor_Must_Query_Hardware_Only_Via_HardwareCapabilitiesProbe()
+    {
+        // Сервис-помощник выбора моделей получает данные о ПК исключительно через сервис IHardwareCapabilitiesProbe
+        Types()
+            .That().HaveNameContaining("ModelCompatibilityAdvisor")
+            .Should().DependOnAny(Types().That().HaveNameContaining("IHardwareCapabilitiesProbe"))
+            .Because("Помощник подбора моделей обязан получать характеристики ПК от выделенного сервиса IHardwareCapabilitiesProbe!")
             .Check(Architecture);
     }
 }

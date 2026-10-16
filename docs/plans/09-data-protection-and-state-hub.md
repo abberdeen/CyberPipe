@@ -45,10 +45,12 @@
 1. **Локальный Семантический Кэш (`SemanticResponseCache`):**
    * Хранит пары `(EmbeddingVector, IntentOrAnswer, CreatedAtUtc, HitCount)`.
    * Позволяет `Tier 1 Router` мгновенно (за 5–10 мс) отдавать готовые решения для повторяющихся или похожих вопросов без запроса в ИИ (**0 токенов**).
-2. **Журнал Бюджета и Чекпоинты Пауз (`BudgetLedger` & `TaskCheckpoints`):**
+2. **Память «Второй мозг», Личная CRM и Финансы (`KnowledgeVault`, `PersonalCrm`, `FinanceLedger`):**
+   * Гибридный индекс **`SQLite FTS5` + `SIMD CosineSimilarity`** для мгновенного поиска по личным заметкам, сохраненным ссылкам, карточкам клиентов, договоренностям (Follow-up), подпискам и базе решенных багов (`/remember-fix`).
+3. **Журнал Бюджета и Чекпоинты Пауз (`BudgetLedger` & `TaskCheckpoints`):**
    * Точный учет каждого потраченного токена по задачам и часам.
    * При срабатывании авто-паузы (`TaskPausedByBudget`) полное состояние задачи сохраняется одной атомарной записью. Даже если ПК перезагрузится, после нажатия кнопки `[▶️ Продолжить]` в Telegram задача продолжит работу с того же шага!
-3. **Асинхронная запись без задержек (`Write-Behind Channel`):**
+4. **Асинхронная запись без задержек (`Write-Behind Channel`):**
    * Запись логов, аудита и статистики токенов никогда не тормозит ответ пользователю в Telegram: события кладутся в неблокирующий `Channel<PersistItem>` и сбрасываются на диск фоновым воркером батчами раз в 200 мс.
    * Фоновый сервис следит за размером журнала (`PRAGMA wal_checkpoint(TRUNCATE)`), исключая разрастание файлов БД.
 
@@ -79,7 +81,8 @@
       "NightHoursStart": "23:00",
       "NightHoursEnd": "08:00",
       "EnableNsfwFilter": true,
-      "AllowedMediaProviders": [ "Spotify", "YandexMusic", "LocalLibrary" ]
+      "AllowedMediaProviders": [ "Spotify", "YandexMusic", "LocalLibrary" ],
+      "AllowedShareDirectories": [ "D:\\Work\\Exports" ]
     },
     "Budget": {
       "SoftTaskTokenLimit": 4000,
@@ -90,7 +93,27 @@
     },
     "Router": {
       "Tier1SimilarityThreshold": 0.86,
-      "LocalSlmEndpoint": "http://localhost:11434"
+      "WhisperOnnxModelPath": "models/whisper-small-onnx"
+    },
+    "TierModels": {
+      "Tier2LightTask": {
+        "HostingType": "Local",
+        "CuratedModelId": 7,
+        "ModelName": "Qwen3-4B",
+        "Endpoint": "http://localhost:11434",
+        "MinRamGb": 4.0
+      },
+      "Tier3HeavyTask": {
+        "HostingType": "RemoteCloud",
+        "ModelName": "claude-3-7-sonnet",
+        "Endpoint": "https://api.anthropic.com/v1"
+      }
+    },
+    "Assistant": {
+      "GitRepositoriesRoot": "C:\\Users\\Conqueror\\source\\repos",
+      "MorningBriefingCron": "0 9 * * *",
+      "EveningReviewCron": "0 20 * * *",
+      "SubscriptionWarningDaysBefore": 3
     }
   }
 }

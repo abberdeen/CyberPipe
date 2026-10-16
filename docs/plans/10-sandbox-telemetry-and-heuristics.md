@@ -8,24 +8,26 @@
 
 ---
 
-### 1. Realtime Singleton Мониторинга Ресурсов (`ISystemResourceMonitor`)
+### 1. Realtime Singleton Мониторинга Ресурсов (`ISystemResourceMonitor`) и Инспекции Железа (`IHardwareCapabilitiesProbe`)
 
-Потокобезопасный легковесный синглтон опрашивает показатели ОС (CPU, свободная RAM, диск, потребление памяти дочерними процессами) и защищает ПК от перегрузки:
+Потокобезопасный легковесный синглтон опрашивает показатели ОС (CPU, общая и свободная RAM, GPU VRAM, диск, потребление памяти дочерними процессами), защищает ПК от перегрузки и передает профиль железа в помощник выбора локальных моделей (`IModelCompatibilityAdvisor`, см. [`13-model-advisor-and-tier-configuration.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md)):
 
 ```mermaid
 flowchart TD
-    Monitor["ISystemResourceMonitor (Singleton)<br/>Нагрузка на CPU < 0.1%"]
+    Monitor["ISystemResourceMonitor & IHardwareCapabilitiesProbe<br/>Нагрузка на CPU < 0.1%"]
 
-    Monitor -->|Проверка перед запуском Tier 3| Guard["Аппаратный Предохранитель<br/>(Resource Circuit Breaker)"]
-    Monitor -->|Живой стрим метрик| UI["Avalonia UI (Графики CPU/RAM)"]
+    Monitor -->|Проверка перед запуском Tier 2/3 Local или Sandbox| Guard["Аппаратный Предохранитель<br/>(Resource Circuit Breaker)"]
+    Monitor -->|HostHardwareProfile (RAM, VRAM, AVX2)| Advisor["IModelCompatibilityAdvisor<br/>(Расчет совместимости 15 локальных моделей)"]
+    Monitor -->|Живой стрим метрик| UI["Avalonia UI (Графики CPU/RAM и выбор моделей)"]
     Monitor -->|Контроль процессов| Watchdog["Process Watchdog<br/>(Убийство зависших процессов)"]
 
-    Guard -->|Свободно < 1.5 ГБ RAM или CPU > 85%| Defer["Отложить тяжелую задачу /<br/>Сделать только быстрый шаг"]
+    Guard -->|Свободно < MinRamGb модели или CPU > 85%| Defer["Отложить тяжелую задачу /<br/>Предложить более легкую модель"]
     Watchdog -->|Процесс превысил квоту RAM / Время| Kill["Мгновенный KillProcessTree()"]
 ```
 
 #### Как это защищает комфорт пользователя:
-* **Защита от лагов во время игр/работы/музыки:** Если пользователь нагрузил ПК (CPU > 85% или мало свободной RAM), `OrchestratorEngine` автоматически откладывает тяжелые фоновые задачи (`Tier 3` песочницы), но **мгновенно выполняет быстрые команды `Tier 0 / Tier 1`** (переключение музыки, громкость, быстрые ответы).
+* **Умный подбор локальных моделей под ПК (`IHardwareCapabilitiesProbe` ➔ `IModelCompatibilityAdvisor`):** Сервис считывает объем общей и свободной RAM/VRAM и передает его в `IModelCompatibilityAdvisor`, чтобы пользователь в UI сразу видел, какие из **15 Curated локальных моделей** (`Qwen3-0.6B` .. `GLM-4-9B`) будут летать на его компьютере, а какие вызовут нехватку памяти.
+* **Защита от лагов во время игр/работы/музыки:** Если пользователь нагрузил ПК (CPU > 85% или мало свободной RAM), `OrchestratorEngine` автоматически откладывает тяжелые фоновые задачи (`Tier 3` песочницы или тяжелые локальные модели), но **мгновенно выполняет быстрые команды `Tier 0 / Tier 1`** (переключение музыки, громкость, быстрые ответы).
 * **Автоматическое уничтожение зависших процессов (`Process Watchdog`):** Любой дочерний процесс в песочнице запускается с жестким таймаутом (например, 30 секунд) и лимитом памяти. При превышении порога срабатывает `Kill(entireProcessTree: true)` без участия LLM.
 
 ---
