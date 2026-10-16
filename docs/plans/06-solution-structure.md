@@ -1,6 +1,6 @@
 # 06. Структура Solution и проектов (`CyberPipe.slnx`)
 
-Реорганизованная структура проектов строго разделяет зоны ответственности, изолирует криптографические операции, санитизацию, подключаемые песочницы, внеполосный сбор телеметрии и авторизованный доступ к состоянию.
+Структура решения упрощена и оптимизирована для **максимальной прозрачности, скорости сборки и отсутствия лишней прослойки абстракций**. Выделены четкие модули для каскадного роутера (0-токен Fast-Path), безопасных скиллов умного помощника (`Skills.Host`) и контроллера бюджета (`Security.Budget`).
 
 ---
 
@@ -11,65 +11,56 @@ CyberPipe.slnx
 ├── src/
 │   ├── Shared/
 │   │   └── CyberPipe.Contracts/               # КРИТИЧЕСКИ ВАЖНО: Единственная зависимость UI!
-│   │       ├── Protos/                        # gRPC контракты (gateway.proto, events.proto, telemetry.proto)
-│   │       ├── Messages/                      # MassTransit DTO команд и событий шины
-│   │       ├── Enums/                         # RiskLevel, SandboxType, AgentClearanceLevel
-│   │       └── Models/                        # DTO: SecurityReportDto, ScopedStateDto, ExecutionTelemetryDigest
+│   │       ├── Protos/                        # gRPC контракты (gateway.proto, telemetry.proto, budget.proto)
+│   │       ├── Messages/                      # События для внутрипроцессной шины Channels
+│   │       ├── Enums/                         # RiskLevel, IntentTier, TaskLifecycleState, MemoryTrustSource
+│   │       └── Models/                        # DTO: SecurityInspectionReport, BudgetStatusDto, TelemetryDigest
 │   │
-│   ├── Security/                              # Модули сквозной безопасности и защиты данных
-│   │   ├── CyberPipe.Security.Sanitization/   # Центральный сервис очистки данных и маскирования секретов
-│   │   └── CyberPipe.Security.Cryptography/   # E2EE: AES-256-GCM, деривация ключей, Envelope Encryption
+│   ├── Security/                              # Детерминированная защита (0 токенов) и Контроль Бюджета
+│   │   ├── CyberPipe.Security.Guards/         # HostSafetyGuard (Anti-Wipe), MediaSafetyGuard (Volume Clamp + Анти-18+), AST & OSINT
+│   │   ├── CyberPipe.Security.Budget/         # TokenBudgetGovernor, Velocity Circuit Breaker, Пауза задач и Kill-Switch реестр
+│   │   ├── CyberPipe.Security.Sanitization/   # Центральный сервис очистки секретов ([REDACTED]) и локальный Vault (DPAPI/AES-GCM)
+│   │   └── CyberPipe.Security.Telemetry/      # ISystemResourceMonitor (CPU/RAM) и потоковый дайджест песочниц (1ГБ -> 30КБ)
 │   │
-│   ├── State/                                 # Авторизованное состояние приложения и мониторинг
-│   │   └── CyberPipe.State.Hub/               # Единый хаб состояния с политиками ABAC / Need-to-Know
-│   │       ├── Projections/                   # Scoped-проекции состояния для агентов и UI
-│   │       └── Telemetry/                     # Realtime Singleton мониторинга ресурсов (ISystemResourceMonitor)
+│   ├── RouterAndSkills/                       # Ядро Умного Помощника (Быстрый путь без сжигания токенов)
+│   │   ├── CyberPipe.Router/                  # 4-Tier Intent Router: Tier 0 (Regex), Tier 1 (Local ONNX SIMD + Cache), Tier 2 (Local SLM)
+│   │   └── CyberPipe.Skills.Host/             # Строго типизированные безопасные C#-скиллы хоста (Media, Volume, Timers, SystemInfo)
 │   │
-│   ├── UI/                                    # Мультиплатформенный изолированный интерфейс
-│   │   ├── CyberPipe.UI/                      # Общая разметка XAML, ViewModels, gRPC Services
-│   │   ├── CyberPipe.UI.Desktop/              # Точка запуска Desktop (Windows, macOS, Linux)
-│   │   └── CyberPipe.UI.Browser/              # Точка запуска Web (WebAssembly / Wasm)
+│   ├── Core/                                  # Оркестрация и Сложные Агенты (Tier 3)
+│   │   ├── CyberPipe.Core.Orchestration/      # Детерминированный OrchestratorEngine, State Machine, In-Process Channel Bus
+│   │   └── CyberPipe.Core.Agents/             # Воркеры Tier 3 (Coder, Researcher) с Dynamic Tool Pruning и сжатием контекста
 │   │
-│   ├── Gateway/                               # Входной защищенный периметр
-│   │   ├── CyberPipe.Gateway.Api/             # ASP.NET Core gRPC / SignalR Server, TLS 1.3, JWT Auth
-│   │   ├── CyberPipe.Gateway.Channels/        # Адаптеры каналов (Telegram, Discord, Webhooks)
-│   │   └── CyberPipe.Gateway.Infrastructure/  # Продюсеры зашифрованных сообщений в RabbitMQ
-│   │
-│   ├── Agents/                                # Агентный интеллект
-│   │   ├── CyberPipe.Agents.Ceo/              # CEO Orchestrator (Policy Engine, Resource Check, Sagas)
-│   │   ├── CyberPipe.Agents.Security/         # SecurityAgent (Stealth OSINT, Email, AST, Telemetry Audit)
-│   │   └── CyberPipe.Agents.Workers/          # Воркеры: Coder, Researcher (генерируют только Proposals)
-│   │
-│   ├── Execution/                             # Абстракция подключаемых песочниц и сбор телеметрии
+│   ├── Execution/                             # Изолированные песочницы (только для задач Tier 3)
 │   │   ├── CyberPipe.Execution.Abstractions/  # Интерфейсы ISandboxProvider, ISandboxInstance
-│   │   ├── CyberPipe.Execution.Telemetry/     # Внеполосный сбор трафика/ФС и потоковый препроцессор (1ГБ -> 30КБ)
-│   │   ├── CyberPipe.Execution.Docker/        # Бэкенд на Docker.DotNet (Docker / Podman)
-│   │   ├── CyberPipe.Execution.Wasm/          # Бэкенд на Wasmtime (изолированный WebAssembly)
-│   │   └── CyberPipe.Execution.Process/       # Бэкенд на CliWrap (ограниченные процессы ОС)
+│   │   └── CyberPipe.Execution.Providers/     # Реализации: CliWrap (Restricted Process), Wasmtime, Docker (опционально)
 │   │
-│   ├── Infrastructure/                        # Транспорт и шифрованное хранение данных
-│   │   ├── CyberPipe.Infrastructure.Bus/      # MassTransit + RabbitMQ, шифрованные очереди, саги
-│   │   └── CyberPipe.Infrastructure.Storage/  # EF Core, шифрование БД, Outbox, QuarantineStore
+│   ├── Gateway/                               # Входной периметр и Каналы связи
+│   │   ├── CyberPipe.Gateway.Telegram/        # Быстрый Telegram-бот: Whitelist AuthGuard, приоритетный /stop, кнопки Паузы бюджета
+│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер для Avalonia UI
+│   │
+│   ├── Storage/                               # Легковесное и надежное локальное хранение
+│   │   └── CyberPipe.Storage.Sqlite/          # SQLite (WAL mode): Семантический кэш ответов, чекпоинты пауз, учет токенов и логов
+│   │
+│   ├── UI/                                    # Мультиплатформенный интерфейс управления
+│   │   ├── CyberPipe.UI/                      # Разметка XAML, ViewModels, управление лимитами токенов и громкости
+│   │   └── CyberPipe.UI.Desktop/              # Десктопный клиент (Windows, macOS, Linux)
 │   │
 │   └── Host/
-│       └── CyberPipe.Daemon/                  # Главная серверная служба (запуск MassTransit, API, Monitor Singleton)
+│       └── CyberPipe.Daemon/                  # Единый быстрый сервис-хост (запускается за < 1 сек без внешних зависимостей)
 │
 └── tests/
-    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET тесты (проверка изоляции UI и воркеров)
-    ├── CyberPipe.Tests.Telemetry/             # Тесты сжатия 1ГБ логов песочниц в компактный дайджест
-    ├── CyberPipe.Tests.Sanitization/          # Тесты очистки секретов, токенов, PII
-    ├── CyberPipe.Tests.Security/              # Тестирование AST-парсеров, детекта SSRF, фишинга, email
-    ├── CyberPipe.Tests.Cryptography/          # Тестирование шифрования полезной нагрузки сообщений и БД
-    └── CyberPipe.Tests.Integration/           # Интеграционные тесты саг RabbitMQ и сбоев брокера
+    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET: проверка изоляции UI, запрета Raw Shell и обязательности BudgetGovernor
+    ├── CyberPipe.Tests.SafetyAndBudget/       # Тесты Anti-Wipe, Volume Clamp (60%/25%), NSFW-фильтра, авто-паузы бюджета и /stop
+    ├── CyberPipe.Tests.Router/                # Бенчмарки скорости Tier 0 (< 1 мс) и Tier 1 ONNX (< 15 мс) без вызовов LLM
+    └── CyberPipe.Tests.Sanitization/          # Тесты вырезания API-ключей, паролей и сжатия 1 ГБ телеметрии в 30 КБ
 ```
 
 ---
 
-### Архитектурные правила связей проектов:
+### Жесткие архитектурные правила связей (проверяются автоматически):
 
-1. **`CyberPipe.Contracts`** не ссылается ни на один проект внутри решения.
-2. **`CyberPipe.UI`** ссылается **исключительно** на `CyberPipe.Contracts` и Avalonia.
-3. **`CyberPipe.Security.Sanitization`** — утилитная библиотека, подключаемая всеми инфраструктурными и агентными модулями (логгеры, шина, шлюз).
-4. **`CyberPipe.Agents.Workers`** не имеют ссылок на `CyberPipe.Execution.*` или `CyberPipe.Infrastructure.Storage`.
-5. **`CyberPipe.Execution.Telemetry`** работает строго на стороне хоста снаружи песочниц и передает данные через шину.
-6. **`CyberPipe.Execution.Abstractions`** определяет контракты песочниц, а конкретные реализации регистрируются через динамическую конфигурацию.
+1. **`CyberPipe.Contracts`** не зависит ни от одного другого проекта.
+2. **`CyberPipe.UI`** ссылается **только** на `CyberPipe.Contracts` и пакеты Avalonia.
+3. **`CyberPipe.Skills.Host`** (музыка, громкость, таймеры) не имеет права запускать произвольные процессы (`Process.Start`) и вызывается **исключительно после прохождения `HostAndMediaSafetyGuard`**.
+4. **`CyberPipe.Core.Agents`** (облачные LLM) не могут вызываться напрямую из `Gateway` — любой запрос обязан пройти через **`CyberPipe.Router`** (попытка решить задачу бесплатно в Tier 0/1/2) и через **`TokenBudgetGovernor`** (контроль лимитов и стоп-крана).
+5. **Нулевые внешние зависимости при старте:** Для запуска `CyberPipe.Daemon` не нужны установленные Docker, RabbitMQ или PostgreSQL — база SQLite (WAL) и шина `System.Threading.Channels` поднимаются внутри процесса за доли секунды.

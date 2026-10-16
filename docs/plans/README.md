@@ -1,37 +1,40 @@
 # Архитектурная документация CyberPipe
 
-Оркестратор автономных агентов нового поколения на платформе **.NET 10** с кроссплатформенным **Avalonia UI**, шиной гарантированной доставки на базе **RabbitMQ**, сквозным шифрованием (E2EE), скрытным **SecurityAgent**, подключаемыми песочницами и моделью безопасности **Zero-Trust**.
+Сверхбыстрый, надежный и экономный к токенам умный помощник и оркестратор автономных агентов на платформе **.NET 10** с управлением через **Telegram** и **Avalonia UI**, 4-уровневым локальным маршрутизатором намерений (**0 токенов на бытовые задачи**), жесткими предохранителями безопасности хоста (**Anti-Wipe & Media/Volume Guard**), контроллером бюджета (**TokenBudgetGovernor** с авто-паузой) и подключаемыми песочницами.
 
 ---
 
 ## 📚 Разделы документации
 
 1. [**01. Фундаментальные принципы**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/01-principles.md)  
-   *Zero-Trust, принцип Need-to-Know, сквозное шифрование (E2EE), скрытный (Stealth) SecurityAgent, подключаемые песочницы, внеполосный сбор телеметрии, защита от OOM/WAL-дедлоков, Content-Addressable Storage (CAS) и нулевой хардкод.*
+   *Простота и скорость без внешних брокеров, каскадный 4-Tier роутер (0 токенов на рутину), защита ПК от вайпа и 18+ контента на полной громкости, контроллер бюджета токенов с авто-паузой и мгновенным стоп-краном.*
 
 2. [**02. Диаграмма взаимодействия и защищенных потоков данных**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md)  
-   *Mermaid-схема слоев: Avalonia UI ↔ Gateway & Sanitizer ↔ Зашифрованный RabbitMQ ↔ CEO / Workers / SecurityAgent ↔ Pluggable Sandboxes & Telemetry Pre-processor.*
+   *Mermaid-схема двух путей: мгновенный Fast-Path (< 20 мс, 0 токенов) для скиллов помощника (музыка, звук, таймеры) и защищенный конвейер для сложных агентных задач под контролем `TokenBudgetGovernor`.*
 
 3. [**03. Технологический стек и библиотеки (.NET 10)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md)  
-   *Обоснование выбора: Avalonia, MassTransit + RabbitMQ (E2EE), System.Security.Cryptography, ArrayPool/MemoryPool (Zero-Alloc), Bounded Caches, Docker.DotNet, Wasmtime, CliWrap, System.Management.Automation.*
+   *Быстрый локальный стек без лишних зависимостей: `System.Threading.Channels`, `SQLite WAL`, `ONNX Runtime + SIMD TensorPrimitives` (локальные эмбеддинги), `NAudio`, `Telegram.Bot`, `Microsoft.Extensions.AI` + `Tokenizers`.*
 
-4. [**04. Паттерн "Zero-Trust Agent Proposal" и асинхронные саги**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md)  
-   *Неблокирующая шина сообщений: MassTransit State Machine Saga, сохранение последовательности шагов, защита от A2A-зацикливания (HopCountGuard), дедупликация и ETag, инкрементальный кэш промптов, атомарный Append.*
+4. [**04. Каскадный Маршрутизатор (Zero-Token Fast-Path), Контроль Бюджета и Пауза/Стоп**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md)  
+   *Архитектура `Tier 0` (Regex) ➔ `Tier 1` (Local ONNX + Semantic Cache) ➔ `Tier 2` (Local SLM + Dynamic Tool Pruning) ➔ `Tier 3` (Cloud LLM). Механизмы авто-паузы с кнопками в Telegram и мгновенного `/stop` (< 50 мс).*
 
-5. [**05. SecurityAgent: Скрытная инспекция, OSINT, аудит и эвристический анализ телеметрии**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md)  
-   *Принцип Stealth OPSEC (запрет прямых пингов/запросов к цели), пассивный OSINT (URL/IP), проверка Email (disposable/MX/SPF/breach), AST-анализ, маркировка доверия к памяти (Memory Trust Tagging) и изоляция очередей от пользовательских чатов.*
+5. [**05. Безопасность Хоста (Anti-Wipe & Media Guard), Периметр Telegram и SecurityGuard**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md)  
+   *Whitelist авторизация Telegram (`Owner` vs `Guest`), запрет Raw Shell из чата, жесткий потолок громкости (`Volume Clamp` 60%/25%), локальный фильтр 18+/NSFW, AST-анализ скриптов и Stealth OSINT.*
 
 6. [**06. Структура Solution и проектов (`CyberPipe.slnx`)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md)  
-   *Дерево проектов с выделенными модулями Sanitization, Cryptography, State.Hub, Execution.Telemetry, Pluggable Execution, и правила межпроектных зависимостей.*
+   *Прозрачное дерево проектов с выделенными модулями `CyberPipe.Router`, `CyberPipe.Skills.Host`, `CyberPipe.Security.Guards`, `CyberPipe.Security.Budget` и `CyberPipe.Storage.Sqlite`.*
 
-7. [**07. Изоляция UI и архитектурные тесты (ArchUnitNET)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md)  
-   *Тонкий клиент на Avalonia UI, взаимодействие исключительно через CyberPipe.Contracts (gRPC), тесты изоляции воркеров и UI на базе ArchUnitNET.*
+7. [**07. Изоляция UI, Панель Контроля Расходов и Архитектурные Тесты (ArchUnitNET)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md)  
+   *Дашборд экономии токенов и безопасности в Avalonia UI + автоматические тесты `ArchUnitNET`, гарантирующие невозможность запуска шелла из скиллов хоста или обхода фильтра бюджета.*
 
 8. [**08. План поэтапной реализации**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md)  
-   *Пошаговый план разработки на 5 спринтов: от криптографического фундамента и санитизации до UI, мониторинга ресурсов и стресс-тестирования.*
+   *Прагматичный план на 5 спринтов: уже в Спринте 1–2 запускается быстрый и безопасный Telegram-помощник с управлением музыкой за 0 токенов и контролем бюджета.*
 
-9. [**09. Защита данных, санитизация и Хаб состояний (State Hub)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md)  
-   *Единый State Hub с разделением доступа Need-to-Know, Central Secret Redactor, Envelope Encryption, асинхронный Write-Behind через Channels, секционирование БД и безопасный Hot-Reload (`IOptionsSnapshot`).*
+9. [**09. Защита данных, Санитизация, Локальный Кэш и Хранение (SQLite WAL)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md)  
+   *Очистка секретов (`[REDACTED]`), локальный сейф ключей (`DPAPI` / `AES-256-GCM`), `SemanticResponseCache` в SQLite WAL и единый прозрачный конфиг лимитов.*
 
-10. [**10. Мониторинг ресурсов и эвристический анализ телеметрии песочниц**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md)  
-    *Realtime Singleton `ISystemResourceMonitor` (авторизованный срез для CEO, UI, Security), внеполосный Out-of-Band перехват трафика/файлов, двухуровневый препроцессор для решения проблемы «1 ГБ логов», CAS-кэш инструментов, `tmpfs` в RAM и RAII-очистка.*
+10. [**10. Мониторинг Ресурсов ПК и Сжатие Телеметрии Песочниц**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md)  
+    *Защита ПК от фризов (`Resource Circuit Breaker`), обрезка вывода тулов (`ToolOutputTruncator` до 1 500 символов для экономии 99% токенов на логах) и внеполосный дайджест песочниц.*
+
+11. [**11. Лог архитектурных изменений (Changelog ревизии)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/11-changelog.md)  
+    *Краткая сводка всех внесенных улучшений: отказ от избыточного брокера, каскадная экономия токенов, защита от вайпа и 18+ на полной громкости, механизмы паузы и остановки.*
