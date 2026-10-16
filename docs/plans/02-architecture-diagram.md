@@ -1,6 +1,6 @@
 # 02. Диаграмма взаимодействия и защищенных потоков данных
 
-В обновленной архитектуре **CyberPipe** каждый узел рассматривается как потенциально недоверенная среда. Все каналы связи и хранилища защищены сквозным шифрованием, а поток данных проходит через обязательный шлюз очистки секретов и авторизованный хаб состояний.
+В обновленной архитектуре **CyberPipe** каждый узел рассматривается как потенциально недоверенная среда. Все каналы связи и хранилища защищены сквозным шифрованием, поток данных проходит через обязательный шлюз очистки секретов и авторизованный хаб состояний, а за состоянием хоста следит Realtime Singleton мониторинга ресурсов.
 
 ---
 
@@ -11,6 +11,10 @@ flowchart TD
     subgraph UI_Layer ["Presentation Layer (Avalonia UI 11+ Multiplatform)"]
         UI_Desktop["CyberPipe.UI.Desktop (Win/macOS/Linux)"]
         UI_Web["CyberPipe.UI.Browser (WebAssembly)"]
+    end
+
+    subgraph Hardware_Monitor ["Realtime Singleton Subsystem"]
+        ResMonitor["ISystemResourceMonitor (Singleton)<br/>• CPU, RAM, Disk, Active Sandboxes<br/>• Rate-limited & Role-scoped stream"]
     end
 
     subgraph Security_Perimeter ["Gateway & Perimeter Security"]
@@ -45,15 +49,26 @@ flowchart TD
         DockerImpl["Docker / Podman Backend"]
         WasmImpl["WebAssembly (Wasmtime) Backend"]
         ProcessImpl["CliWrap (Restricted Process) Backend"]
+        
+        HostCollector["Out-of-Band Telemetry Collector<br/>(veth tap, mount diffs outside sandbox)"]
+        TelemetryPreProcessor["Host Telemetry Pre-Processor<br/>(Deduplication, Bloom filter, 1GB -> 30KB Digest)"]
     end
 
     subgraph Storage_Layer ["Encrypted Storage (At-Rest)"]
         DB[("Encrypted PostgreSQL / pgvector / SQLite")]
+        QuarantineStore[("Quarantine Raw Dumps Store (Encrypted TTL)")]
     end
 
     %% UI Connections
     UI_Desktop -->|gRPC / TLS 1.3| GatewayApi
     UI_Web -->|gRPC-Web / TLS 1.3| GatewayApi
+    GatewayApi -->|Metrics Stream| UI_Desktop
+    GatewayApi -->|Metrics Stream| UI_Web
+
+    %% Resource Monitor Connections
+    ResMonitor -.->|Stream Metrics| GatewayApi
+    ResMonitor -.->|Check Capacity (RAM/CPU)| CEO
+    ResMonitor -.->|Spike & Mining Anomaly Alert| SecAgent
 
     %% Gateway to State & Bus
     GatewayApi --> Sanitizer
@@ -79,11 +94,18 @@ flowchart TD
     SecAgent -.->|If dynamic unpack needed| SecSandbox
     SecAgent -->|Publish SecurityInspectionReport| Queues
 
-    %% Authorized Execution Flow
+    %% Authorized Execution Flow & Out-of-band Telemetry
     CEO -->|If Approved by Policy & User| ExecEngine
     ExecEngine --> DockerImpl
     ExecEngine --> WasmImpl
     ExecEngine --> ProcessImpl
+
+    DockerImpl -.->|Network & File Tap| HostCollector
+    ProcessImpl -.->|Process & Mount Tap| HostCollector
+    HostCollector --> TelemetryPreProcessor
+    TelemetryPreProcessor -->|Save Raw Compressed (TTL 24h)| QuarantineStore
+    TelemetryPreProcessor -->|Publish Compact 30KB Digest| Queues
+    Queues -->|Digest for Heuristic Audit| SecAgent
 
     %% Outbox & DB
     Outbox <--> DB
@@ -92,18 +114,16 @@ flowchart TD
 
 ---
 
-### Принципы движения данных:
+### Принципы движения данных и телеметрии:
 
 1. **Непрерывная санитизация (Sanitizer Everywhere):**
    * Все строки, промпты, аргументы команд и логи очищаются до передачи адресату. Секреты (API ключи, токены, пароли) заменяются плейсхолдерами `[REDACTED_SECRET_ID]`.
-2. **Асинхронность и сохранность последовательности:**
-   * Взаимодействие построено на **MassTransit State Machine (Saga)**. Все шаги имеют `CorrelationId`.
-   * CEO Agent не держит блокирующий вызов (thread wait). Он переводит сессию в состояние `WaitingForSecurityAssessment` или `ExecutingTool`, освобождая ресурсы потока.
-3. **Изоляция SecurityAgent (OPSEC):**
-   * SecurityAgent никогда не обращается к проверяемому хосту напрямую.
-   * Проверка URL: опрос базы URLhaus, VirusTotal API, Google Safe Browsing.
-   * Проверка IP: опрос AbuseIPDB, Shodan API, пассивного DNS.
-   * Проверка Email: проверка формата, MX-записи через безопасные рекурсивные DNS (Cloudflare/Quad9), базы утечек (HIBP API).
-4. **Авторизованный доступ к состоянию (State Hub):**
+2. **Мониторинг ресурсов (Resource Monitor Singleton):**
+   * Защищает сервер от переполнения памяти, DoS-атак и скрытого майнинга. CEO запрашивает синглтон перед запуском ресурсоемких песочниц, а UI строит живые графики.
+3. **Эвристический конвейер телеметрии (1 ГБ логов ➔ 30 КБ дайджест):**
+   * Внеполосный сбор перехватывает сетевые вызовы и файловые изменения снаружи песочницы.
+   * Хостовый препроцессор отфильтровывает системный шум и передает в шину компактный `ExecutionTelemetryDigest` с перечнем уникальных внешних подключений, хешей файлов и эвристических маркеров аномалий.
+4. **Изоляция SecurityAgent (OPSEC):**
+   * SecurityAgent никогда не обращается к проверяемому хосту напрямую, а опрашивает сторонние базы (URLhaus, VirusTotal, AbuseIPDB, DoH).
+5. **Авторизованный доступ к состоянию (State Hub):**
    * State Hub возвращает проекции состояния на основе контекста вызова (`ClaimsPrincipal` / `AgentClearanceLevel`).
-   * Если SecurityAgent запрашивает профиль пользователя, возвращаются только атрибуты задачи, но персональные данные (имя, контакты, личные токены) физически исключаются из DTO ответа.

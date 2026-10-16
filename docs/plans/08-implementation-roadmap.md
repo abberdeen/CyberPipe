@@ -1,6 +1,6 @@
 # 08. План поэтапной реализации CyberPipe
 
-План разработки разбит на 5 логических спринтов (фаз), обеспечивающих надежный фундамент безопасности и сквозного шифрования с первых дней.
+План разработки разбит на 5 логических спринтов (фаз), обеспечивающих надежный фундамент безопасности, сквозного шифрования и внеполосного сбора телеметрии.
 
 ---
 
@@ -19,13 +19,13 @@
 
 ---
 
-### Фаза 2: State Hub, Gateway и Скрытный SecurityAgent (Спринт 2)
+### Фаза 2: State Hub, Realtime Монитор ресурсов и Скрытный SecurityAgent (Спринт 2)
 - [ ] Создание `CyberPipe.State.Hub`:
   - Реализация scoped-проекций состояния по принципу **Need-to-Know**.
-  - Исключение персональных данных и секретов из срезов для аналитических модулей.
+  - Разработка **Realtime Singleton `SystemResourceMonitor`**: сбор CPU/RAM/Диска, проверка емкости хоста для CEO, стриминг в UI, алерты для Security.
 - [ ] Разработка `CyberPipe.Gateway.Api`:
   - gRPC / SignalR эндпоинты с TLS 1.3 и JWT авторизацией.
-  - Интеграция с Central Sanitizer для входящих и исходящих потоков.
+  - Стриминг системных метрик в UI.
 - [ ] Разработка `CyberPipe.Agents.Security`:
   - Асинхронный потребитель сообщений инспекции (неблокирующий поток).
   - Шлюз Stealth OSINT (интеграция с VirusTotal, URLhaus, AbuseIPDB, DoH — без прямых запросов к цели).
@@ -34,19 +34,21 @@
 
 ---
 
-### Фаза 3: Подключаемые песочницы и Zero-Trust воркеры (Спринт 3)
+### Фаза 3: Подключаемые песочницы, Внеполосная телеметрия и Zero-Trust воркеры (Спринт 3)
 - [ ] Разработка `CyberPipe.Execution.Abstractions`:
-  - Определение интерфейсов `ISandboxProvider`, `ISandboxInstance`.
+  - Интерфейсы `ISandboxProvider`, `ISandboxInstance`.
+- [ ] Разработка `CyberPipe.Execution.Telemetry`:
+  - Внеполосный сбор сетевых вызовов (`veth` tap) и файловых дельт.
+  - Хостовый потоковый препроцессор: сжатие гигабайтных логов в 30 КБ `ExecutionTelemetryDigest` (фильтры Блума, агрегация, SHA256 хеши).
+  - Запись сырых дампов в `QuarantineStore` с TTL.
 - [ ] Реализация бэкендов песочниц:
-  - `CyberPipe.Execution.Docker` (управление контейнерами Docker/Podman).
-  - `CyberPipe.Execution.Wasm` (рантайм Wasmtime для микросекундных изолированных задач).
-  - `CyberPipe.Execution.Process` (локальные процессы через CliWrap).
+  - `CyberPipe.Execution.Docker` (контейнеры Docker/Podman).
+  - `CyberPipe.Execution.Wasm` (рантайм Wasmtime).
+  - `CyberPipe.Execution.Process` (процессы CliWrap).
 - [ ] Разработка `CyberPipe.Agents.Ceo`:
   - Управление сагами жизненного цикла задач (`TaskExecutionSaga`).
-  - Принятие решений по риск-репортам и отправка команд в песочницы.
-- [ ] Разработка воркеров `CyberPipe.Agents.Workers`:
-  - Coder и Researcher на базе `Microsoft.Extensions.AI`.
-  - Генерация исключительно `ProposeToolExecution` (полная изоляция от ОС).
+  - Проверка доступных ресурсов хоста через `ISystemResourceMonitor` перед спавном песочницы.
+- [ ] Разработка воркеров `CyberPipe.Agents.Workers` (чистые генераторы `ProposeToolExecution`).
 
 ---
 
@@ -55,16 +57,17 @@
   - Настройка MVVM (`CommunityToolkit.Mvvm`).
   - Подключение `Grpc.Net.Client` / `Grpc.Net.Client.Web`.
 - [ ] Основные компоненты интерфейса:
-  - Панель сессий, задач и защищенных артефактов.
+  - Панель задач, сессий и защищенных артефактов.
+  - Живые графики утилизации CPU/RAM/Диска из `SystemResourceMonitor`.
   - Стриминг рассуждений агентов в реальном времени (с очищенными логами).
-  - Интерактивное окно подтверждения (**Human-in-the-Loop**): детали отчета SecurityAgent, подсвеченные фрагменты кода и выбор действия.
+  - Окно подтверждения (**Human-in-the-Loop**): вердикт SecurityAgent, подсвеченные аномалии телеметрии и выбор действия.
 
 ---
 
-### Фаза 5: Hardening, Тестирование и Zero Hardcode аудит (Спринт 5)
-- [ ] Написание тестов архитектурной изоляции в `CyberPipe.Tests.Architecture` (ArchUnitNET):
-  - Проверка отсутствия ссылок на ядро из UI.
-  - Проверка отсутствия ссылок на execution/storage из воркеров.
+### Фаза 5: Стресс-тестирование, Hardening и Telemetry Benchmark (Спринт 5)
+- [ ] Написание тестов архитектурной изоляции в `CyberPipe.Tests.Architecture` (ArchUnitNET).
+- [ ] Тестирование сжатия телеметрии в `CyberPipe.Tests.Telemetry`:
+  - Подача синтетического 1 ГБ сетевого/файлового лога в `TelemetryPreProcessor`.
+  - Верификация формирования `ExecutionTelemetryDigest` размером < 50 КБ без всплесков памяти.
 - [ ] Тесты санитизации `CyberPipe.Tests.Sanitization`: прогон синтетических утечек через Sanitizer.
-- [ ] Тестирование скрытности и устойчивости SecurityAgent: верификация отсутствия прямых сетевых вызовов.
 - [ ] Стресс-тесты брокера сообщений: отключение RabbitMQ под нагрузкой и проверка восстановления саг через Outbox.
