@@ -1,6 +1,6 @@
-# 07. Изоляция UI и архитектурные тесты
+# 07. Изоляция UI и архитектурные тесты (ArchUnitNET)
 
-Пользовательский интерфейс **CyberPipe** спроектирован по принципу "Thin Smart Client" (Тонкий интеллектуальный клиент) на базе **Avalonia UI 11+**.
+Пользовательский интерфейс **CyberPipe** спроектирован по принципу "Thin Smart Client" (Тонкий интеллектуальный клиент) на базе **Avalonia UI 11+**, а чистота архитектуры контролируется автоматическими тестами.
 
 ---
 
@@ -10,19 +10,17 @@
   * Desktop (Windows x64/arm64, macOS x64/arm64, Linux x64/arm64);
   * Web (WebAssembly через Avalonia Browser backend).
 * **Сетевой стек:**
-  * Клиент подключается к `CyberPipe.Gateway.Api` через **gRPC over HTTP/2 с TLS**.
+  * Клиент подключается к `CyberPipe.Gateway.Api` через **gRPC over HTTP/2 с TLS 1.3**.
   * Для WebAssembly используется `Grpc.Net.Client.Web` (трансляция gRPC через HTTP/1.1 и WebSockets).
 * **Стриминг в реальном времени:**
-  * Отображение мыслительного процесса агентов (ReAct steps), системных логов и прогресса исполнения команд реализуется через двунаправленный серверный стриминг:
-    ```csharp
-    rpc StreamTaskEvents(TaskSubscriptionRequest) returns (stream TaskEventMessage);
-    ```
+  * Отображение мыслительного процесса агентов (ReAct steps), системных логов и прогресса исполнения команд реализуется через двунаправленный серверный стриминг.
+  * **Все стриминг-сообщения предварительно очищаются Sanitizer-сервисом**, что исключает случайный показ секретов оператору.
 
 ---
 
-### Архитектурный контроль изоляции (ArchUnitNET)
+### Архитектурный контроль чистоты (ArchUnitNET)
 
-Чтобы предотвратить случайное добавление прямой ссылки из UI во внутренние сборки системы (Core, Agents, Execution, Infrastructure), в тестовый проект `CyberPipe.Tests.Architecture` включается автоматический юнит-тест на базе **`ArchUnitNET`**:
+В тестовый проект `CyberPipe.Tests.Architecture` включены обязательные правила, проверяющие изоляцию слоев при каждой сборке:
 
 ```csharp
 using ArchUnitNET.Domain;
@@ -33,36 +31,52 @@ using static ArchUnitNET.Fluent.ArchRuleDefinition;
 
 namespace CyberPipe.Tests.Architecture;
 
-public class UiIsolationTests
+public class ArchitectureIntegrityTests
 {
     private static readonly Architecture Architecture =
         new ArchLoader()
             .LoadAssemblies(
                 typeof(CyberPipe.UI.App).Assembly,
-                typeof(CyberPipe.Contracts.Messages.ProposeToolExecution).Assembly
+                typeof(CyberPipe.Contracts.Messages.ProposeToolExecution).Assembly,
+                typeof(CyberPipe.Agents.Workers.CoderAgent).Assembly,
+                typeof(CyberPipe.Agents.Ceo.CeoOrchestrator).Assembly
             )
             .Build();
 
     [Fact]
     public void UI_Must_Not_Reference_Internal_Modules()
     {
-        // Запрещенные пространства имен внутри UI
-        IObjectProvider<IType> forbiddenTypes = Types()
+        IObjectProvider<IType> forbiddenTypesForUi = Types()
             .That().ResideInNamespace("CyberPipe.Agents.*")
             .Or().ResideInNamespace("CyberPipe.Execution.*")
             .Or().ResideInNamespace("CyberPipe.Gateway.*")
             .Or().ResideInNamespace("CyberPipe.Infrastructure.*")
+            .Or().ResideInNamespace("CyberPipe.Security.Cryptography.*")
             .Or().ResideInNamespace("CyberPipe.Daemon.*");
 
-        // Правило: типы из сборки UI не должны иметь зависимостей от запрещенных сборок
-        IArchRule rule = Types()
+        IArchRule uiRule = Types()
             .That().ResideInAssembly(typeof(CyberPipe.UI.App).Assembly)
-            .Should().NotDependOnAny(forbiddenTypes)
-            .Because("UI должен быть полностью изолирован и общаться с бэкендом только через Contracts и gRPC!");
+            .Should().NotDependOnAny(forbiddenTypesForUi)
+            .Because("UI должен быть строго изолирован и общаться с бэкендом только через Contracts и gRPC!");
 
-        rule.Check(Architecture);
+        uiRule.Check(Architecture);
+    }
+
+    [Fact]
+    public void Workers_Must_Not_Reference_Execution_Or_Storage()
+    {
+        IObjectProvider<IType> forbiddenForWorkers = Types()
+            .That().ResideInNamespace("CyberPipe.Execution.*")
+            .Or().ResideInNamespace("CyberPipe.Infrastructure.Storage.*");
+
+        IArchRule workerRule = Types()
+            .That().ResideInAssembly(typeof(CyberPipe.Agents.Workers.CoderAgent).Assembly)
+            .Should().NotDependOnAny(forbiddenForWorkers)
+            .Because("Воркеры должны быть слепы и изолированы от прямого вызова песочниц и баз данных (Zero-Trust)!");
+
+        workerRule.Check(Architecture);
     }
 }
 ```
 
-При попытке разработчика подключить проект, например, `CyberPipe.Agents.Ceo` в `CyberPipe.UI`, сборка тестов на CI/CD немедленно упадет с ошибкой.
+Любое нарушение принципов Zero-Trust или изоляции UI мгновенно блокирует сборку проекта.

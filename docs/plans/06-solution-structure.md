@@ -1,21 +1,27 @@
 # 06. Структура Solution и проектов (`CyberPipe.slnx`)
 
-Рекомендуемая структура проектов обеспечивает четкие границы ответственности (Clean Architecture), исключает циклические зависимости и физически изолирует пользовательский интерфейс.
+Реорганизованная структура проектов строго разделяет зоны ответственности, изолирует криптографические операции, санитизацию, подключаемые песочницы и авторизованный доступ к состоянию.
 
 ---
 
-### Карта проектов Solution
+### Полное дерево проектов Solution
 
 ```text
 CyberPipe.slnx
 ├── src/
 │   ├── Shared/
 │   │   └── CyberPipe.Contracts/               # КРИТИЧЕСКИ ВАЖНО: Единственная зависимость UI!
-│   │       ├── Protos/                        # gRPC контракты (gateway.proto, events.proto)
-│   │       ├── Events/                        # MassTransit события (TaskCreated, ProposalApproved)
-│   │       ├── Commands/                      # Команды шины (ExecuteTask, ApproveProposal)
-│   │       ├── Enums/                         # RiskLevel, AgentRole, TaskStatus
-│   │       └── Models/                        # DTO: RiskReportDto, AgentStateDto
+│   │       ├── Protos/                        # gRPC контракты (gateway.proto, events.proto, state.proto)
+│   │       ├── Messages/                      # MassTransit DTO команд и событий шины
+│   │       ├── Enums/                         # RiskLevel, SandboxType, AgentClearanceLevel
+│   │       └── Models/                        # DTO: SecurityReportDto, ScopedStateDto
+│   │
+│   ├── Security/                              # Модули сквозной безопасности и защиты данных
+│   │   ├── CyberPipe.Security.Sanitization/   # Центральный сервис очистки данных и маскирования секретов
+│   │   └── CyberPipe.Security.Cryptography/   # E2EE: AES-256-GCM, деривация ключей, Envelope Encryption
+│   │
+│   ├── State/                                 # Авторизованное состояние приложения
+│   │   └── CyberPipe.State.Hub/               # Единый хаб состояния с политиками ABAC / Need-to-Know
 │   │
 │   ├── UI/                                    # Мультиплатформенный изолированный интерфейс
 │   │   ├── CyberPipe.UI/                      # Общая разметка XAML, ViewModels, gRPC Services
@@ -24,39 +30,41 @@ CyberPipe.slnx
 │   │
 │   ├── Gateway/                               # Входной защищенный периметр
 │   │   ├── CyberPipe.Gateway.Api/             # ASP.NET Core gRPC / SignalR Server, TLS 1.3, JWT Auth
-│   │   ├── CyberPipe.Gateway.Channels/        # Адаптеры каналов (Telegram.Bot, Discord.Net)
-│   │   └── CyberPipe.Gateway.Infrastructure/  # Продюсеры сообщений в RabbitMQ
+│   │   ├── CyberPipe.Gateway.Channels/        # Адаптеры каналов (Telegram, Discord, Webhooks)
+│   │   └── CyberPipe.Gateway.Infrastructure/  # Продюсеры зашифрованных сообщений в RabbitMQ
 │   │
 │   ├── Agents/                                # Агентный интеллект
-│   │   ├── CyberPipe.Agents.Ceo/              # CEO Orchestrator (Policy Engine, Dispatcher, Session State)
-│   │   ├── CyberPipe.Agents.Security/         # SecurityAgent (URL, IP, AST сканеры, Audit Store)
-│   │   └── CyberPipe.Agents.Workers/          # Специализированные воркеры (генерируют только Proposals)
+│   │   ├── CyberPipe.Agents.Ceo/              # CEO Orchestrator (Policy Engine, Dispatcher, Sagas)
+│   │   ├── CyberPipe.Agents.Security/         # SecurityAgent (Stealth OSINT, Email, AST-парсеры)
+│   │   └── CyberPipe.Agents.Workers/          # Воркеры: Coder, Researcher (генерируют только Proposals)
 │   │
-│   ├── Execution/                             # Слой физического исполнения (закрыт от воркеров)
-│   │   ├── CyberPipe.Execution.Abstractions/  # Интерфейсы IToolExecutor, ISandboxProvider
-│   │   └── CyberPipe.Execution.Sandbox/       # Реализация Docker.DotNet, CliWrap, MCP Runtime
+│   ├── Execution/                             # Абстракция подключаемых песочниц (Pluggable Sandbox)
+│   │   ├── CyberPipe.Execution.Abstractions/  # Интерфейсы ISandboxProvider, ISandboxInstance
+│   │   ├── CyberPipe.Execution.Docker/        # Бэкенд на Docker.DotNet (Docker / Podman)
+│   │   ├── CyberPipe.Execution.Wasm/          # Бэкенд на Wasmtime (изолированный WebAssembly)
+│   │   └── CyberPipe.Execution.Process/       # Бэкенд на CliWrap (ограниченные процессы ОС)
 │   │
-│   ├── Infrastructure/                        # Транспорт и персистентность
-│   │   ├── CyberPipe.Infrastructure.Bus/      # Настройка MassTransit, RabbitMQ топологий, DLQ
-│   │   └── CyberPipe.Infrastructure.Storage/  # EF Core, Transactional Outbox, PostgreSQL/SQLite, Аудит
+│   ├── Infrastructure/                        # Транспорт и шифрованное хранение данных
+│   │   ├── CyberPipe.Infrastructure.Bus/      # MassTransit + RabbitMQ, шифрованные очереди, саги
+│   │   └── CyberPipe.Infrastructure.Storage/  # EF Core, поколоночное шифрование, Outbox, pgvector/SQLite
 │   │
 │   └── Host/
-│       └── CyberPipe.Daemon/                  # Главный демон / фоновая служба (запуск MassTransit & Host)
+│       └── CyberPipe.Daemon/                  # Главная серверная служба (запуск MassTransit, API и агентов)
 │
 └── tests/
-    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET тесты на соблюдение чистоты зависимостей UI
-    ├── CyberPipe.Tests.Security/              # Тестирование AST-парсеров, детекта вредоносных скриптов и IP
-    ├── CyberPipe.Tests.Unit/                  # Модульные тесты планировщика и логики CEO
-    └── CyberPipe.Tests.Integration/           # Интеграционные тесты RabbitMQ и Outbox при сбоях
+    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET тесты (проверка изоляции UI и воркеров)
+    ├── CyberPipe.Tests.Sanitization/          # Тесты очистки секретов, токенов, PII
+    ├── CyberPipe.Tests.Security/              # Тестирование AST-парсеров, детекта SSRF, фишинга, email
+    ├── CyberPipe.Tests.Cryptography/          # Тестирование шифрования полезной нагрузки сообщений и БД
+    └── CyberPipe.Tests.Integration/           # Интеграционные тесты саг RabbitMQ и сбоев брокера
 ```
 
 ---
 
-### Границы зависимостей (Dependency Graph)
+### Архитектурные правила связей проектов:
 
-* `CyberPipe.Contracts` не зависит ни от кого (чистый .NET 10 standard / DTO).
-* `CyberPipe.UI` зависит **ТОЛЬКО** от `CyberPipe.Contracts` и библиотек Avalonia.
-* `CyberPipe.Gateway.Api` зависит от `CyberPipe.Contracts` и `CyberPipe.Infrastructure.Bus`.
-* `CyberPipe.Agents.Workers` зависит от `CyberPipe.Contracts` и `Microsoft.Extensions.AI`. Воркеры **не зависят** от `CyberPipe.Execution.*`!
-* `CyberPipe.Agents.Ceo` координирует воркеров и общается с шиной.
-* `CyberPipe.Execution.Sandbox` управляется исключительно вызовами из `CyberPipe.Agents.Ceo` (через события или защищенные интерфейсы).
+1. **`CyberPipe.Contracts`** не ссылается ни на один проект внутри решения.
+2. **`CyberPipe.UI`** ссылается **исключительно** на `CyberPipe.Contracts` и Avalonia.
+3. **`CyberPipe.Security.Sanitization`** — утилитная библиотека, подключаемая всеми инфраструктурными и агентными модулями (логгеры, шина, шлюз).
+4. **`CyberPipe.Agents.Workers`** не имеют ссылок на `CyberPipe.Execution.*` или `CyberPipe.Infrastructure.Storage`.
+5. **`CyberPipe.Execution.Abstractions`** определяет контракты песочниц, а конкретные реализации (`Docker`, `Wasm`, `Process`) регистрируются в DI через конфигурацию (Zero Hardcoding).

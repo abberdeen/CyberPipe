@@ -1,75 +1,109 @@
-# 02. Диаграмма взаимодействия и потоков данных
+# 02. Диаграмма взаимодействия и защищенных потоков данных
 
-В архитектуре **CyberPipe** слои строго разграничены. Презентационный уровень изолирован защищенным периметром Gateway, а все внутренние процессы взаимодействуют через персистентную шину сообщений RabbitMQ с поддержкой Transactional Outbox.
+В обновленной архитектуре **CyberPipe** каждый узел рассматривается как потенциально недоверенная среда. Все каналы связи и хранилища защищены сквозным шифрованием, а поток данных проходит через обязательный шлюз очистки секретов и авторизованный хаб состояний.
 
 ---
 
-### Схема архитектурных слоев и маршрутизации
+### Архитектурная схема защищенного контура
 
 ```mermaid
 flowchart TD
-    subgraph Presentation ["Presentation Layer (Avalonia UI Multiplatform)"]
+    subgraph UI_Layer ["Presentation Layer (Avalonia UI 11+ Multiplatform)"]
         UI_Desktop["CyberPipe.UI.Desktop (Win/macOS/Linux)"]
         UI_Web["CyberPipe.UI.Browser (WebAssembly)"]
     end
 
-    subgraph Contracts ["Contracts Boundary"]
-        ProtoContract["CyberPipe.Contracts (gRPC Protos, DTOs, Enums)"]
+    subgraph Security_Perimeter ["Gateway & Perimeter Security"]
+        GatewayApi["CyberPipe.Gateway.Api (TLS 1.3 / mTLS / JWT)"]
+        Sanitizer["Central Data & Log Sanitizer (Secret Redactor)"]
     end
 
-    subgraph GatewayLayer ["Gateway & Security Boundary"]
-        GatewayApi["CyberPipe.Gateway.Api (TLS 1.3, JWT / mTLS)"]
-        Channels["Channel Adapters (Telegram, Discord, Webhooks)"]
+    subgraph State_Management ["Authorized State Management"]
+        StateHub["Unified Application State Hub (ABAC / Scoped Views)"]
     end
 
-    subgraph Broker ["Durable Messaging (RabbitMQ + MassTransit)"]
-        InboundQueue["gateway.inbound (Persistent)"]
-        ProposalQueue["agent.proposals (Persistent)"]
-        SecurityQueue["security.inspections (Persistent)"]
-        ExecutionQueue["execution.commands (Persistent)"]
-        OutboxTable[("Transactional Outbox DB")]
+    subgraph Encrypted_Bus ["Untrusted Broker Layer (RabbitMQ + MassTransit)"]
+        direction TB
+        E2E_Encrypt["Message-Level Encryption (AES-256-GCM / Envelope)"]
+        Queues[("Durable Encrypted Queues: Inbound / Proposals / Events")]
+        Outbox[("Transactional Outbox (Encrypted At Rest)")]
     end
 
-    subgraph Orchestration ["Orchestration & Decision Layer"]
-        CEO["CEO / Orchestrator Agent"]
-        Security["SecurityAgent (Inspector & Auditor)"]
-        Workers["Worker Agents (Coder, Researcher - No Direct Tools)"]
+    subgraph Agent_Core ["Zero-Trust Decision Core"]
+        CEO["CEO / Orchestrator Agent (Decision Arbiter)"]
+        Workers["Worker Agents (Pure Reasoners, No Direct Tools)"]
     end
 
-    subgraph ExecutionLayer ["Protected Execution Sandbox"]
-        ExecEngine["Execution Engine (Docker, CliWrap, MCP)"]
+    subgraph Security_Inspector ["SecurityAgent (Stealth & Non-Blocking)"]
+        SecAgent["SecurityAgent (Async Inspector)"]
+        StealthProxy["Stealth OSINT Gateway (Passive DNS / Threat APIs)"]
+        SecSandbox["Ephemeral Analysis Sandbox (Throwaway)"]
     end
 
-    UI_Desktop -->|gRPC / TLS| GatewayApi
-    UI_Web -->|gRPC-Web / SignalR| GatewayApi
-    UI_Desktop -.->|Depends ONLY on| ProtoContract
-    UI_Web -.->|Depends ONLY on| ProtoContract
+    subgraph Execution_Abstraction ["Pluggable Sandbox Engine (ISandboxProvider)"]
+        ExecEngine["Sandbox Router / Factory"]
+        DockerImpl["Docker / Podman Backend"]
+        WasmImpl["WebAssembly (Wasmtime) Backend"]
+        ProcessImpl["CliWrap (Restricted Process) Backend"]
+    end
 
-    GatewayApi --> InboundQueue
-    Channels --> InboundQueue
+    subgraph Storage_Layer ["Encrypted Storage (At-Rest)"]
+        DB[("Encrypted PostgreSQL / pgvector / SQLite")]
+    end
 
-    InboundQueue --> CEO
+    %% UI Connections
+    UI_Desktop -->|gRPC / TLS 1.3| GatewayApi
+    UI_Web -->|gRPC-Web / TLS 1.3| GatewayApi
+
+    %% Gateway to State & Bus
+    GatewayApi --> Sanitizer
+    Sanitizer --> GatewayApi
+    GatewayApi -->|Authorized Read/Write| StateHub
+    GatewayApi -->|Publish Encrypted| E2E_Encrypt
+    E2E_Encrypt --> Queues
+
+    %% Bus to Agents
+    Queues --> CEO
     CEO -->|Assign Sub-task| Workers
-    Workers -->|Propose Tool Execution| ProposalQueue
-    ProposalQueue --> CEO
+    Workers -->|Publish Proposal| Queues
 
-    CEO -->|Inspect Proposal / Content| SecurityQueue
-    SecurityQueue --> Security
-    Security -->|Security Risk Report & Audit Log| CEO
+    %% State Hub Scoping
+    StateHub -.->|Scoped State Only (Need-to-Know)| CEO
+    StateHub -.->|Restricted Scope (No PII/Secrets)| SecAgent
+    StateHub -.->|Task-Only Scope| Workers
 
-    CEO -->|If Approved by Policy/User| ExecutionQueue
-    ExecutionQueue --> ExecEngine
+    %% SecurityAgent Inspection Flow
+    CEO -.->|Async Non-Blocking Notify| Queues
+    Queues --> SecAgent
+    SecAgent -->|Passive Lookups Only (No Direct Ping/Hit)| StealthProxy
+    SecAgent -.->|If dynamic unpack needed| SecSandbox
+    SecAgent -->|Publish SecurityInspectionReport| Queues
 
-    OutboxTable <--> Broker
+    %% Authorized Execution Flow
+    CEO -->|If Approved by Policy & User| ExecEngine
+    ExecEngine --> DockerImpl
+    ExecEngine --> WasmImpl
+    ExecEngine --> ProcessImpl
+
+    %% Outbox & DB
+    Outbox <--> DB
+    Queues <--> Outbox
 ```
 
 ---
 
-### Описание жизненного цикла пользовательского запроса:
-1. Запрос поступает из Avalonia UI (через gRPC-стрим) или из внешнего канала (Telegram/Discord).
-2. Gateway валидирует права и помещает задачу в персистентную очередь `gateway.inbound` через Outbox-транзакцию.
-3. **CEO Agent** считывает задачу, декомпозирует её и создает изолированные воркеры с чистым контекстом.
-4. Воркер в процессе ReAct-цикла решает вызвать инструмент и публикует предложение `ProposeToolExecution` в очередь `agent.proposals`.
-5. CEO перенаправляет предложение на инспекцию в `SecurityAgent`.
-6. `SecurityAgent` проводит многоуровневый анализ и возвращает отчет `SecurityInspectionReport`.
-7. CEO Agent решает: исполнить команду в `ExecutionEngine`, запросить ручное одобрение у человека в UI или отклонить.
+### Принципы движения данных:
+
+1. **Непрерывная санитизация (Sanitizer Everywhere):**
+   * Все строки, промпты, аргументы команд и логи очищаются до передачи адресату. Секреты (API ключи, токены, пароли) заменяются плейсхолдерами `[REDACTED_SECRET_ID]`.
+2. **Асинхронность и сохранность последовательности:**
+   * Взаимодействие построено на **MassTransit State Machine (Saga)**. Все шаги имеют `CorrelationId`.
+   * CEO Agent не держит блокирующий вызов (thread wait). Он переводит сессию в состояние `WaitingForSecurityAssessment` или `ExecutingTool`, освобождая ресурсы потока.
+3. **Изоляция SecurityAgent (OPSEC):**
+   * SecurityAgent никогда не обращается к проверяемому хосту напрямую.
+   * Проверка URL: опрос базы URLhaus, VirusTotal API, Google Safe Browsing.
+   * Проверка IP: опрос AbuseIPDB, Shodan API, пассивного DNS.
+   * Проверка Email: проверка формата, MX-записи через безопасные рекурсивные DNS (Cloudflare/Quad9), базы утечек (HIBP API).
+4. **Авторизованный доступ к состоянию (State Hub):**
+   * State Hub возвращает проекции состояния на основе контекста вызова (`ClaimsPrincipal` / `AgentClearanceLevel`).
+   * Если SecurityAgent запрашивает профиль пользователя, возвращаются только атрибуты задачи, но персональные данные (имя, контакты, личные токены) физически исключаются из DTO ответа.
