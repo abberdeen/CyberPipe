@@ -50,7 +50,7 @@ CyberPipe.slnx
 │   │   └── CyberPipe.UI.Desktop/              # Десктопный клиент (Windows, macOS, Linux)
 │   │
 │   └── Host/
-│       └── CyberPipe.Daemon/                  # Единый быстрый сервис-хост (Регистрация DI-провайдеров моделей, старт за < 1 сек)
+│       └── CyberCortex/                       # Входной проект ядра (CyberCortex.exe: регистрация DI, gRPC, фоновые воркеры, старт < 1 сек)
 │
 └── tests/
     ├── CyberPipe.Tests.Architecture/          # ArchUnitNET: проверка изоляции UI, запрета Raw Shell, обязательности BudgetGovernor
@@ -68,4 +68,4 @@ CyberPipe.slnx
 3. **`CyberPipe.Skills.Host`** (музыка, громкость, таймеры) не имеет права запускать произвольные процессы (`Process.Start`) и вызывается **исключительно после прохождения `HostAndMediaSafetyGuard`**.
 4. **`CyberPipe.Core.Agents`** не могут вызываться напрямую из `Gateway` — любой запрос обязан пройти через **`CyberPipe.Router`** (попытка решить задачу бесплатно в Tier 0/1) и через **`TokenBudgetGovernor`** (контроль лимитов и стоп-крана).
 5. **Четкое разделение `Local` и `RemoteCloud` через `TierModelDescriptor`:** Приложение и UI всегда знают `ModelHostingType (Local vs RemoteCloud)` выбранной пользователем модели на каждом Tier, а сервис `IModelCompatibilityAdvisor` получает параметры ПК строго через контракт `IHardwareCapabilitiesProbe`.
-6. **Нулевые внешние зависимости при старте:** Для запуска `CyberPipe.Daemon` не нужны установленные Docker, RabbitMQ или PostgreSQL — база SQLite (WAL) и шина `System.Threading.Channels` поднимаются внутри процесса за доли секунды.
+6. **Нулевые внешние зависимости при старте:** Для запуска **`CyberCortex` (`CyberCortex.exe`)** не нужны установленные Docker, RabbitMQ или PostgreSQL — база SQLite (WAL) и шина `System.Threading.Channels` поднимаются внутри процесса за доли секунды.
