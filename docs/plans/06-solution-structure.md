@@ -34,41 +34,40 @@ CyberPipe.slnx
 │   │   ├── CyberPipe.Core.Orchestration/      # OrchestratorEngine, IModelCompatibilityAdvisor (15 Local + Cloud Curated), ProactiveScheduler
 │   │   └── CyberPipe.Core.Agents/             # Воркеры Tier 3 (Coder, ContractAuditor, MeetingSummarizer, Researcher)
 │   │
-│   ├── Execution/                             # Изолированные песочницы и Стерильный Воркер (Brainstem)
+│   ├── Execution/                             # Песочницы и Изолированный Воркер
 │   │   ├── CyberPipe.Execution.Abstractions/  # Интерфейсы ISandboxProvider, ISandboxInstance
-│   │   ├── CyberPipe.Execution.Providers/     # Реализации: JobObjectRunner, CliWrap, Wasmtime, Docker (опционально)
-│   │   └── CyberPipe.Brainstem/               # Стерильный субпроцесс (./worker/CyberPipe.Brainstem.exe: Low Integrity, 0 ссылок на демон!)
+│   │   ├── CyberPipe.Execution.Providers/     # BrainstemProcessSupervisor (JobObject + IPC), CliWrap, Wasmtime, Docker
+│   │   └── CyberPipe.Brainstem/               # Изолированный процесс-исполнитель (./worker/CyberPipe.Brainstem.exe, см. разд. 15)
 │   │
 │   ├── Gateway/                               # Входной периметр и Каналы связи
 │   │   ├── CyberPipe.Gateway.Telegram/        # Быстрый Telegram-бот: Голос/Файлы, Whitelist AuthGuard, /stop, кнопки Паузы
-│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер для Avalonia UI и CLI
+│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер (Named Pipes) для Avalonia UI и CLI
 │   │
 │   ├── Storage/                               # Легковесное и надежное локальное хранение
 │   │   └── CyberPipe.Storage.Sqlite/          # SQLite (WAL + FTS5): KnowledgeVault, Личная CRM, Финансы, Семантический кэш, Бюджет
 │   │
 │   ├── UI/                                    # Мультиплатформенный интерфейс управления
 │   │   ├── CyberPipe.UI/                      # Разметка XAML, ViewModels, Выбор моделей по Tiers (Local vs Remote), Дашборд бюджета
-│   │   └── CyberPipe.UI.Desktop/              # Десктопный клиент (CyberPipe.UI.Desktop.exe: Трей, Попап Alt+Space, Дашборд)
+│   │   └── CyberPipe.UI.Desktop/              # Десктопный клиент (CyberPipe.UI.Desktop.exe)
 │   │
 │   └── Host/
-│       └── CyberPipe/                         # Главный бинарник ядра (CyberPipe.exe — работает в 2 режимах от аргументов запуска):
-│           ├── Modes/DaemonHostMode.cs        # Режим 1: Фоновый демон (SafeBoot DI, Bulkhead-отсеки, IsolatedWorkerBase, gRPC)
-│           └── Modes/CliClientMode.cs         # Режим 2: Системный CLI & TUI (doctor, status, models scan, infer, tui, --json)
+│       └── CyberPipe/                         # Основной хост и CLI-диспетчер (CyberPipe.exe: DaemonHostMode + CliClientMode, см. разд. 15)
 │
 └── tests/
-    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET: изоляция UI и Brainstem, запрет Raw Shell, UnboundedChannel и голого BackgroundService
+    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET: статическая проверка графа зависимостей проектов
+    ├── CyberPipe.Tests.Isolation/             # Интеграционные тесты токенов Windows, Job Object, ACL, IPC и папки публикации (см. разд. 15)
     ├── CyberPipe.Tests.SafetyAndBudget/       # Тесты Anti-Wipe, Volume Clamp (60%/25%), NSFW-фильтра, авто-паузы бюджета и /stop
-    ├── CyberPipe.Tests.Router/                # Бенчмарки скорости Tier 0 (< 1 мс), Tier 1 ONNX (< 15 мс) и тесты IModelCompatibilityAdvisor
-    └── CyberPipe.Tests.Sanitization/          # Тесты вырезания API-ключей, паролей и сжатия 1 ГБ телеметрии в 30 КБ
+    ├── CyberPipe.Tests.Router/                # Бенчмарки BenchmarkDotNet для Tier 0/1 и тесты IModelCompatibilityAdvisor
+    └── CyberPipe.Tests.Sanitization/          # Тесты вырезания API-ключей, паролей и сжатия телеметрии
 ```
 
 ---
 
-### Жесткие архитектурные правила связей (проверяются автоматически):
+### Архитектурные правила связей (проверяются в CI):
 
-1. **`CyberPipe.Contracts`** не зависит ни от одного другого проекта.
-2. **`CyberPipe.UI` (`CyberPipe.UI.Desktop.exe`)** и **`CyberPipe.Brainstem` (`worker/CyberPipe.Brainstem.exe`)** ссылаются **только** на `CyberPipe.Contracts` — внутри `Brainstem` физически отсутствуют `.dll` и классы демона (защита от `System.Reflection`).
-3. **`CyberPipe.Skills.Host`** (музыка, громкость, таймеры) не имеет права запускать произвольные процессы (`Process.Start`) и вызывается **исключительно после прохождения `HostAndMediaSafetyGuard`**.
-4. **`CyberPipe.Core.Agents`** не могут вызываться напрямую из `Gateway` — любой запрос обязан пройти через **`CyberPipe.Router`** (попытка решить задачу бесплатно в Tier 0/1) и через **`TokenBudgetGovernor`** (контроль лимитов и стоп-крана).
-5. **Четкое разделение `Local` и `RemoteCloud` через `TierModelDescriptor`:** Приложение, CLI и UI всегда знают `ModelHostingType (Local vs RemoteCloud)` выбранной пользователем модели на каждом Tier, а сервис `IModelCompatibilityAdvisor` получает параметры ПК строго через контракт `IHardwareCapabilitiesProbe`.
-6. **Неубиваемость `CyberPipe.exe` и изоляция `CyberPipe.Brainstem.exe`:** Все фоновые службы в `CyberPipe.exe` обязаны наследоваться от `IsolatedWorkerBase` (с авто-карантином после 3 сбоев), все каналы — только `BoundedChannel`, а опасные нативные C++ задачи выполняются в отдельном стерильном `worker/CyberPipe.Brainstem.exe` внутри `Windows Job Object` (`Low Integrity`).
+1. **`CyberPipe.Contracts`** не зависит ни от одного другого проекта решения.
+2. **`CyberPipe.UI`** и **`CyberPipe.Brainstem`** не имеют ссылок на сборки демона (`Core`, `Skills`, `Gateway`, `Storage`, `Security`). Обоснование компромиссов, состав зависимостей `Brainstem` и проверка папки публикации описаны в [`15-cli-and-execution-modes.md` (разделы 9, 11)](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md).
+3. **`CyberPipe.Skills.Host`** не имеет права запускать произвольные процессы (`Process.Start`) и вызывается только после прохождения `HostAndMediaSafetyGuard`.
+4. **`CyberPipe.Core.Agents`** вызываются только после прохождения **`CyberPipe.Router`** и **`TokenBudgetGovernor`**.
+5. **Разделение `Local` и `RemoteCloud` через `TierModelDescriptor`:** Сервис `IModelCompatibilityAdvisor` получает параметры ПК через контракт `IHardwareCapabilitiesProbe` (см. [`13-model-advisor-and-tier-configuration.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md)).
+6. **Устойчивость воркеров и межпроцессная изоляция:** Правила `IsolatedWorkerBase`, `BoundedChannel` и изоляции `CyberPipe.Brainstem.exe` регламентированы в [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md) и [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md).

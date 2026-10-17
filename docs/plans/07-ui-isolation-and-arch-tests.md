@@ -114,18 +114,17 @@ public class ArchitectureIntegrityTests
     [Fact]
     public void All_Background_Workers_Must_Inherit_From_IsolatedWorkerBase()
     {
-        // Гарантия неубиваемости CyberPipe.exe: запрет наследования напрямую от BackgroundService в обход авто-карантина
         Classes()
             .That().HaveNameEndingWith("Worker").Or().HaveNameEndingWith("Watchdog")
             .Should().BeAssignableTo("CyberPipe.Core.Orchestration.Resilience.IsolatedWorkerBase")
-            .Because("Любой фоновый воркер обязан работать внутри IsolatedWorkerBase с Circuit Breaker и таймаутом, чтобы не уронить CyberPipe.exe!")
+            .Because("Фоновые воркеры должны наследовать IsolatedWorkerBase с Circuit Breaker и таймаутом (см. 14-fault-isolation-and-resilience.md)")
             .Check(Architecture);
     }
 
     [Fact]
     public void Brainstem_Worker_Must_Never_Reference_Daemon_Assemblies()
     {
-        // Защита от рефлексии: в CyberPipe.Brainstem.exe физически не должно быть классов демона
+        // Статическая проверка графа сборок; проверка папки публикации и токена ОС выполняется в CyberPipe.Tests.Isolation (см. 15-cli-and-execution-modes.md)
         IObjectProvider<IType> forbiddenDaemonTypes = Types()
             .That().ResideInNamespace("CyberPipe.Core.*")
             .Or().ResideInNamespace("CyberPipe.Gateway.*")
@@ -136,8 +135,10 @@ public class ArchitectureIntegrityTests
         Types()
             .That().ResideInNamespace("CyberPipe.Brainstem.*")
             .Should().NotDependOnAny(forbiddenDaemonTypes)
-            .Because("CyberPipe.Brainstem.exe — это стерильный процесс, в котором не должно быть кода демона даже через рефлексию!")
+            .Because("Проект CyberPipe.Brainstem не должен ссылаться на сборки демона (см. 15-cli-and-execution-modes.md, разд. 9 и 11)")
             .Check(Architecture);
     }
 }
 ```
+
+> **Примечание:** Статических тестов `ArchUnitNET` недостаточно для проверки фактической изоляции на уровне ОС. Проверки состава папки публикации (`Publish Directory Layout Gate`), токена `Low Integrity`, правил `SACL/DACL`, `Windows Job Object` и IPC вынесены в интеграционный набор `CyberPipe.Tests.Isolation` (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md#L211-L234)).
