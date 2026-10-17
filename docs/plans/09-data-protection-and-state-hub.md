@@ -81,9 +81,22 @@
                     └─────────────────────────┘   └───────────────────────────────────────────┘
 ```
 
-#### 1. Центральный Мастер SQLite (`cyberpipe_master.db`) и Таблица-Каталог
-Центральная база содержит **только общие базовые настройки приложения** (системные флаги, выбранный шинный провайдер, глобальный профиль) и специальную таблицу каталога баз данных:
+#### 1. Центральный Мастер SQLite (`cyberpipe_master.db`), Общие Настройки (`AppGlobalSettings`) и Таблица-Каталог
+Центральная база содержит **только общие базовые настройки приложения** (`AppGlobalSettings`: системные флаги, выбранный шинный провайдер, глобальное правило поведения пайплайнов при аварийном сбое/отключении света) и специальную таблицу каталога баз данных (`SubsystemDatabaseRegistry`):
 ```sql
+-- Таблица общих базовых настроек приложения (управляется через главный раздел Settings в Avalonia UI)
+CREATE TABLE IF NOT EXISTS AppGlobalSettings (
+    SettingKey TEXT PRIMARY KEY,         -- Например: 'Messaging:ActiveTransport', 'Pipeline:CrashRecoveryPolicy'
+    SettingValue TEXT NOT NULL,          -- Например: 'SqliteWal' | 'RabbitMq', 'ResumeFromCheckpoint' | 'StopAndMarkCancelledByCrash'
+    ValueType TEXT NOT NULL,             -- 'String', 'Enum', 'Boolean', 'Integer'
+    Description TEXT,                    -- Описание настройки для UI
+    UpdatedAtUtc TEXT NOT NULL           -- Время последнего изменения через UI
+);
+
+-- Начальные значения общих настроек по умолчанию:
+-- ('Pipeline:CrashRecoveryPolicy', 'ResumeFromCheckpoint', 'Enum', 'Поведение пайплайнов после отключения света или падения: ResumeFromCheckpoint (продолжать с места падения) или StopAndMarkCancelledByCrash (остановить как есть со спец-статусом CancelledByCrash)')
+
+-- Реестр изолированных баз данных подсистем
 CREATE TABLE IF NOT EXISTS SubsystemDatabaseRegistry (
     SubsystemKey TEXT PRIMARY KEY,       -- 'Hangfire', 'MassTransit', 'KnowledgeVault', 'PersonalCrm', 'FinanceLedger', 'BudgetGov', 'InfraHealth', 'Netrunner'
     DatabasePath TEXT NOT NULL,          -- Относительный/абсолютный путь: 'data/subsystems/knowledge.db'
@@ -95,7 +108,7 @@ CREATE TABLE IF NOT EXISTS SubsystemDatabaseRegistry (
 );
 ```
 > [!IMPORTANT]
-> **Принцип изоляции:** В `cyberpipe_master.db` **нет и никогда не записываются** бизнес-данные подсистем (контакты, транзакции, задачи, очереди, токены, скрипты). Мастер-база выступает исключительно системным справочником размещения и статуса хранилищ.
+> **Принцип изоляции:** В `cyberpipe_master.db` **нет и никогда не записываются** бизнес-данные подсистем (контакты, транзакции, задачи, очереди, токены, скрипты). Мастер-база выступает исключительно хранилищем глобальных базовых настроек (`AppGlobalSettings`) и системным справочником размещения хранилищ (`SubsystemDatabaseRegistry`).
 
 #### 2. Изолированные базы данных подсистем (`data/subsystems/*.db`)
 Каждая подсистема и сервис имеют свой собственный файл SQLite в режиме `WAL`:

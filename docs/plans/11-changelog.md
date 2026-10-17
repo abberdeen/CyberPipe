@@ -119,7 +119,12 @@
     5. `main.csx` / `main.py` / `main.js` (точка входа детерминированного скрипта).
     6. `tests/sample.fixture.json` (обязательный эталонный самотест `Dry-Run` перед сохранением в базу).
 * **Каскадный движок `Netrunner DAG Workflow Engine` (Mini-n8n):**
-  - Поддержка последовательных, условных и параллельных цепочек из 8 типов узлов: `TriggerNode`, `SkillNode` (сбор данных, 0$), `NetrunnerScriptNode` (детерминированный ETL, 0$), `ConditionNode` / `SwitchNode`, `ParallelFanOutNode` + `JoinNode`, `LlmProcessNode` (точечный вызов ИИ над уже сжатыми данными под защитой `TokenBudgetGovernor`), `HitlApprovalNode` (**Human-in-the-Loop** с транзакционной паузой в БД и кнопками `[✅ Одобрить]`, `[✏️ Изменить]`, `[🛑 Отклонить]` в Telegram/UI) и `DeliveryNode`.
+  - Поддержка последовательных, условных и параллельных цепочек из 8 типов узлов (`TriggerNode`, `SkillNode`, `NetrunnerScriptNode`, `ConditionNode` / `SwitchNode`, `ParallelFanOutNode` + `JoinNode`, `LlmProcessNode`, `HitlApprovalNode`, `DeliveryNode`) и **4 типов ветвлений** (`If/Else & Switch`, параллельный `FanOut/Join`, ветки решения человека `approved/rejected/timeout` и ветка перехвата ошибок `onError`).
+  - Поддержка умного ожидания обновления параметров и отложенных ретраев без удержания ОЗУ (`DeferRetry` из скрипта и декларативный `retryPolicy.untilExpression` на узле).
+* **Глобальное правило поведения при аварийном сбое (`Pipeline:CrashRecoveryPolicy` в `cyberpipe_master.db`):**
+  - В общих базовых настройках приложения (`AppGlobalSettings` в центральной БД `cyberpipe_master.db`, управляемой через главный экран Settings в UI) добавлен переключатель поведения пайплайнов после отключения света или падения процесса:
+    1. **`ResumeFromCheckpoint` (Продолжать с места падения):** автоматически продолжает пайплайн с прерванного шага, сохраняя все уже пройденные шаги.
+    2. **`StopAndMarkCancelledByCrash` (Остановить и оставить как есть):** не перезапускает прерванный пайплайн, оставляет все выполненные шаги и их артефакты нетронутыми и присваивает запуску и прерванному шагу специальный статус **`CancelledByCrash`** (*«Отменен из-за аварийного сбоя»*).
 * **Изолированная база `data/subsystems/netrunner.db`:** Хранит таблицы `NetrunnerPackages`, `NetrunnerWorkflowDefinitions`, `NetrunnerWorkflowRuns` и `NetrunnerStepRuns` с пошаговыми чекпоинтами для идемпотентного продолжения после перезагрузки ПК или ожидания `HITL`.
 
 ---

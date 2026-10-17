@@ -179,6 +179,11 @@ Netrunner scripts can run standalone or inside a **Directed Acyclic Graph (DAG) 
      * `[🛑 Reject / Abort]` — routes to `rejected` branch or aborts the workflow.
 8. **`DeliveryNode` (0 tokens):** Sends final output/files to Telegram, writes to `FinanceLedger` / `KnowledgeVault` / `PersonalCrm`, or triggers a child workflow.
 
+### Waiting for Parameters & Conditional Retries (`DeferRetry` & `untilExpression`)
+Never block a process with long `sleep()` calls (>15 seconds) inside a script when waiting for an external parameter or report date to update. Instead, use one of two persistent mechanisms:
+1. **In-Script `DeferRetry` Signal:** Output `{"$netrunnerControl": "DeferRetry", "retryAfterSeconds": 300, "reason": "Parameter X not updated yet"}` (or exit with code `75`). The runner immediately frees RAM, checkpoints the node as `WaitingForConditionRetry` in `netrunner.db`, and wakes up the node after `retryAfterSeconds`.
+2. **Declarative Node `retryPolicy.untilExpression`:** Configure `"untilExpression": "$.output.reportDate == $today"` with `intervalSeconds` and `maxAttempts` on the node in the workflow JSON. If the expression evaluates to `false`, the engine automatically schedules a retry without keeping any process in memory.
+
 ---
 
 ## 6. Validation & Helper Resources

@@ -336,6 +336,82 @@ data/netrunner-packages/<slug>/<version>/
 
 ---
 
+### 3.2. Четыре типа ветвлений в каскаде (`Branching Patterns`)
+
+Граф в Netrunner не обязан быть прямой линией — он поддерживает **4 вида ветвлений**, как в полноценном `n8n`:
+
+```mermaid
+flowchart TD
+    Start["Оператор А (Скрипт)"] --> Cond{"1. Условное ветвление<br/>(Condition / SwitchNode)"}
+    Cond -->|"Ветка 'critical' (delta > 5%)"| AI["LlmProcessNode (ИИ-анализ)"]
+    Cond -->|"Ветка 'minor' (1%..5%)"| DB["Запись в БД (0 токенов)"]
+    Cond -->|"Ветка 'default' (< 1%)"| Silent["Тихий выход"]
+
+    AI --> FanOut["2. Параллельное ветвление<br/>(ParallelFanOutNode)"]
+    FanOut --> P1["Ветка 1: Парсер источника А"]
+    FanOut --> P2["Ветка 2: Парсер источника Б"]
+    FanOut --> P3["Ветка 3: Проверка CRM"]
+    P1 & P2 & P3 --> Join["JoinNode (WaitAll / Слияние JSON)"]
+
+    Join --> HITL{"3. Ветвление решения человека<br/>(HitlApprovalNode)"}
+    HITL -->|"approved [✅]"| Deliver["DeliveryNode: Отправка"]
+    HITL -->|"rejected [🛑]"| Rollback["Ветка отмены / Лог"]
+    HITL -->|"timeout [⏰]"| Alert["Напоминание / Fallback"]
+
+    P1 -.->|"4. Ветка ошибки (onError)"| BackupAPI["Резервный скрипт / Кэш"]
+```
+
+1. **Условное ветвление (`If/Else` через `ConditionNode` и мульти-ветвление `SwitchNode`):**
+   * На основе JSON-выхода предыдущего скрипта (`JSONPath`) поток направляется в одну из `2..N` веток (`conditionBranch: "true" | "false"` или именованные кейсы `"critical"`, `"normal"`, `"default"`). Неактивные ветки помечаются как `Skipped` и **не тратят ни ресурсов, ни токенов**.
+2. **Параллельные ветки со слиянием (`ParallelFanOutNode` ➔ `JoinNode`):**
+   * Из одного узла одновременно запускается несколько независимых цепочек операторов (до `MaxParallelBranches = 8` по умолчанию).
+   * Узел слияния `JoinNode` поддерживает два режима:
+     * **`WaitAll` (`WhenAll`):** дожидается завершения всех параллельных веток и склеивает их `OutputJson` в единый словарь `{"branch1": {...}, "branch2": {...}}` для следующего шага.
+     * **`WaitAny` (`WhenAny`):** пускает каскад дальше, как только успешно завершилась первая быстрая ветка (удобно при опросе основного и зеркального источников).
+3. **Ветки решения человека (`HitlApprovalNode`):**
+   * Узел ручного подтверждения имеет три отдельных выхода:
+     * `approved` — пользователь нажал `[✅ Одобрить]` (или отредактировал данные через `[✏️ Изменить]`).
+     * `rejected` — пользователь нажал `[🛑 Отклонить]` (запускается ветка корректной отмены или компенсации).
+     * `timeout` — истекло время ожидания ответа (можно пойти по безопасной дефолтной ветке).
+4. **Ветки перехвата ошибок (`onError` / Fallback Branch):**
+   * У любого узла-скрипта помимо стандартного выхода успеха можно провести резервную связь с `conditionBranch: "onError"`. Если скрипт или внешний сайт упал после всех попыток `retryPolicy`, каскад **не падает целиком**, а уходит на резервную ветку (например, читает вчерашний кэш или берет данные из запасного источника).
+
+---
+
+### 3.3. Умное ожидание, Polling и Ретраи по условию (`Wait & Conditional Retry`)
+
+Частая ситуация в ETL: скрипт запустился в 09:00, но внешний сайт/API еще не обновил параметр (например, дата отчета все еще вчерашняя или статус задачи `"PROCESSING"`). Чтобы скрипт **не держал впустую оперативную память и поток ОС** во время долгого ожидания, в Netrunner предусмотрены **3 механизма ожидания и ретраев**:
+
+1. **Протокол отложенного ретрая изнутри самого скрипта (`Exit Code 75 / DEFER_RETRY`):**
+   * Скрипт проверяет нужный параметр, видит, что он еще не обновился, и вместо `sleep()` в памяти возвращает специальный результат (или код возврата `75` / `NetrunnerResult.DeferRetry`):
+     ```json
+     {
+       "$netrunnerControl": "DeferRetry",
+       "retryAfterSeconds": 300,
+       "reason": "На сайте ЦБ все еще стоит дата за вчера (2026-10-16), ждем публикации за 2026-10-17"
+     }
+     ```
+   * Процесс скрипта **мгновенно завершается и освобождает ОЗУ**.
+   * Оркестратор переводит шаг в статус `WaitingForConditionRetry` в `netrunner.db` и через `Hangfire` / `MassTransit` планирует повторный запуск этого же шага ровно через `300 сек`.
+2. **Декларативный `pollUntil` в настройках узла (`Node-Level Conditional Retry` — без изменения кода скрипта):**
+   * Любому узлу (`SkillNode` или `NetrunnerScriptNode`) в JSON графа можно задать блок `retryPolicy` не только на технические ошибки, но и **на ожидание нужного значения выходного параметра (`untilExpression`)**:
+     ```json
+     "retryPolicy": {
+       "maxAttempts": 12,
+       "strategy": "FixedOrExponential",
+       "intervalSeconds": 300,
+       "maxWaitWindowMinutes": 60,
+       "retryOnFailure": true,
+       "untilExpression": "$.output.reportDate == $today && $.output.isReady == true",
+       "onExhausted": "RouteToOnErrorBranch"
+     }
+     ```
+   * Если скрипт отработал без ошибок (`Exit Code 0`), но условие `untilExpression` вернуло `false` (параметр еще не обновился), движок автоматически ставит шаг на паузу и перезапускает его через `intervalSeconds` (например, до 12 раз каждые 5 минут).
+3. **Короткое ожидание внутри самого скрипта (`In-Script Micro-Polling`):**
+   * Если нужно подождать всего несколько секунд (например, `2–10 сек`, пока API сформирует файл выгрузки), скрипт может использовать штатный `await Task.Delay(...)` / `time.sleep(...)` внутри своего `timeoutMs` (по умолчанию до `15–30 сек`). Для любых пауз дольше `15–30 сек` используется бессерверный отложенный ретрай (`DeferRetry` / `untilExpression`).
+
+---
+
 ## 4. Персистентность, Надежность и Идемпотентность в `data/subsystems/netrunner.db`
 
 Для того чтобы каскад задач работал как часы и никогда не терял состояние при паузах `HITL`, перезагрузке ПК или сетевых сбоях, в изолированной базе `data/subsystems/netrunner.db` (под управлением `ISubsystemDatabaseManager` со своим паролем в `SecretsVault`) реализована транзакционная схема хранения:
@@ -380,7 +456,7 @@ CREATE TABLE IF NOT EXISTS NetrunnerWorkflowRuns (
     RunId TEXT PRIMARY KEY,                -- GUID запуска
     WorkflowId TEXT NOT NULL,
     TriggerSource TEXT NOT NULL,           -- 'Cron', 'Telegram', 'Event', 'ManualUI'
-    Status TEXT NOT NULL,                  -- 'Running', 'WaitingForHitl', 'PausedByBudget', 'Completed', 'Failed', 'Cancelled'
+    Status TEXT NOT NULL,                  -- 'Running', 'WaitingForHitl', 'WaitingForConditionRetry', 'PausedByBudget', 'Completed', 'Failed', 'Cancelled', 'CancelledByCrash'
     CurrentActiveNodeIdsJson TEXT,         -- На каких узлах сейчас находится выполнение
     WorkflowStateSnapshotJson TEXT,        -- Накопленные выходные данные всех пройденных узлов
     TotalTokensSpent INTEGER NOT NULL DEFAULT 0,
@@ -397,7 +473,7 @@ CREATE TABLE IF NOT EXISTS NetrunnerStepRuns (
     RunId TEXT NOT NULL,
     NodeId TEXT NOT NULL,
     NodeType TEXT NOT NULL,                -- 'SkillNode', 'NetrunnerScriptNode', 'LlmProcessNode', 'HitlApprovalNode'
-    Status TEXT NOT NULL,                  -- 'Pending', 'Running', 'WaitingApproval', 'Completed', 'Failed', 'Skipped'
+    Status TEXT NOT NULL,                  -- 'Pending', 'Running', 'WaitingApproval', 'WaitingForConditionRetry', 'Completed', 'Failed', 'Skipped', 'CancelledByCrash'
     AttemptCount INTEGER NOT NULL DEFAULT 1,
     InputPayloadJson TEXT,
     OutputPayloadJson TEXT,
@@ -413,7 +489,52 @@ CREATE INDEX IF NOT EXISTS idx_netrunner_runs_status ON NetrunnerWorkflowRuns(St
 CREATE INDEX IF NOT EXISTS idx_netrunner_steps_run ON NetrunnerStepRuns(RunId, NodeId);
 ```
 
-### Гарантии надежности выполнения графа:
+### 4.1. Протокол восстановления после отключения света или падения процесса (`Crash & Power-Outage Recovery`)
+
+В **главных (общих) настройках приложения** (`cyberpipe_master.db` $\to$ таблица `AppGlobalSettings`, ключ `'Pipeline:CrashRecoveryPolicy'`, управляется через главный экран настроек в Avalonia UI) администратор выбирает глобальное правило поведения пайплайнов при аварийном сбое или отключении питания:
+
+```csharp
+public enum PipelineCrashRecoveryPolicy
+{
+    /// <summary>
+    /// Вариант 1: Автоматически продолжать выполнение с места падения (с прерванного шага).
+    /// </summary>
+    ResumeFromCheckpoint = 0,
+
+    /// <summary>
+    /// Вариант 2: Остановить и оставить как есть, присвоив запуску и прерванному шагу
+    /// специальный статус CancelledByCrash («Отменен из-за аварийного сбоя»).
+    /// </summary>
+    StopAndMarkCancelledByCrash = 1
+}
+```
+
+Если во время работы пайплайна внезапно отключили электричество, ОС перезагрузилась или процесс аварийно завершился, при следующем старте срабатывает **4-уровневый механизм**:
+
+1. **Защита от повреждения БД на диске (`SQLite WAL + synchronous=NORMAL/FULL`):**
+   * И центральная база `cyberpipe_master.db`, и база оркестратора `data/subsystems/netrunner.db`, и база шины `masstransit.db`, и база планировщика `hangfire.db` работают в режиме **Write-Ahead Logging (`PRAGMA journal_mode=WAL`)**. Даже при мгновенном обесточивании ПК во время записи транзакция либо атомарно зафиксирована, либо чисто откатывается при открытии файла без повреждения БД (`database disk image is malformed` исключен).
+2. **Пошаговый чекпоинт после каждого оператора (`Step-Level Checkpointing`):**
+   * Перед стартом каждого узла в `NetrunnerStepRuns` записывается статус `Running`.
+   * Как только узел (`SkillNode`, `NetrunnerScriptNode`, `LlmProcessNode`) завершился, его выходной JSON и SHA-256 всех созданных в `data/netrunner-artifacts/{RunId}/{NodeId}/out/` файлов **атомарно коммитятся в `NetrunnerStepRuns` (`Status = 'Completed'`)** и обновляют `WorkflowStateSnapshotJson` до запуска следующего шага.
+   * **Результат:** Если каскад из 20 шагов успел пройти 14 шагов и на 15-м шаге выключили свет, **первые 14 шагов (и их файлы/результаты) в любом случае остаются сохраненными на 100%!**
+3. **Фоновый сервис `NetrunnerCrashRecoveryHostedService` при старте приложения (читает `Pipeline:CrashRecoveryPolicy` из `cyberpipe_master.db`):**
+   * При запуске `CyberPipe` сервис проверяет глобальную настройку `PipelineCrashRecoveryPolicy` и сканирует прерванные пайплайны в `NetrunnerWorkflowRuns`:
+     * **Если в общих настройках выбрано `StopAndMarkCancelledByCrash` («Остановить и оставить как есть»):**
+       1. Пайплайн **НЕ продолжает** выполнение автоматически.
+       2. Все уже выполненные шаги (`1..14`) и созданные ими файлы в `data/netrunner-artifacts/{RunId}/` остаются в сохранности «как есть».
+       3. Прерванному шагу (`№15`) и самому запуску (`NetrunnerWorkflowRuns`) присваивается специальный статус **`CancelledByCrash`** (*«Отменен из-за аварийного сбоя / отключения питания»*) с записью в `ErrorMessage`: `"Execution interrupted by unexpected host shutdown or power outage"`.
+       4. Статус пробрасывается в `GlobalStateHub` (отображается в UI специальным бейджем `⚡ Отменен из-за сбоя`) и отправляется уведомление в Telegram. При желании пользователь всегда может осмотреть состояние в UI и вручную нажать кнопку `[▶️ Продолжить с места падения]`.
+     * **Если в общих настройках выбрано `ResumeFromCheckpoint` («Продолжать с места падения»):**
+       1. Каскады, стоявшие на паузе (`WaitingForHitl`, `WaitingForConditionRetry`, `PausedByBudget`), просто восстанавливают свои таймеры и ожидание кнопок с того же шага.
+       2. Если свет отключили прямо во время выполнения чистых ETL-скриптов (`Step.Status == 'Running'`, режим `Idempotent`), временная выходная папка прерванного шага №15 очищается от недописанных файлов, **шаг №15 автоматически перезапускается** с готовыми входными данными от шага №14, и пайплайн идет дальше до конца (шаги 15 $\to$ 20).
+       3. Если прерванный шаг имел внешние побочные эффекты (`NonIdempotentExternalAction`), он переводится в `InterruptedNeedsConfirmation` и запрашивает подтверждение у владельца, чтобы не выполнить внешнюю отправку дважды.
+4. **Догоняющий запуск пропущенных расписаний (`Missed Cron Catch-Up`):**
+   * Если компьютер был выключен с 08:30 до 10:15, а каскад должен был стартовать по Cron в `09:00`, при включении ПК `Hangfire` + `Scheduler` видят пропущенное окно и поступают согласно настройке `misfirePolicy` каскада:
+     * `FireOnceNow` *(по умолчанию для ежедневных отчетов)* — сразу запускает пропущенный утренний пайплайн один раз при включении ПК.
+     * `SkipIfLateByMinutes` — пропускает запуск, если информация актуальна только строго в 09:00.
+     * `AskUser` — спрашивает в Telegram: *«Утренний каскад в 09:00 был пропущен (ПК был выключен). Запустить сейчас?»*.
+
+### 4.2. Дополнительные гарантии целостности и изоляции:
 1. **Идемпотентный продолженный старт (`Checkpoint & Resume`):**
    * Когда граф останавливается на узле `HitlApprovalNode` (ожидание подтверждения владельца) или `PausedByBudget`, он **не держит открытых потоков в ОЗУ**.
    * Как только пользователь нажимает `[✅ Одобрить]` в Telegram или Desktop UI (даже спустя 2 часа или после перезагрузки ПК), `NetrunnerWorkflowEngine` загружает `WorkflowStateSnapshotJson` и файлы из `data/netrunner-artifacts/{RunId}/` и запускает **только следующий узел после `HitlApprovalNode`**, не выполняя заново предыдущие шаги!
@@ -445,10 +566,11 @@ CREATE INDEX IF NOT EXISTS idx_netrunner_steps_run ON NetrunnerStepRuns(RunId, N
 
 ## 6. Лимиты Шагов, Глубины Каскада и Предохранители Графа (`NetrunnerWorkflowLimits`)
 
-В **Netrunner** ограничения разделены на два контура: **детерминированные узлы (0 токенов)** и **узлы ИИ (`LlmProcessNode`)**. Все лимиты вынесены в `appsettings.json` (`CyberPipe:Netrunner`) и настраиваются пользователем в Avalonia UI без перекомпиляции:
+В **Netrunner** ограничения разделены на два контура: **детерминированные узлы (0 токенов)** и **узлы ИИ (`LlmProcessNode`)**. Все лимиты и глобальная политика восстановления вынесены в `cyberpipe_master.db` (`AppGlobalSettings`) / `appsettings.json` (`CyberPipe:Netrunner`) и настраиваются пользователем в Avalonia UI без перекомпиляции:
 
-| Параметр (`CyberPipe:Netrunner`) | По умолчанию | Диапазон в UI / Конфиге | Назначение и поведение при достижении |
+| Параметр (`AppGlobalSettings` / `CyberPipe:Netrunner`) | По умолчанию | Диапазон в UI / Конфиге | Назначение и поведение при достижении |
 | :--- | :---: | :---: | :--- |
+| **`Pipeline:CrashRecoveryPolicy`** | **`ResumeFromCheckpoint`** | `ResumeFromCheckpoint` \| `StopAndMarkCancelledByCrash` | **Глобальная настройка поведения при отвале/отключении света** (хранится в `cyberpipe_master.db`): либо автоматически продолжать пайплайн с прерванного шага, либо остановить как есть и присвоить спец-статус `CancelledByCrash` (*«Отменен из-за сбоя»*). |
 | **`MaxNodesPerWorkflow`** | **`64` узла** | `1 .. 256` | Максимальное общее число шагов (узлов) в одном графе `NetrunnerWorkflowDefinition`. Проверяется валидатором при сохранении графа. |
 | **`MaxSequentialDepth`** | **`32` шага подряд** | `1 .. 128` | Максимальная длина последовательной цепочки (критического пути) от `TriggerNode` до `DeliveryNode`. Ацикличность (отсутствие бесконечных петель) гарантируется топологической сортировкой (алгоритм Кана). |
 | **`MaxParallelBranches`** | **`8` веток** | `1 .. 32` | Максимальное число параллельно исполняемых веток в `ParallelFanOutNode` (ограничивается через `SemaphoreSlim`), чтобы один каскад не занял 100% ядер CPU. |
