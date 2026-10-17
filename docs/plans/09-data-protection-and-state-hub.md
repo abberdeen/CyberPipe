@@ -301,7 +301,17 @@ public sealed class GlobalStateHub : IGlobalStateHub
       "MorningBriefingCron": "0 9 * * *",
       "EveningReviewCron": "0 20 * * *",
       "SubscriptionWarningDaysBefore": 3
+    },
+    "Netrunner": {
+      "MaxNodesPerWorkflow": 64,
+      "MaxSequentialDepth": 32,
+      "MaxParallelBranches": 8,
+      "MaxSubWorkflowCallDepth": 3,
+      "SoftLlmNodesPerWorkflowRun": 5,
+      "MaxRunWorkspaceMb": 128,
+      "DefaultHitlTimeoutMinutes": 1440
     }
   }
 }
 ```
+
