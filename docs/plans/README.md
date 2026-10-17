@@ -54,3 +54,6 @@
 16. [**16. Ассистент Netrunner: Движок Каскадных Задач (Mini-n8n DAG), HITL и Стандарт Пакетов Скриптов**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md)  
     *Архитектура специализированного ETL-ассистента Netrunner: стандарт пакетов скриптов с 6 обязательными файлами (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `main.*`, `tests/sample.fixture.json`), каскадный движок DAG (`SkillNode ➔ NetrunnerScriptNode ➔ ConditionNode ➔ LlmProcessNode ➔ HitlApprovalNode ➔ DeliveryNode`), транзакционные чекпоинты в `netrunner.db` и контроль целостности SHA-256.*
 
+17. [**Экспертный аудит плана (Muse Wonder Audit)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/muse-wonder-audit.md)  
+    *Комплексный стресс-тест архитектурных планов моделью `muse-wonder-1.0`: реестр замечаний (`AUD-01` – `AUD-15`), противоречия шины/БД/шифрования, анализ рисков и поэтапный план доработок (`K.1` – `K.4`).*
+
