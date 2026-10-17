@@ -12,12 +12,15 @@ CyberPipe.slnx
 │   ├── Shared/
 │   │   └── CyberPipe.Contracts/               # Уровень 0 DAG: 0 внешних зависимостей! Единственная зависимость UI и Brainstem!
 │   │       ├── Protos/                        # gRPC контракты (gateway.proto, telemetry.proto, budget.proto)
-│   │       ├── Messages/                      # События для внутрипроцессной шины Channels
-│   │       ├── Enums/                         # RiskLevel, IntentTier, TaskLifecycleState, MemoryTrustSource
+│   │       ├── Messages/                      # События и команды для шины MassTransit (InMemory, SQLite, RabbitMQ)
+│   │       ├── Enums/                         # RiskLevel, IntentTier, TaskLifecycleState, MemoryTrustSource, MessageBusTransportType
 │   │       ├── Hardware/                      # IHardwareCapabilitiesProbe, ISystemResourceMonitor, HostHardwareProfile
 │   │       ├── Platform/                      # Кроссплатформенные контракты ОС: IAudioDeviceController, IScreenOcrProvider,
-│   │       │                                  # ISecretVaultPlatform, IBrainstemIsolationPlatform, IDaemonInstaller, IDevToolProcessRunner
-│   │       └── Models/                        # DTO: SecurityInspectionReport, BudgetStatusDto, TelemetryDigest
+│   │       │                                  # ISecretVaultPlatform, IBrainstemIsolationPlatform, IDaemonInstaller, IDevToolProcessRunner,
+│   │       │                                  # ISubsystemDatabaseManager, IMessageBusProviderManager, IRabbitMqSupervisionService,
+│   │       │                                  # ICenterInfrastructureSupervisor, IGlobalStateHub, INetrunnerWorkflowEngine, INetrunnerPackageValidator
+│   │       └── Models/                        # DTO: SecurityInspectionReport, BudgetStatusDto, TelemetryDigest, BusHealthStatus,
+│   │                                          # SubsystemDatabaseDescriptor, NetrunnerManifestDto, NetrunnerWorkflowDefinition
 │   │
 │   ├── Security/                              # Детерминированная защита (0 токенов), Ресурсы и Контроль Бюджета
 │   │   ├── CyberPipe.Security.Telemetry/      # Уровень 1 DAG (зависит только от Contracts):
@@ -29,15 +32,18 @@ CyberPipe.slnx
 │   │
 │   ├── RouterAndSkills/                       # Ядро Умного Помощника (Быстрый путь без сжигания токенов)
 │   │   ├── CyberPipe.Router/                  # Voice-to-Intent + 4-Tier Router (Regex, ONNX SIMD, Настраиваемые Local/Remote Tiers)
-│   │   └── CyberPipe.Skills.Host/             # Строго типизированные безопасные C#-скиллы помощника (без Process.Start!):
-│   │       ├── MediaAndWorkspace/             # Музыка, Volume Clamp, Рабочие профили (/mode coding/call), Lock/Sleep
-│   │       ├── Personal/                      # Второй мозг (Inbox), Умные напоминания, Финансы, Подписки, Фокус
-│   │       ├── DevAndInfra/                   # Git Repo Radar (LibGit2Sharp), BuildAndTestWatchdog (через IDevToolProcessRunner),
-│   │       │                                  # Мониторинг серверов/Docker/SSL, Память фиксов
-│   │       └── Business/                      # Личная CRM, Трекер Follow-up, Запись созвонов (IAudioDeviceController), Брифинги, Шаблоны КП
+│   │   ├── CyberPipe.Skills.Host/             # Строго типизированные безопасные C#-скиллы помощника (без Process.Start!):
+│   │   │   ├── MediaAndWorkspace/             # Музыка, Volume Clamp, Рабочие профили (/mode coding/call), Lock/Sleep
+│   │   │   ├── Personal/                      # Второй мозг (Inbox), Умные напоминания, Финансы, Подписки, Фокус
+│   │   │   ├── DevAndInfra/                   # Git Repo Radar (LibGit2Sharp), BuildAndTestWatchdog (через IDevToolProcessRunner),
+│   │   │   │                                  # Мониторинг серверов/Docker/SSL, Память фиксов
+│   │   │   └── Business/                      # Личная CRM, Трекер Follow-up, Запись созвонов (IAudioDeviceController), Брифинги, Шаблоны КП
+│   │   └── CyberPipe.Skills.Netrunner/        # Ассистент Netrunner (см. разд. 16): движок каскадных задач Mini-n8n DAG (Skill/Netrunner/LLM/HITL),
+│   │                                          # валидатор пакетов (netrunner.manifest.json + JSON Schema + SHA-256), Roslyn/Wasm ETL за 0 токенов
 │   │
 │   ├── Core/                                  # Оркестрация, Подбор Моделей и Сложные Агенты (Tier 3)
-│   │   ├── CyberPipe.Core.Orchestration/      # OrchestratorEngine, ModelCompatibilityAdvisorService (15 Local + Cloud Curated), ProactiveScheduler
+│   │   ├── CyberPipe.Core.Orchestration/      # OrchestratorEngine, ModelCompatibilityAdvisorService, ProactiveScheduler,
+│   │   │                                      # MassTransitBusManager (InMemory, SQLite masstransit.db, RabbitMQ), GlobalStateHub
 │   │   └── CyberPipe.Core.Agents/             # Воркеры Tier 3 (Coder, ContractAuditor, MeetingSummarizer, Researcher)
 │   │
 │   ├── Execution/                             # Песочницы, Изолированный Воркер и Контролируемый Раннер Инструментов
@@ -48,11 +54,12 @@ CyberPipe.slnx
 │   │
 │   ├── Gateway/                               # Входной периметр и Каналы связи
 │   │   ├── CyberPipe.Gateway.Telegram/        # Быстрый Telegram-бот: Голос/Файлы, Whitelist AuthGuard, /stop, кнопки Паузы
-│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер (Named Pipes / Unix Domain Sockets) для Avalonia UI и CLI
+│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер (Named Pipes/UDS) + локальный хост безопасного Read-Only Hangfire Dashboard (127.0.0.1)
 │   │
-│   ├── Storage/                               # Легковесное и надежное локальное хранение
-│   │   └── CyberPipe.Storage.Sqlite/          # SQLite (WAL + FTS5 + Миграции): KnowledgeVault (с TrustSource), CRM, Финансы,
-│   │                                          # SemanticIntentCache, ролевой SemanticResponseCache, InFlightOperations, Бюджет
+│   ├── Storage/                               # Легковесное, надежное и изолированное локальное хранилище (SQLite WAL)
+│   │   └── CyberPipe.Storage.Sqlite/          # Центральный мастер cyberpipe_master.db (общие настройки + реестр SubsystemDatabaseRegistry),
+│   │                                          # сервис SubsystemDatabaseManagerService (генерация паролей в SecretsVault, provisioning, миграции),
+│   │                                          # изолированные базы подсистем data/subsystems/*.db (hangfire, masstransit, knowledge, crm, finance, budget, health, netrunner)
 │   │
 │   ├── UI/                                    # Мультиплатформенный интерфейс управления
 │   │   ├── CyberPipe.UI/                      # Разметка XAML, ViewModels, Выбор моделей по Tiers (Local vs Remote), Дашборд бюджета

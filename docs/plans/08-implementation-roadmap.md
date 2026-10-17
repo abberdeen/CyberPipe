@@ -16,7 +16,12 @@
   - Разделение ресурсов на **Bulkhead-отсеки**, использование только `BoundedChannel`, потоковая квота `QuotaBoundedStream (16 МБ)` и журнал `InFlightOperations` для тяжелых/внешних входов с очисткой при `OperationCanceledException` (`/stop`).
   - Разработка `BrainstemProcessSupervisor` и `IBrainstemIsolationPlatform`: запуск `CyberPipe.Brainstem` с изоляцией файловой системы (`AppContainer` или `CreateRestrictedToken` с `SidsToRestrict` + явный `ACCESS_DENIED_ACE` в DACL папки `data\` в Windows; `bwrap` в Linux; `Seatbelt` в macOS), `Process SACL NO_READ_UP`, `Job Object` (`ActiveProcessLimit = 1`, лимит памяти и CPU, `KillOnJobClose`), изолированным `TEMP` и проверкой SHA-256 по `worker.manifest.json`.
 - [ ] Разработка базовых команд системного **CLI (`CyberPipe <command>`)** для ядра Спринта 1 (`daemon`, `status`, `doctor`, `config`, `secrets`, `tasks stop-all`, `setup`) с поддержкой строгого `--json` контракта и автозапуска в интерактивной сессии пользователя (`Session >= 1`).
-- [ ] Внутрипроцессная шина на `System.Threading.Channels` + приоритетный канал управления **`PriorityKillSwitch` (`/stop`, `/pause`)**.
+- [ ] Интеграция универсальной шины **`MassTransit`** (транспорты `InMemory` [по умолчанию], `SQLite WAL` [`data/masstransit.db`, пароль в Vault], `RabbitMQ`), разработка **`RabbitMqSupervisionService`** и **`GlobalStateHub`**:
+  - Реализация фабрики провайдеров транспорта с возможностью переключения из UI;
+  - Проверка доступности портов 5672 (AMQP) и 15672 (Management UI) при выборе RabbitMQ;
+  - Автоматический запуск RabbitMQ через Центр Инфраструктуры (`ICenterInfrastructureSupervisor`) при отключенном брокере;
+  - Проверка наличия логина/пароля в `SecretsVault`. При отсутствии — автогенерация админа `cyberpipe_admin`, установка прав только для себя (`rabbitmqctl set_permissions`) и сохранение в `secrets.vault`;
+  - Запись истории проверок в таблицу `InfrastructureHealthRecords` (`cyberpipe.db`) и реактивная доставка статуса через `GlobalStateHub`.
 - [ ] Разработка `CyberPipe.Gateway.Telegram` (`TelegramAuthGuard`: Whitelist `UserId`, разделение `Owner` и `Guest`).
 - [ ] Разработка `CyberPipe.Security.Guards` (`HostAndMediaSafetyGuard`):
   - **Anti-Wipe блок:** полный запрет Raw Shell из чата и блокировка деструктивных путей/команд.
@@ -57,8 +62,8 @@
 ### Фаза 3: Все 16+ Прикладных Скиллов (Личное, Dev/DevOps, Бизнес), Планировщик, Песочницы и SecurityGuard (Спринт 3)
 *Цель: Реализовать полный каталог из 16+ прикладных скиллов в едином скоупе Релиза 1.0, проактивный планировщик и изолированные песочницы `Tier 3`.*
 
-- [ ] Разработка **`ProactiveScheduler`** (`Cronos` + событийные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
-  - Утренний (09:00) и вечерний (20:00) исполнительные брифинги, умные напоминания с кнопкой `[✅ Выполнено]`, предупреждения о списании подписок за 3 дня.
+- [ ] Разработка **`ProactiveScheduler`** на базе **`Hangfire`** (с отдельной зашифрованной паролем базой `hangfire.db`, Read-Only Dashboard на `127.0.0.1` с одноразовым крипто-токеном и HttpOnly cookie + системные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
+  - Утренний (09:00) и вечерний (20:00) исполнительные брифинги, умные напоминания с кнопкой `[✅ Выполнено]`, предупреждения о списании подписок за 3 дня, визуализация очередей в защищенном Hangfire Dashboard.
 - [ ] Разработка инженерных скиллов (`CyberPipe.Skills.Host.DevAndInfra`) и сервиса `DevToolProcessRunner` (`CyberPipe.Execution.Providers`):
   - **`GitRepoRadarSkill` (`/repos`, `/standup`) & `DiffReviewSkill`:** сканирование `%USERPROFILE%\source\repos` через `LibGit2Sharp` / `IDevToolProcessRunner`, сводка коммитов за 0 токенов, генератор Conventional Commits и пре-ревью диффов.
   - **`InfraHealthWatchdog` & `DevMemorySkill`:** фоновый мониторинг рабочих серверов, контейнеров Docker, сроков жизни SSL-сертификатов и база фиксов `/remember-fix`.
@@ -83,6 +88,7 @@
   - **Дашборд экономии и бюджета:** графики сэкономленных токенов (`Tier 0/1/Local` vs `RemoteCloud`), настройка лимитов в $ и токенах, кнопка *«Cloud Freeze (Только локально)»*.
   - **Хаб Помощника, Dev-Радар и Запись Встреч:** переключатели режимов (`/mode coding`, `/mode call`), статус локальных Git-репозиториев и серверов, управление записью созвона, быстрый поиск по «Второму мозгу» и CRM.
   - **Панель безопасности хоста:** настройка потолка громкости (день/ночь), управление белым списком Telegram ID, журнал заблокированных угроз.
+  - **Панель инфраструктуры и шины MassTransit:** селектор транспорта (`InMemory` / `SQLite masstransit.db` / `RabbitMQ`), статус подключения (`🟢/🟡/🔴`), пинг, кнопка `[🔄 Проверить подключение]`, кнопка `[🚀 Запустить через Центр]` (для RabbitMQ) и вывод диагностических ошибок запуска из `GlobalStateHub`.
   - **Живой монитор задач:** кнопка экстренного стопа `[🛑 STOP ALL]`, разблокировка задач на паузе и графики нагрузки CPU/RAM.
 - **Критерий приемки (DoD Спринта 4):** `CyberPipe.UI` зависит исключительно от `CyberPipe.Contracts`; закрытие или перезапуск GUI не влияет на работу демона `CyberPipe`; все экраны работают по IPC.
 

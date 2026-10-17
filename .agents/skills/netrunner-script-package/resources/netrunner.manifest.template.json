@@ -1,0 +1,46 @@
+{
+  "$schema": "https://cyberpipe.local/schemas/netrunner.manifest.v1.json",
+  "slug": "example-etl-script",
+  "name": "Example Netrunner ETL Script",
+  "version": "1.0.0",
+  "description": "Deterministic ETL script that parses raw input and produces structured output and files for 0 tokens.",
+  "author": {
+    "origin": "AiSynthesizedTier3",
+    "synthesizedByModel": "claude-3-7-sonnet",
+    "approvedByUserId": "OWNER",
+    "createdAtUtc": "2026-10-17T00:00:00Z"
+  },
+  "runtime": {
+    "engine": "CSharpRoslyn",
+    "entrypoint": "main.csx",
+    "timeoutMs": 15000,
+    "maxMemoryMb": 64,
+    "deterministic": true
+  },
+  "io": {
+    "inputSchemaFile": "schema.input.json",
+    "outputSchemaFile": "schema.output.json",
+    "inputFormats": ["application/json"],
+    "outputFormats": ["application/json"],
+    "inputFiles": [],
+    "outputFiles": []
+  },
+  "permissions": {
+    "allowNetwork": false,
+    "allowedDomains": [],
+    "filesystemScope": "IsolatedRunWorkspaceOnly",
+    "requiredVaultSecretRefs": []
+  },
+  "economics": {
+    "estimatedTokensSavedPerRun": 2500
+  },
+  "integrity": {
+    "filesSha256": {
+      "main.csx": "",
+      "schema.input.json": "",
+      "schema.output.json": "",
+      "SKILL.md": "",
+      "tests/sample.fixture.json": ""
+    }
+  }
+}

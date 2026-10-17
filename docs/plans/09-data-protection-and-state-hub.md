@@ -42,29 +42,200 @@
 
 ---
 
-### 3. Сверхбыстрое локальное хранилище (`SQLite WAL`, In-Memory SIMD и Миграции)
+### 3. Архитектура баз данных: Центральный Мастер SQLite (`cyberpipe_master.db`) + Изолированные БД подсистем (`data/subsystems/*.db`)
 
-Отказ от обязательного PostgreSQL и RabbitMQ в пользу правильно настроенного **SQLite в режиме `WAL` (Write-Ahead Logging)** дает идеальный баланс надежности и скорости:
+Вместо монолитной общей базы данных или обязательного внешнего сервера PostgreSQL, в **CyberPipe** реализована строгая децентрализованная архитектура локального хранения на базе **SQLite в режиме `WAL` (Write-Ahead Logging)** с центральным реестром и раздельными паролями:
 
-1. **Раздельный Семантический Кэш (`SemanticIntentCache` + ролевой `SemanticResponseCache`):**
-   * **`SemanticIntentCache`:** хранит сопоставление `(EmbeddingVector, IntentName, SkillName, CreatedAtUtc)` для мгновенного распознавания команд.
-   * **`SemanticResponseCache`:** хранит статические ответы со строгой ролевой изоляцией **`(EmbeddingVector, UserRole, Answer, CreatedAtUtc, ExpiresAtUtc, HitCount)` и `TTL = 24 часа`**. Ответы, сгенерированные для `Owner`, физически никогда не возвращаются пользователям с ролью `Guest`, а динамические запросы (*«какие сегодня встречи?»*) не кэшируются как статический текст.
-2. **Память «Второй мозг», Личная CRM и In-Memory SIMD Буфер (`KnowledgeVault`, `PersonalCrm`, `FinanceLedger`):**
-   * Каждая запись в `KnowledgeVault` и `PersonalCrm` обязательно хранит столбец **`TrustSource` (`MemoryTrustSource`)** для защиты от отложенных промпт-инъекций.
-   * Для мгновенного векторного поиска без чтения всех `BLOB` с диска в оперативной памяти поддерживается компактный плоский буфер нормализованных векторов **`Memory<float>`** (для 10 000 записей по 384 `float` это всего `~15 МБ` RAM!), обеспечивающий полное SIMD-сканирование `TensorPrimitives.CosineSimilarity` за **`< 1.5 мс`** в связке с полнотекстовым индексом **`SQLite FTS5`**.
-3. **Журнал Бюджета и Чекпоинты Пауз (`BudgetLedger` & `TaskCheckpoints`):**
-   * Точный учет каждого потраченного токена по задачам и часам.
-   * При срабатывании авто-паузы (`TaskLifecycleState.PausedByBudget`) полное состояние задачи сохраняется одной атомарной записью. Даже если ПК перезагрузится, после нажатия кнопки `[▶️ Разрешить еще +5 000 токенов]` в Telegram задача продолжит работу с того же шага!
-4. **Асинхронная запись (`Write-Behind Channel`) и синхронный `InFlightOperations`:**
-   * Запись логов, аудита и статистики токенов идет через неблокирующий `Channel<PersistItem>` батчами раз в 200 мс, а синхронный `COMMIT` в `InFlightOperations` применяется только для тяжелых/внешних входов (`Brainstem`, файлы, `Tier 2/3`).
-   * Фоновый воркер `WalCheckpointWorker` следит за размером журнала (`PRAGMA wal_checkpoint(TRUNCATE)`).
-5. **Версионные миграции схемы БД и авто-бэкап (`SqliteMigrationRunner` & `SqliteBackupService`):**
-   * При старте `CyberPipe.Storage.Sqlite` проверяет `PRAGMA user_version` и последовательно накатывает встроенные SQL-миграции внутри транзакции.
-   * Перед применением новых миграций при обновлении версии автоматически создается горячий бэкап `cyberpipe.v{N}.bak` (хранятся последние 3 снимка) для безопасного отката в режиме `Side-by-Side Update`.
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                       Центральный Мастер SQLite (cyberpipe_master.db)                       │
+│  • Хранит ТОЛЬКО общие базовые настройки приложения (Global App Settings)                  │
+│  • Таблица-каталог SubsystemDatabaseRegistry (Key-Value: SubsystemKey + Путь к файлу БД)   │
+└──────────────────────────────────────────────┬──────────────────────────────────────────────┘
+                                               │
+                                               ▼
+                         ┌───────────────────────────────────────────┐
+                         │         ISubsystemDatabaseManager         │
+                         │    (Специализированный сервис доступа)    │
+                         │ • Разрешение путей по SubsystemKey        │
+                         │ • Автоматическое создание / lazy init БД  │
+                         │ • Получение/генерация пароля из Сейфа     │
+                         │ • Накатывание миграций подсистемы         │
+                         └───────┬───────────────────────────┬───────┘
+                                 │                           │
+          Чтение паролей         │                           │ Предоставление защищенного
+        (AES-256-GCM / DPAPI)    │                           │ изолированного SqliteConnection
+                                 ▼                           ▼
+                    ┌─────────────────────────┐   ┌───────────────────────────────────────────┐
+                    │   Local SecretsVault    │   │      Изолированные БД подсистем           │
+                    │   (data/secrets.vault)  │   │          (data/subsystems/*.db)           │
+                    ├─────────────────────────┤   ├───────────────────────────────────────────┤
+                    │ db:secret:hangfire      ├──►│ hangfire.db     (Фоновый планировщик)     │
+                    │ db:secret:masstransit   ├──►│ masstransit.db  (MassTransit очереди/Outbox)│
+                    │ db:secret:knowledge     ├──►│ knowledge.db    (База знаний / FTS5 / SIMD) │
+                    │ db:secret:crm           ├──►│ crm.db          (Личная CRM и контакты)     │
+                    │ db:secret:finance       ├──►│ finance.db      (Финансы и транзакции)      │
+                    │ db:secret:budget        ├──►│ budget.db       (Бюджет токенов, чекпоинты) │
+                    │ db:secret:health        ├──►│ health.db       (История здоровья сервисов) │
+                    │ db:secret:netrunner     ├──►│ netrunner.db    (База ETL-скриптов и схем)  │
+                    └─────────────────────────┘   └───────────────────────────────────────────┘
+```
+
+#### 1. Центральный Мастер SQLite (`cyberpipe_master.db`) и Таблица-Каталог
+Центральная база содержит **только общие базовые настройки приложения** (системные флаги, выбранный шинный провайдер, глобальный профиль) и специальную таблицу каталога баз данных:
+```sql
+CREATE TABLE IF NOT EXISTS SubsystemDatabaseRegistry (
+    SubsystemKey TEXT PRIMARY KEY,       -- 'Hangfire', 'MassTransit', 'KnowledgeVault', 'PersonalCrm', 'FinanceLedger', 'BudgetGov', 'InfraHealth', 'Netrunner'
+    DatabasePath TEXT NOT NULL,          -- Относительный/абсолютный путь: 'data/subsystems/knowledge.db'
+    SecretVaultKeyRef TEXT NOT NULL,     -- Ключ пароля в SecretsVault: 'db:secret:knowledge'
+    IsEncrypted INTEGER NOT NULL,        -- 1 / 0 (флаг криптозащиты)
+    CreatedAtUtc TEXT NOT NULL,          -- Дата первой инициализации базы
+    LastMigratedAtUtc TEXT,              -- Дата последнего успешного наката миграций
+    MetadataJson TEXT                    -- Дополнительные метаданные (версия схемы, размер кэша)
+);
+```
+> [!IMPORTANT]
+> **Принцип изоляции:** В `cyberpipe_master.db` **нет и никогда не записываются** бизнес-данные подсистем (контакты, транзакции, задачи, очереди, токены, скрипты). Мастер-база выступает исключительно системным справочником размещения и статуса хранилищ.
+
+#### 2. Изолированные базы данных подсистем (`data/subsystems/*.db`)
+Каждая подсистема и сервис имеют свой собственный файл SQLite в режиме `WAL`:
+1. **`data/subsystems/hangfire.db`** — планировщик периодических задач и расписаний Hangfire.
+2. **`data/subsystems/masstransit.db`** — очереди сообщений, Saga state и Outbox/Inbox (используется **только** MassTransit и никто другой).
+3. **`data/subsystems/knowledge.db`** — долгосрочная память «Второй мозг», семантические индексы FTS5 и буфер векторов SIMD (`Memory<float>`).
+4. **`data/subsystems/crm.db`** — личная CRM, карточки контактов, каналы связи и социальные связи.
+5. **`data/subsystems/finance.db`** — финансовый учет, категории расходов, балансы и выписки.
+6. **`data/subsystems/budget.db`** — учет токенов LLM, дневные квоты, жесткие лимиты и чекпоинты задач (`TaskCheckpoints`).
+7. **`data/subsystems/health.db`** — аудит доступности инфраструктуры (`InfrastructureHealthRecords`: RabbitMQ, Brainstem, Hangfire).
+8. **`data/subsystems/netrunner.db`** — специализированная база детерминированных ETL-скриптов и JSON-схем ассистента Netrunner.
+
+#### 3. Раздельные доступы, криптографические пароли и сейф секретов
+* **Уникальный пароль для каждой БД:** Каждая база данных защищена собственным уникальным 256-битным ключом/паролем шифрования (`Password=...`). Общий мастер-пароль на все базы **запрещен**.
+* **Хранение паролей в `SecretsVault`:** Все пароли подсистем шифруются алгоритмом **AES-256-GCM** и хранятся в `data/secrets.vault` под защитой платформенного механизма (**Windows DPAPI**, **Linux LibSecret**, **macOS Keychain**).
+* **Зануление в оперативной памяти:** При получении пароля из сейфа и формировании строки подключения, промежуточные байтовые буферы очищаются через `CryptographicOperations.ZeroMemory`.
+* **Защита на уровне ОС:** Каталог `data/subsystems/` аппаратно и логически изолирован от дочернего процесса `CyberPipe.Brainstem` и песочниц (`ACCESS_DENIED_ACE` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
+
+#### 4. Специализированный сервис управления и доступа (`ISubsystemDatabaseManager`)
+За обнаружение, создание, регистрацию, миграции и выдачу защищенных подключений отвечает выделенный сервис `ISubsystemDatabaseManager`:
+
+```csharp
+public interface ISubsystemDatabaseManager
+{
+    /// <summary>
+    /// Получить защищенное соединение SQLite к базе конкретной подсистемы.
+    /// Если база еще не создана, производит ее авто-создание, настройку WAL и регистрацию в реестре.
+    /// </summary>
+    Task<SqliteConnection> GetConnectionAsync(string subsystemKey, CancellationToken ct = default);
+
+    /// <summary>
+    /// Инициализировать/зарегистрировать базу подсистемы с генерацией нового пароля в SecretsVault.
+    /// </summary>
+    Task<SubsystemDatabaseDescriptor> ProvisionSubsystemDatabaseAsync(
+        string subsystemKey, 
+        string relativePath, 
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Применить версионные миграции для конкретной подсистемы.
+    /// </summary>
+    Task MigrateSubsystemDatabaseAsync(string subsystemKey, CancellationToken ct = default);
+
+    /// <summary>
+    /// Получить список всех зарегистрированных баз данных из центрального каталога.
+    /// </summary>
+    Task<IReadOnlyList<SubsystemDatabaseDescriptor>> GetAllDatabasesAsync(CancellationToken ct = default);
+}
+```
+
+##### Реализация алгоритма доступа (`SubsystemDatabaseManagerService`):
+1. **Проверка в реестре:** Сервис читает `SubsystemDatabaseRegistry` из `cyberpipe_master.db`.
+2. **Provisioning (если база отсутствует):**
+   * Создает директорию `data/subsystems/` (если не существует).
+   * Генерирует криптографически стойкий случайный пароль (`RandomNumberGenerator.GetBytes(32)`).
+   * Сохраняет пароль в `SecretsVault` под ключом `db:secret:{subsystemKey}`.
+   * Выполняет SQL `CREATE TABLE SubsystemDatabaseRegistry ...` в мастер-базе с фиксацией пути и ссылки на ключ сейфа.
+   * Настраивает в новой базе `PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;`.
+3. **Получение пароля:** Запрашивает расшифрованный пароль из `SecretsVault` по ссылке `SecretVaultKeyRef`.
+4. **Открытие подключения:** Конструирует защищенную строку подключения `Data Source={fullPath};Password={secretPassword};Mode=ReadWriteCreate;Cache=Shared;`.
+5. **Предотвращение Confused Deputy:** Сервисы инжектируют только свои клиенты (например, `IKnowledgeStore` получает доступ исключительно к ключу `"KnowledgeVault"` и не имеет права запрашивать соединение с `"FinanceLedger"` или `"Hangfire"`).
 
 ---
 
-### 4. Разграничение доступа к состоянию (`Need-to-Know Scoping`)
+### 4. Глобальный Хаб Состояний (`GlobalStateHub`) и Персистентность Здоровья Инфраструктуры
+
+Для обеспечения прозрачности между демоном `CyberPipe` и клиентскими интерфейсами (Avalonia Desktop UI, CLI, Telegram) в ядре функционирует реактивный синглтон **`GlobalStateHub`**:
+
+```mermaid
+flowchart LR
+    RMQ["RabbitMQ Health Check<br/>(Автозапуск через Центр)"] -->|Статус / Latency / Ошибки| DB[("data/subsystems/health.db<br/>(Таблица InfrastructureHealthRecords)")]
+    DB -->|Загрузка актуального среза| Hub["GlobalStateHub (In-Memory Singleton)<br/>• RabbitMqStatus: Connected, Latency, Error<br/>• BudgetStatus: Spent, HardLimit<br/>• WorkersStatus: Brainstem, Hangfire"]
+    Hub -->|gRPC Server Streaming / Named Pipes| UI["Avalonia Desktop UI<br/>(Живой индикатор + Кнопка 'Проверить')"]
+```
+
+#### 1. Таблица персистентности в SQLite (`health.db` -> `InfrastructureHealthRecords`):
+Каждая проверка инфраструктурного сервиса (автоматическая при старте, периодическая или по кнопке из UI) сохраняется в изолированную базу здоровья `data/subsystems/health.db`:
+```sql
+CREATE TABLE IF NOT EXISTS InfrastructureHealthRecords (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ServiceName TEXT NOT NULL,         -- 'RabbitMQ', 'Hangfire', 'Brainstem', 'MassTransit'
+    Status TEXT NOT NULL,              -- 'Connected', 'Disconnected', 'Starting', 'Degraded', 'Error'
+    IsHealthy INTEGER NOT NULL,        -- 1 / 0
+    LatencyMs REAL,                    -- Пинг в миллисекундах
+    ErrorMessage TEXT,                 -- Детали ошибки запуска или подключения
+    CheckedAtUtc TEXT NOT NULL,        -- Время проверки в UTC
+    MetadataJson TEXT                  -- Доп. параметры (нода, очереди, порты)
+);
+CREATE INDEX IF NOT EXISTS idx_infra_health_service ON InfrastructureHealthRecords(ServiceName, CheckedAtUtc DESC);
+```
+
+#### 2. Реактивный стейт `GlobalStateHub` в оперативной памяти:
+```csharp
+public sealed class GlobalStateHub : IGlobalStateHub
+{
+    private readonly BehaviorSubject<SystemGlobalStateSnapshot> _stateSubject;
+    private readonly ISubsystemDatabaseManager _dbManager;
+
+    public SystemGlobalStateSnapshot Current => _stateSubject.Value;
+    public IObservable<SystemGlobalStateSnapshot> StateChanges => _stateSubject.AsObservable();
+
+    public async Task UpdateRabbitMqHealthAsync(RabbitMqHealthStatus status, CancellationToken ct = default)
+    {
+        // 1. Атомарно персистим в изолированную базу здоровья data/subsystems/health.db
+        await using var conn = await _dbManager.GetConnectionAsync("InfraHealth", ct);
+        await conn.ExecuteAsync(@"
+            INSERT INTO InfrastructureHealthRecords (ServiceName, Status, IsHealthy, LatencyMs, ErrorMessage, CheckedAtUtc)
+            VALUES (@ServiceName, @Status, @IsHealthy, @LatencyMs, @ErrorMessage, @CheckedAtUtc);",
+            new {
+                ServiceName = "RabbitMQ",
+                Status = status.State.ToString(),
+                IsHealthy = status.IsConnected ? 1 : 0,
+                LatencyMs = status.PingLatencyMs,
+                ErrorMessage = status.ErrorMessage,
+                CheckedAtUtc = DateTimeOffset.UtcNow.ToString("O")
+            });
+
+        // 2. Мутируем in-memory срез и оповещаем подписчиков (UI через gRPC)
+        var updatedSnapshot = Current with { RabbitMq = status, LastUpdatedUtc = DateTimeOffset.UtcNow };
+        _stateSubject.OnNext(updatedSnapshot);
+    }
+}
+```
+
+#### 3. Безопасность паролей RabbitMQ в `SecretsVault`:
+* Учетные данные RabbitMQ (`rabbitmq:username` и `rabbitmq:password`) шифруются алгоритмом **AES-256-GCM** и хранятся исключительно в `data/secrets.vault` под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**.
+* В базу `health.db` или мастер-базу пароли **никогда не записываются** (пишутся только статус `Connected/Error`, пинг и имя ноды).
+* При первом старте, если учетные данные отсутствуют:
+  1. `RabbitMqSupervisionService` генерирует 256-битный случайный пароль.
+  2. Создает администратора `cyberpipe_admin` с тегом `administrator`.
+  3. Ограничивает права vhost только для созданного пользователя (`rabbitmqctl set_permissions -p / cyberpipe_admin ".*" ".*" ".*"`).
+  4. Сохраняет пару в `SecretsVault` и завершает подключение.
+  1. `RabbitMqSupervisionService` генерирует 256-битный случайный пароль.
+  2. Создает администратора `cyberpipe_admin` с тегом `administrator`.
+  3. Ограничивает права vhost только для созданного пользователя (`rabbitmqctl set_permissions -p / cyberpipe_admin ".*" ".*" ".*"`).
+  4. Сохраняет пару в `SecretsVault` и завершает подключение.
+
+---
+
+### 5. Разграничение доступа к состоянию (`Need-to-Know Scoping`)
 
 Даже внутри процесса действует принцип минимальных привилегий:
 * **Скиллы Хоста (`Skills.Host`):** Имеют доступ только к параметрам своей узкой задачи (например, `MediaControlSkill` видит название трека и безопасный лимит громкости, но не видит историю чатов или ключи API).
@@ -72,7 +243,7 @@
 
 ---
 
-### 5. Конфигурация без хардкода (`IOptionsMonitor<T>`)
+### 6. Конфигурация без хардкода (`IOptionsMonitor<T>`)
 
 Все лимиты безопасности и экономии настраиваются в едином прозрачном файле `appsettings.json` (с раскрытием платформенных переменных окружения и поддержкой горячей перезагрузки):
 

@@ -57,7 +57,7 @@ flowchart TD
 ### 3.1. Архитектура изоляции на Windows (`WindowsBrainstemIsolationPlatform`)
 В ядре Windows механизм Mandatory Integrity Control (MIC) по умолчанию реализует политику **`No-Write-Up`**, а монитор безопасности **NTFS игнорирует флаг `SYSTEM_MANDATORY_LABEL_NO_READ_UP` в SACL файлов и папок** (применяя `NO_READ_UP` только к объектам процессов и потоков в памяти). Кроме того, обычный процесс `Medium Integrity` не обладает привилегией `SeAssignPrimaryTokenPrivilege` для произвольного `CreateProcessAsUserW`.
 
-Поэтому на Windows защита памяти демона, базы `cyberpipe.db` и `secrets.vault` от `CyberPipe.Brainstem.exe` строится на **трех реально работающих в ядре NT механизмах**:
+Поэтому на Windows защита памяти демона, баз `cyberpipe_master.db`, `data/subsystems/*.db` (`hangfire.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) и `secrets.vault` от `CyberPipe.Brainstem.exe` строится на **трех реально работающих в ядре NT механизмах**:
 
 1. **Защита процесса `CyberPipe.exe` в оперативной памяти (Process SACL `NO_READ_UP`):**
    * При старте `CyberPipe.exe` устанавливает на **собственный дескриптор процесса (`Process Kernel Object`)** метку SACL:
@@ -67,11 +67,11 @@ flowchart TD
    * **Профиль А (`AppContainer` — по умолчанию для `DocumentExtractText` и CPU-задач):**
      * Супервизор регистрирует профиль `CreateAppContainerProfile("CyberPipe.Brainstem.Sandbox", ...)` с **нулевым списком сетевых возможностей (`Capabilities = Empty`)** — ядро Windows полностью блокирует исходящую и входящую сеть.
      * Запуск выполняется штатным `CreateProcessW` с `EXTENDED_STARTUPINFO_PRESENT` и атрибутом `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` (не требует административных привилегий или `SeAssignPrimaryTokenPrivilege`).
-     * Процесс в `AppContainer` получает уникальный `AppContainer SID` (`Low Integrity`) и по умолчанию **не имеет прав чтения (`ACCESS_DENIED`) ни к каким пользовательским папкам**, включая `%LOCALAPPDATA%\CyberPipe\data\` (`cyberpipe.db`, `secrets.vault`), кроме явно разрешенных `Read & Execute` на `./worker/` и `Modify` на одноразовую папку `worker-temp/{InstanceGuid}`.
+     * Процесс в `AppContainer` получает уникальный `AppContainer SID` (`Low Integrity`) и по умолчанию **не имеет прав чтения (`ACCESS_DENIED`) ни к каким пользовательским папкам**, включая `%LOCALAPPDATA%\CyberPipe\data\` (`cyberpipe_master.db`, каталог `data/subsystems/`, `secrets.vault`), кроме явно разрешенных `Read & Execute` на `./worker/` и `Modify` на одноразовую папку `worker-temp/{InstanceGuid}`.
    * **Профиль Б (`RestrictedTokenWithRestrictingSids` — для `WhisperTranscribe` с GPU CUDA/DirectML, если драйвер видеокарты блокирует `AppContainer`):**
      * Формируется токен через `CreateRestrictedToken` с флагами `DISABLE_MAX_PRIVILEGE | SANDBOX_INERT` и массивом ограничивающих SID **`SidsToRestrict` (`RESTRICTED_SID`)**: `[Everyone (S-1-1-0), BuiltinUsers (S-1-5-32-545), CurrentUserSid, RestrictedWorkerCustomSid (S-1-5-99-214-1)]`.
      * При проверке доступа в Windows объект открывается только тогда, когда доступ разрешен **и** основному списку SID, **и** списку `SidsToRestrict`.
-     * На каталог `%LOCALAPPDATA%\CyberPipe\data\` (содержащий `cyberpipe.db` и `secrets.vault`) при инициализации (`CyberPipe setup` / старте демона) в **DACL** прописывается явная запись отказа **`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid (S-1-5-99-214-1)`**. Так как у основного процесса `CyberPipe.exe` этого SID нет, демон беспрепятственно работает с БД и секретами, а `Brainstem.exe` с `RestrictedWorkerCustomSid` в `SidsToRestrict` получает от NTFS жесткий `UnauthorizedAccessException` при любой попытке открыть `cyberpipe.db` или `secrets.vault`.
+     * На каталог `%LOCALAPPDATA%\CyberPipe\data\` (содержащий `cyberpipe_master.db`, `data/subsystems/` и `secrets.vault`) при инициализации (`CyberPipe setup` / старте демона) в **DACL** прописывается явная запись отказа **`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid (S-1-5-99-214-1)`**. Так как у основного процесса `CyberPipe.exe` этого SID нет, демон беспрепятственно работает с БД и секретами, а `Brainstem.exe` с `RestrictedWorkerCustomSid` в `SidsToRestrict` получает от NTFS жесткий `UnauthorizedAccessException` при любой попытке открыть `cyberpipe_master.db`, базы подсистем в `data/subsystems/*.db` или `secrets.vault`.
 3. **Запрет наследования дескрипторов и очистка окружения:**
    * При вызове `CreateProcess` устанавливается `bInheritHandles = FALSE` (воркер не наследует открытые дескрипторы SQLite или сокеты родителя), а в блок окружения передаются только `SystemRoot` и изолированный `TEMP`/`TMP`.
 
@@ -201,7 +201,7 @@ public record BrainstemControlSignal(
 
 1. **Структура каталогов при установке:**
    * `C:\Program Files\CyberPipe\` (или защищенный системный каталог `/opt/cyberpipe`, `/Applications/CyberPipe.app`): содержит `CyberPipe`, `CyberPipe.UI.Desktop`, управляемые `.dll` демона и подкаталог `worker/` (`CyberPipe.Brainstem` + манифест `worker.manifest.json`). Права на запись (`Write/Modify`) есть только у администратора (`BUILTIN\Administrators` / `root`). Обычный пользователь и сам демон имеют только `Read & Execute`.
-   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe.db` (`SQLite WAL`), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
+   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe.db` (`SQLite WAL`), `hangfire.db` (отдельная база задач Hangfire, защищенная паролем), `masstransit.db` (отдельная база шины MassTransit, защищенная паролем), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
 2. **Полная проверка целостности `worker/worker.manifest.json` перед запуском (`Full Worker Directory Integrity Check`):**
    * Чтобы исключить атаку подмены зависимых библиотек (`DLL Hijacking` через `whisper.dll` или управляемые `.dll`), при сборке релиза генерируется подписанный манифест `worker/worker.manifest.json`, содержащий **SHA-256 хеши `CyberPipe.Brainstem.exe` и всех `.dll` / `.so` / `.dylib` в каталоге `./worker/`**.
    * Перед созданием процесса `Brainstem` супервизор сверяет SHA-256 всех исполняемых и библиотечных файлов в `./worker/` против эталонного манифеста и удерживает дескриптор `FileShare.Read` на время работы воркера. При любом несовпадении запуск блокируется с кодом `ExitCode = 3`.
@@ -225,7 +225,7 @@ public record BrainstemControlSignal(
 4. **Пентест-попытка пробить границу процесса и диска (`Negative Escape Tests`):**
    * Специальный тестовый обработчик внутри `Brainstem` в рамках интеграционного теста пытается:
      * Вызвать `OpenProcess(PROCESS_VM_READ, daemonPid)` $\rightarrow$ тест проходит **только если получен `ACCESS_DENIED (5)`** (благодаря `Process SACL NO_READ_UP`).
-     * Открыть файл базы `../data/cyberpipe.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
+     * Открыть файл базы `../data/cyberpipe.db`, `../data/hangfire.db`, `../data/masstransit.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
      * Вызвать `Process.Start("cmd.exe")` внутри `Job Object` с `ActiveProcessLimit = 1` $\rightarrow$ тест проходит **только при блокировке создания процесса ядром ОС**.
 5. **Тест на `AccessViolation`, OOM и защиту от ложного `Poison-Pill` (`Crash & Cancellation Resilience Test`):**
    * Намеренный вызов нативного падения памяти (`AccessViolation`) и превышения лимита `512 МБ` внутри `Brainstem` подтверждает, что `CyberPipe` остается жив, инкрементирует `AttemptCount` в `InFlightOperations` и готов к следующему запросу менее чем через `200 мс`, тогда как штатная отмена задачи через `/stop` (`OperationCanceledException`) удаляет запись `InFlightOperations` без пометки `Poisoned`.
@@ -261,6 +261,7 @@ public record BrainstemControlSignal(
 | `CyberPipe backup sqlite create\|verify\|restore` | `Hybrid` | User | Спринт 2 | Горячий бэкап базы `SQLite WAL` (через `SqliteBackupService` Backup API), проверка контрольной суммы и восстановление. |
 | `CyberPipe memory search\|add\|status` | `Hybrid` | User | Спринт 2 | Гибридный поиск (`FTS5 + In-Memory SIMD`) по `KnowledgeVault` с учетом `TrustSource`. |
 | `CyberPipe cron list\|add\|enable\|disable\|run` | `Daemon-Required` | User | Спринт 3 | Управление задачами планировщика `ProactiveScheduler`. |
+| `CyberPipe rabbitmq status\|check\|start` | `Hybrid` | User | Спринт 1 | Проверка доступности портов 5672/15672, пинг ноды, старт через Центр и валидация учетных данных в `SecretsVault`. |
 | `CyberPipe skills list\|check\|unquarantine` | `Daemon-Required` | User | Спринт 3 | Статус подключенных скиллов и ручной вывод скилла из карантина после сбоя. |
 | `CyberPipe tui [--local]` | `Daemon-Required` | User | Спринт 5 | Интерактивный терминальный интерфейс (TUI) с чатом, мониторингом бюджета и флагом локального режима `--local`. |
 

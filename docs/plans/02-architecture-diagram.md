@@ -12,7 +12,7 @@ flowchart TD
         TG["Telegram Bot Client<br/>(Текст, Голосовые, Документы, Кнопки Паузы/Стоп)"]
         UI["CyberPipe.UI.Desktop.exe (Avalonia UI)<br/>(gRPC Named Pipes, Панель управления, Графики)"]
         CLI["CyberPipe.exe CLI & TUI<br/>(status, doctor, models scan, infer, tui, --json)"]
-        Cron["Proactive Scheduler & Event Watchdogs<br/>(Утренний брифинг, Git/Infra/SSL пингер, Подписки)"]
+        Cron["Proactive Scheduler (Hangfire + Watchdogs)<br/>(Утренний брифинг, Git/Infra/SSL пингер, Подписки)<br/>+ Read-Only Dashboard на 127.0.0.1"]
     end
 
     subgraph Perimeter ["1. Периметр, Локальный Голос и Стоп-Кран (< 0.5 ms)"]
@@ -35,13 +35,18 @@ flowchart TD
         SecGuard["SecurityGuard (AST + Passive OSINT + Hard Tool Stripping)<br/>• Физическое удаление хост-тулов при UntrustedExternal<br/>• Локальный AST-анализ + Stealth проверка URL/IP (Fail-Closed)"]
     end
 
-    subgraph ExecutionLayer ["4. Исполнение: Доменные Скиллы Помощника vs Песочницы"]
+    subgraph ExecutionLayer ["4. Исполнение: Скиллы, Netrunner и Песочницы"]
         HostSkills["Typed Host & Assistant Skills (0 токенов)<br/>• Media/Volume & Workspace Profiles (/mode)<br/>• Personal: Второй мозг, Финансы, Подписки, Напоминания<br/>• Dev: Git Repo Radar, Infra/SSL Health, Dev Memory<br/>• Business: Личная CRM, Запись звонков (NAudio)"]
+        Netrunner["Netrunner ETL Engine (0 токенов)<br/>• Исполнение сохраненных скриптов (ИИ/ручные)<br/>• Детерминированный парсинг и экономия токенов"]
         SandboxEngine["Pluggable Sandbox Engine (ISandboxProvider)<br/>• OS Sandbox (AppContainer / bwrap / Seatbelt) / Wasmtime / Docker<br/>• Out-of-Band Telemetry Pre-Processor (1GB -> 30KB)"]
     end
 
-    subgraph StorageAndState ["5. Хранилище, Мониторинг ПК и Помощник Подбора Моделей"]
-        SQLite[("SQLite WAL + KnowledgeVault (FTS5 + SIMD)<br/>• Второй мозг (с TrustSource), CRM, Финансы, Чекпоинты, Секреты")]
+    subgraph StorageAndState ["5. Хранилища, Шина MassTransit и GlobalStateHub"]
+        MasterDB[("Центральный Мастер SQLite (cyberpipe_master.db)<br/>• Базовые настройки приложения<br/>• Реестр SubsystemDatabaseRegistry")]
+        DbManager["ISubsystemDatabaseManager<br/>• Разрешение БД + Provisioning<br/>• Пароли в SecretsVault (DPAPI/Keychain)<br/>• Изолированный доступ к подсистемам"]
+        SubsystemDBs[("Изолированные БД подсистем (data/subsystems/*.db):<br/>• hangfire.db: Планировщик Hangfire<br/>• masstransit.db: Только для MassTransit<br/>• knowledge.db: База знаний (FTS5 + SIMD)<br/>• crm.db: Личная CRM и контакты<br/>• finance.db: Финансы и транзакции<br/>• budget.db: Токены и чекпоинты задач<br/>• health.db: Аудит здоровья сервисов<br/>• netrunner.db: ETL-скрипты Netrunner")]
+        MassTransitBus["MassTransit Bus (Выбор транспорта в UI)<br/>• 1. InMemory (По умолчанию, 0$ и 0 зависимостей)<br/>• 2. SQLite WAL (masstransit.db, только для шины)<br/>• 3. RabbitMQ (AMQP 5672, старт через Центр, cyberpipe_admin)"]
+        StateHub["GlobalStateHub (Реактивный Синглтон)<br/>• Статус шины MassTransit (InMemory/SQLite/RabbitMQ)<br/>• Запись в health.db ➔ gRPC Стрим в Desktop UI"]
         ResMonitor["ISystemResourceMonitor & IHardwareCapabilitiesProbe<br/>• CPU, Total/Free RAM, GPU VRAM, Активные контейнеры"]
         ModelAdvisor["IModelCompatibilityAdvisor<br/>• Сверяет железо ПК с 15 Local + Curated Cloud моделями"]
     end
@@ -62,6 +67,7 @@ flowchart TD
 
     %% Каскад маршрутизации
     Tier0 -->|Совпало (Fast-Path!)| HostGuard
+    Tier0 -->|Netrunner Action| Netrunner
     Tier0 -->|Не совпало| Tier1
     Tier1 -->|Высокий скор / Память / Кэш!| HostGuard
     Tier1 -->|Неизвестная фраза| BudgetGov
@@ -77,16 +83,25 @@ flowchart TD
     SecGuard -->|Безопасно (Wasmtime / Docker / OS Sandbox)| SandboxEngine
     SecGuard -.->|Риск High / Нативный процесс -> Запрос подтверждения| TG
 
-    %% Выполнение скиллов хоста
+    %% Выполнение скиллов хоста и Netrunner
     HostGuard -->|Одобрено и ограничено (Volume/NSFW)| HostSkills
     HostGuard -.->|Заблокировано (18+ / Wipe / Лимит)| TG
+    HostSkills -.->|Сырые данные (Fetch)| Netrunner
 
     %% Связь с хранилищем и монитором
     ResMonitor -.->|Проверка RAM/CPU| SandboxEngine
     ResMonitor -.->|Метрики| UI
-    BudgetGov <--> SQLite
-    Tier1 <--> SQLite
-    HostSkills <--> SQLite
+    BudgetGov <--> DbManager
+    Tier1 <--> DbManager
+    HostSkills <--> DbManager
+    Netrunner <--> DbManager
+    DbManager <--> MasterDB
+    DbManager <--> SubsystemDBs
+
+    %% MassTransit и GlobalStateHub
+    MassTransitBus <-->|Health Check & State| StateHub
+    StateHub <-->|Срез состояния и аудит| DbManager
+    StateHub -.->|gRPC State Stream| UI
 ```
 
 ---
@@ -112,6 +127,6 @@ flowchart TD
 ---
 
 #### Путь В: Проактивная работа и Ассистент созвонов (*Утренний брифинг, Контроль серверов, Запись встречи*)
-1. **`ProactiveScheduler`** в 09:00 (или при падении рабочего контейнера / за 3 дня до списания подписки) собирает данные из локальной `SQLite` (задачи, CRM follow-ups, коммиты Git, статус серверов) за **0 токенов** и отправляет структурированную сводку в Telegram.
+1. **`ProactiveScheduler` (Hangfire)** в 09:00 (или при падении рабочего контейнера / за 3 дня до списания подписки) собирает данные из локальной `SQLite` (задачи, CRM follow-ups, коммиты Git, статус серверов) за **0 токенов** и отправляет структурированную сводку в Telegram (а состояние очереди доступно в Read-Only Dashboard).
 2. Во время рабочего звонка скилл **`MeetingAssistantSkill`** записывает аудиопоток через `NAudio`, локально расшифровывает через `Whisper.net` (**0$**) и формирует список задач (**Action Items**) с кнопкой `[➕ Добавить в трекер]`.
 

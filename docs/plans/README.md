@@ -50,3 +50,7 @@
 
 15. [**15. Исполняемые файлы, Межпроцессная Изоляция (`CyberPipe.Brainstem`), Безопасность IPC и Системный CLI / TUI**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)  
     *Каноническая спецификация точек входа (`CyberPipe.exe`, `CyberPipe.UI.Desktop.exe`, `worker/CyberPipe.Brainstem.exe`), кроссплатформенной изоляции воркера (`AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` в Windows, `bwrap` в Linux, `Seatbelt` в macOS), раздельных пулов `Whisper` и `SingleUse PDF/DOCX`, проверки `worker.manifest.json`, тестов `CyberPipe.Tests.Isolation` и матрицы команд CLI.*
+
+16. [**16. Ассистент Netrunner: Движок Каскадных Задач (Mini-n8n DAG), HITL и Стандарт Пакетов Скриптов**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md)  
+    *Архитектура специализированного ETL-ассистента Netrunner: стандарт пакетов скриптов с 6 обязательными файлами (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `main.*`, `tests/sample.fixture.json`), каскадный движок DAG (`SkillNode ➔ NetrunnerScriptNode ➔ ConditionNode ➔ LlmProcessNode ➔ HitlApprovalNode ➔ DeliveryNode`), транзакционные чекпоинты в `netrunner.db` и контроль целостности SHA-256.*
+
