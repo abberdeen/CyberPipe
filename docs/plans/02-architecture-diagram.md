@@ -16,65 +16,66 @@ flowchart TD
     end
 
     subgraph Perimeter ["1. Периметр, Локальный Голос и Стоп-Кран (< 0.5 ms)"]
-        AuthGuard["Telegram & API Auth Guard<br/>• Whitelist UserId / ChatId (Owner vs Guest)<br/>• Отсев чужих за 0.1 мс (0 токенов)"]
+        AuthGuard["Telegram & IPC Auth Guard<br/>• Whitelist UserId / ChatId (Owner vs Guest)<br/>• Верификация PID/Nonce для IPC<br/>• Отсев чужих за 0.1 мс (0 токенов)"]
         KillSwitch["Priority Kill-Switch (/stop, /pause)<br/>• Мгновенный CancellationToken.Cancel()<br/>• Остановка стрима LLM и процессов"]
-        VoiceSTT["Local Voice-to-Text (Whisper.net ONNX)<br/>• Расшифровка голосовых и звонков за 0 токенов"]
-        Sanitizer["Central Data Sanitizer<br/>• Маскирование ключей, паролей, PII"]
+        VoiceSTT["Local Voice-to-Text (Whisper.net в Brainstem)<br/>• Расшифровка голосовых и звонков за 0 токенов"]
     end
 
     subgraph FastRouter ["2. Каскадный Маршрутизатор (4-Tier Intent Router: Local vs RemoteCloud)"]
         Tier0["Tier 0: Deterministic Fast-Path (0 токенов, < 1 мс)<br/>• Слэш-команды, Regex ('/mode coding', '/repos', 'громкость 30', 'кофе 350')"]
-        Tier1["Tier 1: Local ONNX Semantic Router + Cache (0 токенов, ~10 мс)<br/>• Векторный поиск интента и памяти (SIMD) + Semantic Response Cache"]
+        Tier1["Tier 1: Local ONNX Semantic Router + Cache (0 токенов, ~10 мс)<br/>• Векторный поиск интента и памяти (SIMD) + Role-Scoped Semantic Cache"]
         Tier2["Tier 2: Light/Fast Task Model (Выбор в UI: 🏠 Local 0$ или ☁️ Remote $)<br/>• Извлечение JSON-параметров + Dynamic Tool Pruning (2-3 тула)"]
         Tier3["Tier 3: Heavy Reasoning Model (Выбор в UI: 🏠 Local 0$ или ☁️ Remote $)<br/>• Кодинг, фикс багов, аудит договоров, выжимка встреч"]
     end
 
-    subgraph BudgetAndSafety ["3. Детерминированные Предохранители (Адаптация под Local / RemoteCloud)"]
-        BudgetGov["TokenBudgetGovernor & Circuit Breaker<br/>• Для ☁️ Remote: лимит $ / авто-пауза в Telegram<br/>• Для 🏠 Local: $0.00 (контроль только MaxTurns)"]
-        HostGuard["Host & Media Safety Guard (Anti-Wipe / Anti-Abuse)<br/>• Запрет Raw Shell из чата<br/>• Volume Clamp (Max 60% / 25% ночью)<br/>• NSFW / 18+ фильтр и Whitelist медиа-источников"]
-        SecGuard["SecurityGuard (AST + Passive OSINT)<br/>• Локальный AST-анализ скриптов<br/>• Stealth проверка внешних URL/IP"]
+    subgraph BudgetAndSafety ["3. Детерминированные Предохранители и Выходной Шлюз Очистки"]
+        Sanitizer["Central Data Sanitizer (Egress Gateway)<br/>• Маскирование ключей, паролей, PII ([REDACTED])<br/>• Перед RemoteCloud LLM, логами Serilog и Telegram"]
+        BudgetGov["TokenBudgetGovernor & Circuit Breaker<br/>• Для ☁️ Remote: Soft 4k / Hard 12k, MaxOutputTokens, авто-пауза<br/>• Для 🏠 Local: $0.00 (контроль только MaxTurns = 3)"]
+        HostGuard["Host & Media Safety Guard (Anti-Wipe / Anti-Abuse)<br/>• Запрет Raw Shell из чата<br/>• Volume Clamp (Max 60% / 25% ночью + проверка перед Play)<br/>• NSFW / 18+ фильтр и Whitelist медиа-источников"]
+        SecGuard["SecurityGuard (AST + Passive OSINT + Hard Tool Stripping)<br/>• Физическое удаление хост-тулов при UntrustedExternal<br/>• Локальный AST-анализ + Stealth проверка URL/IP (Fail-Closed)"]
     end
 
     subgraph ExecutionLayer ["4. Исполнение: Доменные Скиллы Помощника vs Песочницы"]
         HostSkills["Typed Host & Assistant Skills (0 токенов)<br/>• Media/Volume & Workspace Profiles (/mode)<br/>• Personal: Второй мозг, Финансы, Подписки, Напоминания<br/>• Dev: Git Repo Radar, Infra/SSL Health, Dev Memory<br/>• Business: Личная CRM, Запись звонков (NAudio)"]
-        SandboxEngine["Pluggable Sandbox Engine (ISandboxProvider)<br/>• CliWrap Restricted / Wasmtime / Docker<br/>• Out-of-Band Telemetry Pre-Processor (1GB -> 30KB)"]
+        SandboxEngine["Pluggable Sandbox Engine (ISandboxProvider)<br/>• OS Sandbox (AppContainer / bwrap / Seatbelt) / Wasmtime / Docker<br/>• Out-of-Band Telemetry Pre-Processor (1GB -> 30KB)"]
     end
 
     subgraph StorageAndState ["5. Хранилище, Мониторинг ПК и Помощник Подбора Моделей"]
-        SQLite[("SQLite WAL + KnowledgeVault (FTS5 + SIMD)<br/>• Второй мозг, Личная CRM, Финансы, Чекпоинты, Секреты (DPAPI)")]
+        SQLite[("SQLite WAL + KnowledgeVault (FTS5 + SIMD)<br/>• Второй мозг (с TrustSource), CRM, Финансы, Чекпоинты, Секреты")]
         ResMonitor["ISystemResourceMonitor & IHardwareCapabilitiesProbe<br/>• CPU, Total/Free RAM, GPU VRAM, Активные контейнеры"]
         ModelAdvisor["IModelCompatibilityAdvisor<br/>• Сверяет железо ПК с 15 Local + Curated Cloud моделями"]
     end
 
     %% Потоки от клиентов
     TG -->|Webhook / Polling| AuthGuard
-    UI -->|gRPC / TLS| AuthGuard
-    Cron -->|Расписание / Событие| Sanitizer
+    UI -->|Named Pipe IPC (gRPC)| AuthGuard
+    CLI -->|Named Pipe IPC / Offline Mode| AuthGuard
+    Cron -->|Расписание / Событие| Tier0
 
     AuthGuard -->|/stop или /pause| KillSwitch
     KillSwitch -.->|Abort HTTP & Kill Process| Tier3
     KillSwitch -.->|Abort| SandboxEngine
 
     AuthGuard -->|Голосовое сообщение| VoiceSTT
-    VoiceSTT -->|Текст (0 токенов)| Sanitizer
-    AuthGuard -->|Текстовый запрос| Sanitizer
-    Sanitizer --> Tier0
+    VoiceSTT -->|Текст (0 токенов)| Tier0
+    AuthGuard -->|Текстовый запрос| Tier0
 
     %% Каскад маршрутизации
     Tier0 -->|Совпало (Fast-Path!)| HostGuard
     Tier0 -->|Не совпало| Tier1
     Tier1 -->|Высокий скор / Память / Кэш!| HostGuard
     Tier1 -->|Неизвестная фраза| BudgetGov
-    BudgetGov -->|Бюджет ОК| Tier2
+    BudgetGov -->|Бюджет ОК| Sanitizer
+    Sanitizer -->|Очищенный промпт (для RemoteCloud)| Tier2
     BudgetGov -.->|Превышен порог -> ПАУЗА| TG
     Tier2 -->|Скилл с параметрами| HostGuard
     Tier2 -->|Сложная задача| Tier3
 
     %% Вызов сложной LLM и проверка безопасности
-    Tier3 <-->|Контроль каждого шага| BudgetGov
+    Tier3 <-->|Контроль каждого шага + Sanitizer| BudgetGov
     Tier3 -->|Tool Proposal| SecGuard
-    SecGuard -->|Безопасно| SandboxEngine
-    SecGuard -.->|Риск High -> Запрос подтверждения| TG
+    SecGuard -->|Безопасно (Wasmtime / Docker / OS Sandbox)| SandboxEngine
+    SecGuard -.->|Риск High / Нативный процесс -> Запрос подтверждения| TG
 
     %% Выполнение скиллов хоста
     HostGuard -->|Одобрено и ограничено (Volume/NSFW)| HostSkills
@@ -93,20 +94,20 @@ flowchart TD
 ### Как работают три главных пути запроса:
 
 #### Путь А: Быстрая команда или Голосовая заметка из Telegram (*«Включи бодрую музыку на 40%»*, *«Кофе 350»*, *«/repos»*)
-1. **`TelegramAuthGuard` (< 0.1 мс):** Проверяет, что `UserId` в белом списке владельца/семьи. Если пришло голосовое — `Whisper.net` локально переводит его в текст за **0 токенов**.
-2. **`Tier 0 / Tier 1 Router` (1–10 мс, 0 токенов):** Мгновенно распознает интент (`Media.Play`, `Finance.AddExpense`, `Dev.GitRadar` или поиск во «Втором мозге») локально без обращения к облачному ИИ.
+1. **`TelegramAuthGuard` (< 0.1 мс):** Проверяет, что `UserId` в белом списке владельца/семьи. Если пришло голосовое — `Whisper.net` в выделенном прогретом пуле `Brainstem` переводит его в текст за **0 токенов**.
+2. **`Tier 0 / Tier 1 Router` (1–10 мс, 0 токенов):** Мгновенно распознает интент (`Media.Play`, `Finance.AddExpense`, `Dev.GitRadar` или поиск во «Втором мозге») локально без обращения к облачному ИИ и без искажения локальных заметок санитайзером.
 3. **`Host & Media Safety Guard` (< 1 мс):**
-   * Проверяет запрос по локальному **NSFW/18+ фильтру** и применяет **`VolumeClamp`** (макс. `60%` днем / `25%` ночью).
+   * Проверяет запрос по локальному **NSFW/18+ фильтру** и применяет **`VolumeClamp`** (макс. `60%` днем / `25%` ночью, включая принудительную проверку текущей системной громкости перед `Play`).
 4. **`Typed Host & Assistant Skill` (5–20 мс):** Вызывает нативный API плеера, записывает расход в `SQLite` или сканирует локальные Git-репозитории.
 5. **Итог:** Задача решена за **~10–30 миллисекунд**, потрачено **0 токенов (0.00$)**.
 
 ---
 
 #### Путь Б: Сложная инженерная или бизнес-задача (*«Запусти тесты, найди причину падения и предложи фикс»* или *«Проверь PDF договора на риски»*)
-1. Не попав в `Tier 0` и `Tier 1`, запрос проходит через **`TokenBudgetGovernor`**, который проверяет остаток дневного/часового лимита и выделяет квоту на задачу (например, `6 000 токенов`).
-2. **`Tier 2 / Tier 3`** вызывает LLM, передавая только сжатый через `ToolOutputTruncator` вывод (например, только `StackTrace` упавшего теста), топ-3 факта из `KnowledgeVault` и 2–3 нужных инструмента (**Dynamic Tool Pruning**).
-3. Если задача съедает 70% выделенного бюджета, **`TokenBudgetGovernor` автоматически ставит задачу на паузу**, сохраняет чекпоинт в SQLite и присылает в Telegram кнопки: `[▶️ Продолжить]` / `[🛑 Стоп]`.
-4. Любой предложенный скрипт перед запуском в изолированной песочнице проходит через локальный AST-анализатор **`SecurityGuard`**.
+1. Не попав в `Tier 0` и `Tier 1`, запрос проходит через **`TokenBudgetGovernor`**, который проверяет остаток дневного/минутного лимита, выставляет `ChatOptions.MaxOutputTokens` и выделяет квоту на задачу (`SoftTaskTokenLimit = 4 000 токенов`, `HardTaskTokenLimit = 12 000 токенов`, `MaxLlmTurnsPerTask = 3`).
+2. Перед отправкой в `RemoteCloud` промпт очищается выходным шлюзом **`CentralDataSanitizer`**. Если контекст содержит внешние данные (`UntrustedExternal`), **`SecurityGuard`** физически удаляет схемы хостовых скиллов из `ChatOptions.Tools` (`Hard Tool Stripping`). **`Tier 2 / Tier 3`** вызывает LLM, передавая только сжатый через `ToolOutputTruncator` вывод, топ-3 доверенных факта из `KnowledgeVault` и 2–3 нужных инструмента (**Dynamic Tool Pruning**).
+3. При достижении порога `SoftTaskTokenLimit (4 000 токенов)` или `3 шагов`, **`TokenBudgetGovernor` автоматически переводит задачу в состояние `TaskLifecycleState.PausedByBudget`**, сохраняет чекпоинт в SQLite и присылает в Telegram кнопки: `[▶️ Разрешить еще +5 000 токенов]` (добавляет `+5 000 токенов` и `+3 шага`), `[⚡ Выдать итог]` / `[🛑 Стоп]`.
+4. Любой сгенерированный агентом скрипт выполняется только в реальной песочнице (`Wasmtime`, `Docker` или ОС-песочнице `AppContainer`/`bwrap`/`Seatbelt` с записью строго в `EphemeralWorkspace`) после проверки локальным AST-анализатором **`SecurityGuard`** (а запуск нативных утилит вне песочницы требует явного подтверждения владельца в Telegram/UI).
 
 ---
 

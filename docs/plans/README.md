@@ -28,10 +28,10 @@
    *Дашборд экономии токенов, Конфигуратор моделей по Tiers (`Local` vs `RemoteCloud`) в Avalonia UI + автоматические тесты `ArchUnitNET`.*
 
 8. [**08. План поэтапной реализации**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md)  
-   *Прагматичный план на 5 спринтов: уже в Спринте 1–2 запускается быстрый и безопасный Telegram-помощник с управлением музыкой за 0 токенов, помощником выбора моделей и контролем бюджета.*
+   *Прагматичный план на 5 спринтов с четкими критериями приемки (DoD): уже в Спринте 1 запускаются базовый `CyberPipe.Storage.Sqlite`, тесты `ArchUnitNET` и `CyberPipe.Tests.Isolation`, `Brainstem.exe` и управление медиа из Telegram за 0 токенов.*
 
 9. [**09. Защита данных, Санитизация, Локальный Кэш и Хранение (SQLite WAL)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md)  
-   *Очистка секретов (`[REDACTED]`), локальный сейф ключей (`DPAPI` / `AES-256-GCM`), `SemanticResponseCache` в SQLite WAL и единый прозрачный конфиг лимитов и моделей.*
+   *Выходной шлюз очистки секретов (`CentralDataSanitizer` на границе Egress без слепой обратной подстановки), персистентный сейф ключей (`DPAPI` / `LibSecret` / `Keychain` + файловая изоляция ОС), раздельные `SemanticIntentCache` и ролевой `SemanticResponseCache`, миграции и бэкапы SQLite WAL.*
 
 10. [**10. Мониторинг Ресурсов ПК и Сжатие Телеметрии Песочниц**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md)  
     *Инспекция железа `IHardwareCapabilitiesProbe`, защита ПК от фризов (`Resource Circuit Breaker`), обрезка вывода тулов (`ToolOutputTruncator` до 1 500 символов) и внеполосный дайджест песочниц.*
@@ -43,10 +43,10 @@
     *Полный перечень системных возможностей (локальный голос `Whisper.net` за 0 токенов, гибридная память «Второй мозг» на `SQLite FTS5 + SIMD`, проактивные брифинги) и прикладных скиллов для личных дел, программирования (`Git Radar`, `Build/Test Watchdog`, мониторинг серверов) и бизнеса (`Personal CRM`, запись и выжимка созвонов через `NAudio`, проверка договоров).*
 
 13. [**13. Конфигурация Tiers (Local vs Remote), Сервис Совместимости Железа и Curated-Каталог Моделей**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md)  
-    *Четкое разделение `Local` и `RemoteCloud` моделей в UI и ядре, связка сервисов `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor`, полный Curated-каталог из 15 локальных моделей (с оценкой RAM/Q4) и Curated-список платных облачных моделей для легких и сложных задач.*
+    *Четкое разделение `Local` (через локальный HTTP-сервер Ollama / LM Studio) и `RemoteCloud` моделей в UI и ядре, связка `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor` с учетом KV-Cache, Curated-каталог из 15 локальных и 8 облачных моделей.*
 
 14. [**14. Устойчивость ядра `CyberPipe.exe` к сбоям, Контроль Буферов и Внутрипроцессная Изоляция (`Bulkhead`)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md)  
-    *Внутрипроцессная изоляция `CyberPipe.exe`: `BackgroundServiceExceptionBehavior.Ignore`, запрет блокирующего I/O в конструкторах DI, `IsolatedWorkerBase` с авто-карантином после 3 ошибок, отсеки `Bulkhead Lanes`, `BoundedChannel` + `QuotaBoundedStream` и журнал `InFlightOperations` против Poison-Pill.*
+    *Внутрипроцессная изоляция `CyberPipe.exe`: `BackgroundServiceExceptionBehavior.Ignore`, `IsolatedWorkerBase` в базовом слое без циклических ссылок, раздельные отсеки `Bulkhead Lanes`, `BoundedChannel` + `QuotaBoundedStream` и журнал `InFlightOperations` для тяжелых и внешних задач.*
 
 15. [**15. Исполняемые файлы, Межпроцессная Изоляция (`CyberPipe.Brainstem`), Безопасность IPC и Системный CLI / TUI**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)  
-    *Каноническая спецификация точек входа (`CyberPipe.exe`, `CyberPipe.UI.Desktop.exe`, `worker/CyberPipe.Brainstem.exe`), модели безопасности Windows (`Low Integrity` / `Restricted SID`, `SACL NO_READ_UP`, `Job Object`), аутентификации Named Pipes (`PID` + `SessionNonce`), протокола `Brainstem`, интеграционных тестов изоляции в CI (`CyberPipe.Tests.Isolation`) и матрицы команд CLI.*
+    *Каноническая спецификация точек входа (`CyberPipe.exe`, `CyberPipe.UI.Desktop.exe`, `worker/CyberPipe.Brainstem.exe`), кроссплатформенной изоляции воркера (`AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` в Windows, `bwrap` в Linux, `Seatbelt` в macOS), раздельных пулов `Whisper` и `SingleUse PDF/DOCX`, проверки `worker.manifest.json`, тестов `CyberPipe.Tests.Isolation` и матрицы команд CLI.*

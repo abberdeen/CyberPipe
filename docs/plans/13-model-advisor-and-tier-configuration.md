@@ -17,7 +17,7 @@ namespace CyberPipe.Contracts.Enums;
 
 public enum ModelHostingType
 {
-    Local = 0,       // Работает на ПК пользователя (Ollama / ONNX / Llama.cpp): 0$ за токены, нагрузка на RAM/VRAM
+    Local = 0,       // Работает на ПК пользователя через локальный HTTP-сервер (Ollama / LM Studio на localhost:11434) + локальный ONNX для Tier 1: 0$ за токены, нагрузка на RAM/VRAM
     RemoteCloud = 1  // Внешний платный API (OpenAI / Anthropic / Gemini / DeepSeek): расход $, строгий контроль бюджета
 }
 
@@ -32,9 +32,9 @@ public enum ModelTaskCategory
 
 | Подсистема CyberPipe | Если для Tier выбрана **`Local`** модель | Если для Tier выбрана **`RemoteCloud`** модель |
 | :--- | :--- | :--- |
-| **`TokenBudgetGovernor`** | **Стоимость = $0.00.** Запросы не расходуют дневной долларовый лимит (`DailyBudgetUsdCap`). Контролируется только лимит шагов цикла (`MaxLlmTurnsPerTask`), чтобы избежать зависания. | **Платный режим ($).** Точный подсчет стоимости в долларах до и после вызова, жесткий `Velocity Circuit Breaker` и авто-пауза при 70% бюджета задачи. |
-| **`ISystemResourceMonitor`** | **Контроль RAM/VRAM.** Перед вызовом проверяется, хватит ли свободной оперативной/видеопамяти на хосте, чтобы не вызвать фриз ОС или игры. | Нагрузка на CPU/RAM хоста нулевая (только легкий HTTP-запрос). |
-| **`CentralDataSanitizer`** | Базовая маскировка секретов для логов; данные **не покидают пределы ПК** (индикатор `🔒 100% On-Device` в UI). | Строжайшая очистка (`[REDACTED]`) всех ключей, паролей, путей и PII перед отправкой в интернет. |
+| **`TokenBudgetGovernor`** | **Стоимость = $0.00.** Запросы не расходуют дневной долларовый лимит (`DailyBudgetUsdCap`). Контролируется только лимит шагов цикла (`MaxLlmTurnsPerTask = 5`) и `MaxOutputTokens = 2048`, чтобы избежать бесконечного цикла генерации. | **Платный режим ($).** Точный подсчет стоимости в долларах до и после вызова (`UsageDetails`), жесткий `Velocity Circuit Breaker`, авто-пауза при `SoftTaskTokenLimit = 4 000` (`+5 000 токенов / +3 шага` по кнопке) и Hard Stop на `HardTaskTokenLimit = 12 000`. |
+| **`ISystemResourceMonitor`** | **Контроль RAM/VRAM.** Перед вызовом проверяется, хватит ли свободной оперативной/видеопамяти на хосте с учетом весов `Q4` и буфера `KV-Cache`, чтобы не вызвать свопинг или фриз ОС. | Нагрузка на CPU/RAM хоста минимальна (только легкий HTTP-запрос). |
+| **`CentralDataSanitizer`** | Маскировка секретов применяется для логов (`Serilog`) и ответов в Telegram; сами промпты к локальному `localhost:11434` **не покидают пределы ПК** (индикатор `🔒 100% On-Device` в UI). | Строжайшая Egress-очистка (`[REDACTED:TYPE_HASH]`) всех ключей, паролей, путей и PII перед отправкой HTTP-запроса во внешний интернет (без слепой обратной подстановки в тулы). |
 | **Режим `Cloud Freeze (0$)`** | **Продолжает работать штатно!** Даже при полном отключении платных облаков локальные модели в `Tier 2 / Tier 3` остаются доступными. | Мгновенно блокируется при включении тумблера *«Только локальный режим (0$)»*. |
 
 ---
@@ -44,7 +44,7 @@ public enum ModelTaskCategory
 ```mermaid
 flowchart LR
     subgraph HardwareService ["Сервис 1: Инспекция Железа ПК"]
-        Probe["IHardwareCapabilitiesProbe<br/>(CyberPipe.Security.Telemetry)"]
+        Probe["IHardwareCapabilitiesProbe<br/>(Контракт в CyberPipe.Contracts,<br/>реализация в CyberPipe.Security.Telemetry)"]
         OS["ОС Хоста: Total/Free RAM,<br/>CPU AVX2/Cores, GPU VRAM"]
         OS --> Probe
     end
@@ -85,8 +85,8 @@ public record HostHardwareProfile(
 
 public enum HardwareFitVerdict
 {
-    Optimal = 0,               // 🟢 Идеально: помещается в VRAM или занимает < 50% свободной RAM
-    Compatible = 1,            // 🟡 Совместимо: соответствует MinRamGb, но нагрузит CPU/RAM
+    Optimal = 0,               // 🟢 Идеально: веса Q4 + KV-Cache помещаются в VRAM или занимают < 50% свободной RAM
+    Compatible = 1,            // 🟡 Совместимо: соответствует MinRamGb и покрывает Q4 + KV-Cache, но нагрузит CPU/RAM
     InsufficientResources = 2  // 🔴 Недостаточно памяти: риск свопинга и фризов ПК
 }
 
@@ -96,34 +96,40 @@ public record CuratedModelEntry(
     ModelHostingType HostingType,      // Local или RemoteCloud
     ModelTaskCategory RecommendedFor,  // LightFastTier2 или HeavyReasoningTier3
     string ParamsSummary,              // Напр. "3.8B", "8B", "~5B (2B active)"
-    string ContextWindow,              // "32K", "128K"
-    double Q4SizeGb,                   // Размер квантованной модели (для Local)
+    string ContextWindow,              // Максимальный паспортный контекст ("32K", "128K")
+    double Q4SizeGb,                   // Размер квантованных весов модели на диске/в памяти (для Local)
     double MinRamGb,                   // Минимальные требования к RAM (для Local)
     string BestForDescription,
-    string LicenseOrPricing            // Лицензия (Apache 2.0 / MIT) или цена за 1M токенов
+    string LicenseOrPricing,           // Лицензия (Apache 2.0 / MIT) или цена за 1M токенов
+    int DefaultContextTokens = 8192    // Безопасное дефолтное окно контекста (num_ctx) при запуске в Ollama для предотвращения раздувания KV-Cache
 );
 
 public record ModelCompatibilityEvaluation(
     CuratedModelEntry Model,
     HardwareFitVerdict Verdict,
-    string UserFriendlyExplanation     // Напр.: "🟢 Отлично подойдет для вашего ПК (нужно 2.5 ГБ, свободно 14.2 ГБ RAM)"
+    string UserFriendlyExplanation     // Напр.: "🟢 Отлично подойдет для вашего ПК (нужно 3.8 ГБ с учетом KV-Cache, свободно 14.2 ГБ RAM)"
 );
+```
+
+```csharp
+namespace CyberPipe.Contracts.Hardware;
+
+/// <summary>
+/// Сервис №1 (Контракт Уровня 0 в CyberPipe.Contracts, реализуется в CyberPipe.Security.Telemetry):
+/// Собирает данные о железе компьютера пользователя без создания циклических ссылок между Core и Telemetry.
+/// </summary>
+public interface IHardwareCapabilitiesProbe
+{
+    Task<HostHardwareProfile> ProbeHostHardwareAsync(CancellationToken ct = default);
+}
 ```
 
 ```csharp
 namespace CyberPipe.Core.Orchestration.Advisor;
 
 /// <summary>
-/// Сервис №1: Собирает данные о железе компьютера пользователя.
-/// </summary>
-public interface IHardwareCapabilitiesProbe
-{
-    Task<HostHardwareProfile> ProbeHostHardwareAsync(CancellationToken ct = default);
-}
-
-/// <summary>
-/// Сервис №2: Помощник выбора модели. Запрашивает данные о ПК у IHardwareCapabilitiesProbe
-/// и рассчитывает совместимость для всех моделей из Curated-списков.
+/// Сервис №2 (в CyberPipe.Core.Orchestration): Помощник выбора модели.
+/// Запрашивает данные о ПК у IHardwareCapabilitiesProbe и рассчитывает совместимость для всех моделей из Curated-списков.
 /// </summary>
 public interface IModelCompatibilityAdvisor
 {
@@ -136,12 +142,14 @@ public interface IModelCompatibilityAdvisor
 }
 ```
 
-#### Правило расчета совместимости в `ModelCompatibilityAdvisorService`:
+#### Правило расчета совместимости в `ModelCompatibilityAdvisorService` (с учетом `KV-Cache` и Runtime Overhead):
+При запуске локальной модели в `Ollama / LM Studio` помимо самих квантованных весов `Q4SizeGb` в памяти размещаются буферы `KV-Cache` (размер которых линейно зависит от активного окна контекста `DefaultContextTokens`, по умолчанию ограниченного `num_ctx = 8192`, даже если модель поддерживает `128K`) и вычислительные буферы рантайма:
+$$\text{RequiredMemoryGb} = \text{Q4SizeGb} \times 1.20 + \text{KvCacheOverheadGb}(\text{DefaultContextTokens}) \approx \text{Q4SizeGb} \times 1.35 + 1.0\text{ GB}$$
 1. Запрашивает `var hw = await _hardwareProbe.ProbeHostHardwareAsync(ct);`.
-2. Для каждой из 15 локальных моделей проверяет:
-   * Если `hw.TotalRamGb < model.MinRamGb` или `hw.AvailableRamGb < model.Q4SizeGb + 1.0` ➔ **`InsufficientResources` (🔴)** (*«Требуется минимум {model.MinRamGb} ГБ RAM и {model.Q4SizeGb} ГБ свободно»*).
-   * Если `hw.DedicatedVramGb >= model.Q4SizeGb + 1.0` или (`hw.TotalRamGb >= model.MinRamGb * 1.5` и `hw.AvailableRamGb >= model.Q4SizeGb * 1.8`) ➔ **`Optimal` (🟢)** (*«Идеально для вашего ПК, быстрый отклик без просадки системы»*).
-   * Иначе ➔ **`Compatible` (🟡)** (*«Запустится на вашем ПК, но во время генерации возможна заметная нагрузка на CPU/RAM»*).
+2. Для каждой из 15 локальных моделей рассчитывает `var requiredMemoryGb = Math.Round(model.Q4SizeGb * 1.35 + 1.0, 1);` и проверяет:
+   * Если `hw.TotalRamGb < model.MinRamGb` или `hw.AvailableRamGb < requiredMemoryGb` ➔ **`InsufficientResources` (🔴)** (*«Требуется минимум {model.MinRamGb} ГБ общей RAM и {requiredMemoryGb} ГБ свободной памяти с учетом KV-Cache (8K контекст)»*).
+   * Если `hw.DedicatedVramGb >= requiredMemoryGb` или (`hw.TotalRamGb >= model.MinRamGb * 1.5` и `hw.AvailableRamGb >= requiredMemoryGb * 1.4`) ➔ **`Optimal` (🟢)** (*«Идеально для вашего ПК (~{requiredMemoryGb} ГБ с KV-Cache), быстрый отклик без просадки системы»*).
+   * Иначе ➔ **`Compatible` (🟡)** (*«Запустится на вашем ПК (~{requiredMemoryGb} ГБ с KV-Cache при окне 8K), но во время генерации возможна заметная нагрузка на CPU/RAM»*).
 
 ---
 

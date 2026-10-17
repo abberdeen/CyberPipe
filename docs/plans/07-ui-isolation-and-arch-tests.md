@@ -45,27 +45,42 @@ public class ArchitectureIntegrityTests
     private static readonly Architecture Architecture =
         new ArchLoader()
             .LoadAssemblies(
-                typeof(CyberPipe.UI.App).Assembly,
                 typeof(CyberPipe.Contracts.Models.SecurityInspectionReport).Assembly,
+                typeof(CyberPipe.Security.Telemetry.Resilience.IsolatedWorkerBase).Assembly,
+                typeof(CyberPipe.Security.Guards.HostAndMediaSafetyGuard).Assembly,
+                typeof(CyberPipe.Security.Budget.TokenBudgetGovernor).Assembly,
+                typeof(CyberPipe.Security.Sanitization.CentralDataSanitizer).Assembly,
+                typeof(CyberPipe.Storage.Sqlite.SqliteConnectionFactory).Assembly,
+                typeof(CyberPipe.Router.TieredIntentRouter).Assembly,
                 typeof(CyberPipe.Skills.Host.MediaControlSkill).Assembly,
+                typeof(CyberPipe.Core.Orchestration.OrchestratorEngine).Assembly,
                 typeof(CyberPipe.Core.Agents.CoderAgent).Assembly,
-                typeof(CyberPipe.Gateway.Telegram.TelegramBotService).Assembly
+                typeof(CyberPipe.Execution.Abstractions.ISandboxProvider).Assembly,
+                typeof(CyberPipe.Execution.Providers.BrainstemProcessSupervisor).Assembly,
+                typeof(CyberPipe.Brainstem.Program).Assembly,
+                typeof(CyberPipe.Gateway.Telegram.TelegramBotService).Assembly,
+                typeof(CyberPipe.Gateway.Api.GrpcControlService).Assembly,
+                typeof(CyberPipe.UI.App).Assembly
             )
             .Build();
 
     [Fact]
     public void UI_Must_Depend_Only_On_Contracts()
     {
+        IObjectProvider<IType> uiTypes = Types().That().ResideInAssembly(typeof(CyberPipe.UI.App).Assembly);
+        Assert.NotEmpty(uiTypes.GetObjects(Architecture));
+
         IObjectProvider<IType> forbiddenTypesForUi = Types()
             .That().ResideInNamespace("CyberPipe.Core.*")
             .Or().ResideInNamespace("CyberPipe.Execution.*")
             .Or().ResideInNamespace("CyberPipe.Gateway.*")
             .Or().ResideInNamespace("CyberPipe.Storage.*")
             .Or().ResideInNamespace("CyberPipe.Skills.*")
-            .Or().ResideInNamespace("CyberPipe.Security.*");
+            .Or().ResideInNamespace("CyberPipe.Security.*")
+            .Or().ResideInNamespace("CyberPipe.Router.*");
 
         Types()
-            .That().ResideInAssembly(typeof(CyberPipe.UI.App).Assembly)
+            .That().Are(uiTypes)
             .Should().NotDependOnAny(forbiddenTypesForUi)
             .Because("UI должен оставаться легким и общаться с демоном только через CyberPipe.Contracts!")
             .Check(Architecture);
@@ -74,27 +89,35 @@ public class ArchitectureIntegrityTests
     [Fact]
     public void HostSkills_Must_Never_Invoke_Arbitrary_Processes_Or_Shell()
     {
-        // Гарантия, что скиллы умного помощника (музыка, звук) не могут вызвать cmd/powershell
+        // Скиллы в CyberPipe.Skills.Host не могут напрямую вызывать Process или CliWrap;
+        // для фиксированных утилит (git/dotnet) они используют контракт IDevToolProcessRunner из CyberPipe.Contracts
+        IObjectProvider<IType> skillTypes = Types().That().ResideInAssembly(typeof(CyberPipe.Skills.Host.MediaControlSkill).Assembly);
+        Assert.NotEmpty(skillTypes.GetObjects(Architecture));
+
         IObjectProvider<IType> forbiddenForHostSkills = Types()
             .That().ResideInNamespace("CyberPipe.Execution.*")
-            .Or().HaveFullNameContaining("System.Diagnostics.Process");
+            .Or().HaveFullNameContaining("System.Diagnostics.Process")
+            .Or().HaveFullNameContaining("CliWrap");
 
         Types()
-            .That().ResideInAssembly(typeof(CyberPipe.Skills.Host.MediaControlSkill).Assembly)
+            .That().Are(skillTypes)
             .Should().NotDependOnAny(forbiddenForHostSkills)
-            .Because("Скиллы хоста (Media/Volume) не имеют права запускать произвольные процессы или шелл!")
+            .Because("Скиллы хоста не имеют права напрямую запускать процессы или шелл в обход IDevToolProcessRunner!")
             .Check(Architecture);
     }
 
     [Fact]
     public void TelegramGateway_Must_Not_Call_Agents_Or_Skills_Directly_Bypassing_Router_And_Guards()
     {
+        IObjectProvider<IType> gatewayTypes = Types().That().ResideInAssembly(typeof(CyberPipe.Gateway.Telegram.TelegramBotService).Assembly);
+        Assert.NotEmpty(gatewayTypes.GetObjects(Architecture));
+
         IObjectProvider<IType> forbiddenDirectCalls = Types()
             .That().ResideInNamespace("CyberPipe.Core.Agents.*")
             .Or().ResideInNamespace("CyberPipe.Execution.*");
 
         Types()
-            .That().ResideInAssembly(typeof(CyberPipe.Gateway.Telegram.TelegramBotService).Assembly)
+            .That().Are(gatewayTypes)
             .Should().NotDependOnAny(forbiddenDirectCalls)
             .Because("Telegram-шлюз обязан проводить все запросы через AuthGuard, IntentRouter и SafetyGuard!")
             .Check(Architecture);
@@ -103,37 +126,58 @@ public class ArchitectureIntegrityTests
     [Fact]
     public void ModelCompatibilityAdvisor_Must_Query_Hardware_Only_Via_HardwareCapabilitiesProbe()
     {
-        // Сервис-помощник выбора моделей получает данные о ПК исключительно через сервис IHardwareCapabilitiesProbe
+        IObjectProvider<IType> advisorTypes = Types().That().HaveNameContaining("ModelCompatibilityAdvisor");
+        Assert.NotEmpty(advisorTypes.GetObjects(Architecture));
+
         Types()
-            .That().HaveNameContaining("ModelCompatibilityAdvisor")
-            .Should().DependOnAny(Types().That().HaveNameContaining("IHardwareCapabilitiesProbe"))
-            .Because("Помощник подбора моделей обязан получать характеристики ПК от выделенного сервиса IHardwareCapabilitiesProbe!")
+            .That().Are(advisorTypes)
+            .Should().DependOnAny(Types().That().HaveFullName("CyberPipe.Contracts.Hardware.IHardwareCapabilitiesProbe"))
+            .Because("Помощник подбора моделей обязан получать характеристики ПК от выделенного контракта IHardwareCapabilitiesProbe!")
             .Check(Architecture);
     }
 
     [Fact]
     public void All_Background_Workers_Must_Inherit_From_IsolatedWorkerBase()
     {
+        IObjectProvider<Class> workerClasses = Classes()
+            .That().HaveNameEndingWith("Worker").Or().HaveNameEndingWith("Watchdog");
+        Assert.NotEmpty(workerClasses.GetObjects(Architecture));
+
         Classes()
-            .That().HaveNameEndingWith("Worker").Or().HaveNameEndingWith("Watchdog")
-            .Should().BeAssignableTo("CyberPipe.Core.Orchestration.Resilience.IsolatedWorkerBase")
-            .Because("Фоновые воркеры должны наследовать IsolatedWorkerBase с Circuit Breaker и таймаутом (см. 14-fault-isolation-and-resilience.md)")
+            .That().Are(workerClasses)
+            .Should().BeAssignableTo("CyberPipe.Security.Telemetry.Resilience.IsolatedWorkerBase")
+            .Because("Все фоновые воркеры должны наследовать IsolatedWorkerBase из базового слоя CyberPipe.Security.Telemetry без циклических ссылок (см. 14-fault-isolation-and-resilience.md)")
+            .Check(Architecture);
+    }
+
+    [Fact]
+    public void No_Unbounded_Channels_Allowed()
+    {
+        // Запрет создания неограниченных очередей Channel.CreateUnbounded<T>() во всех сборках решения
+        Types()
+            .That().ResideInNamespace("CyberPipe.*")
+            .Should().NotCallAny(
+                MethodMembers().That().HaveNameContaining("CreateUnbounded"))
+            .Because("Все внутрипроцессные каналы обязаны использовать только Channel.CreateBounded<T>() для защиты от OOM (см. 14-fault-isolation-and-resilience.md)")
             .Check(Architecture);
     }
 
     [Fact]
     public void Brainstem_Worker_Must_Never_Reference_Daemon_Assemblies()
     {
-        // Статическая проверка графа сборок; проверка папки публикации и токена ОС выполняется в CyberPipe.Tests.Isolation (см. 15-cli-and-execution-modes.md)
+        IObjectProvider<IType> brainstemTypes = Types().That().ResideInAssembly(typeof(CyberPipe.Brainstem.Program).Assembly);
+        Assert.NotEmpty(brainstemTypes.GetObjects(Architecture));
+
         IObjectProvider<IType> forbiddenDaemonTypes = Types()
             .That().ResideInNamespace("CyberPipe.Core.*")
             .Or().ResideInNamespace("CyberPipe.Gateway.*")
             .Or().ResideInNamespace("CyberPipe.Storage.*")
             .Or().ResideInNamespace("CyberPipe.Skills.*")
-            .Or().ResideInNamespace("CyberPipe.Security.*");
+            .Or().ResideInNamespace("CyberPipe.Security.*")
+            .Or().ResideInNamespace("CyberPipe.Router.*");
 
         Types()
-            .That().ResideInNamespace("CyberPipe.Brainstem.*")
+            .That().Are(brainstemTypes)
             .Should().NotDependOnAny(forbiddenDaemonTypes)
             .Because("Проект CyberPipe.Brainstem не должен ссылаться на сборки демона (см. 15-cli-and-execution-modes.md, разд. 9 и 11)")
             .Check(Architecture);
@@ -141,4 +185,4 @@ public class ArchitectureIntegrityTests
 }
 ```
 
-> **Примечание:** Статических тестов `ArchUnitNET` недостаточно для проверки фактической изоляции на уровне ОС. Проверки состава папки публикации (`Publish Directory Layout Gate`), токена `Low Integrity`, правил `SACL/DACL`, `Windows Job Object` и IPC вынесены в интеграционный набор `CyberPipe.Tests.Isolation` (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md#L211-L234)).
+> **Примечание:** Статических тестов `ArchUnitNET` недостаточно для проверки фактической изоляции на уровне ОС. Проверки состава папки публикации (`Publish Directory Layout Gate`), изоляции `AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` (Windows) / `bwrap` (Linux) / `Seatbelt` (macOS), `Job Object` и IPC вынесены в интеграционный набор `CyberPipe.Tests.Isolation` (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)).

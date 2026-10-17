@@ -4,91 +4,100 @@
 
 ---
 
-### Фаза 1: Ядро Хоста, Межпроцессная Изоляция, Периметр Telegram и Скиллы Хоста (Спринт 1)
-*Цель: Запустить ядро `CyberPipe.exe`, изолированный воркер `CyberPipe.Brainstem.exe`, базовый CLI и безопасное управление медиа/звуком из Telegram за 0 токенов.*
+### Фаза 1: Ядро Хоста, Базовый SQLite, Межпроцессная Изоляция, Периметр Telegram и Скиллы Хоста (Спринт 1)
+*Цель: Запустить ядро `CyberPipe`, базовый слой `CyberPipe.Storage.Sqlite`, изолированный воркер `CyberPipe.Brainstem`, верификацию изоляции ОС и безопасное управление медиа/звуком из Telegram за 0 токенов.*
 
-- [ ] Инициализация Solution (`CyberPipe.slnx`) на .NET 10 с тремя точками входа (`CyberPipe.exe`, `CyberPipe.UI.Desktop.exe`, `./worker/CyberPipe.Brainstem.exe`, см. [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)).
-- [ ] Реализация диспетчера запуска в `CyberPipe.exe` (`DaemonHostMode` + `CliClientMode`) и защищенного транспорта Named Pipes (верификация `PID`, `SessionNonce`, `PipeSecurity`).
+- [ ] Инициализация Solution (`CyberPipe.slnx`) на .NET 10 с тремя точками входа (`CyberPipe`, `CyberPipe.UI.Desktop`, `./worker/CyberPipe.Brainstem`, см. [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)) и строгим ациклическим графом проектов (DAG).
+- [ ] Разработка базового слоя **`CyberPipe.Storage.Sqlite`** (режим WAL + последовательный раннер миграций `SqliteMigrationRunner` на базе `PRAGMA user_version` с авто-бэкапом `SqliteBackupService` + асинхронный `Write-Behind`):
+  - Базовые таблицы Спринта 1: `InFlightOperations`, `FinanceLedger`, `Notes` и персистентный `SecretsVault` (`ISecretVaultPlatform`: `DPAPI` / `LibSecret` / `Keychain` + `AES-256-GCM` + `ZeroMemory`).
+- [ ] Реализация диспетчера запуска в `CyberPipe` (`DaemonHostMode` + `CliClientMode`) и защищенного транспорта Named Pipes / Unix Domain Sockets (верификация `PID`, `SessionNonce`, `PipeSecurity`).
 - [ ] Реализация внутрипроцессной и межпроцессной устойчивости (см. [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md) и [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)):
-  - Настройка `BackgroundServiceExceptionBehavior.Ignore`, `SafeModuleRegistration` и `IsolatedWorkerBase` (с авто-карантином после 3 ошибок).
-  - Разделение ресурсов на **Bulkhead-отсеки**, использование только `BoundedChannel`, потоковая квота `QuotaBoundedStream (16 МБ)` и журнал `InFlightOperations` против «отравленных» сообщений.
-  - Разработка `BrainstemProcessSupervisor`: запуск `CyberPipe.Brainstem.exe` с `CreateRestrictedToken` (`Low Integrity` / `Restricted SID`), `SACL NO_READ_UP`, `Windows Job Object` (`ActiveProcessLimit = 1`, лимит памяти и CPU, `KillOnJobClose`), изолированным `TEMP` и проверкой SHA-256 бинарника.
-- [ ] Разработка системного **CLI и TUI (`CyberPipe <command>`)** с разделением на `Autonomous`, `Daemon-Required` и `Hybrid` команды и поддержкой строгого `--json` контракта.
+  - Настройка `BackgroundServiceExceptionBehavior.Ignore`, `SafeModuleRegistration` и `IsolatedWorkerBase` в базовом слое `CyberPipe.Security.Telemetry` (с авто-карантином после 3 ошибок).
+  - Разделение ресурсов на **Bulkhead-отсеки**, использование только `BoundedChannel`, потоковая квота `QuotaBoundedStream (16 МБ)` и журнал `InFlightOperations` для тяжелых/внешних входов с очисткой при `OperationCanceledException` (`/stop`).
+  - Разработка `BrainstemProcessSupervisor` и `IBrainstemIsolationPlatform`: запуск `CyberPipe.Brainstem` с изоляцией файловой системы (`AppContainer` или `CreateRestrictedToken` с `SidsToRestrict` + явный `ACCESS_DENIED_ACE` в DACL папки `data\` в Windows; `bwrap` в Linux; `Seatbelt` в macOS), `Process SACL NO_READ_UP`, `Job Object` (`ActiveProcessLimit = 1`, лимит памяти и CPU, `KillOnJobClose`), изолированным `TEMP` и проверкой SHA-256 по `worker.manifest.json`.
+- [ ] Разработка базовых команд системного **CLI (`CyberPipe <command>`)** для ядра Спринта 1 (`daemon`, `status`, `doctor`, `config`, `secrets`, `tasks stop-all`, `setup`) с поддержкой строгого `--json` контракта и автозапуска в интерактивной сессии пользователя (`Session >= 1`).
 - [ ] Внутрипроцессная шина на `System.Threading.Channels` + приоритетный канал управления **`PriorityKillSwitch` (`/stop`, `/pause`)**.
-- [ ] Разработка `CyberPipe.Gateway.Telegram`:
-  - Строгий фильтр `TelegramAuthGuard` (Whitelist `UserId`, разделение `Owner` и `Guest`).
+- [ ] Разработка `CyberPipe.Gateway.Telegram` (`TelegramAuthGuard`: Whitelist `UserId`, разделение `Owner` и `Guest`).
 - [ ] Разработка `CyberPipe.Security.Guards` (`HostAndMediaSafetyGuard`):
   - **Anti-Wipe блок:** полный запрет Raw Shell из чата и блокировка деструктивных путей/команд.
-  - **Media & Audio Guard:** ограничитель громкости (`Volume Clamp`: макс. 60% днем / 25% ночью, защита от скачков > +20%) + локальный фильтр 18+ / NSFW + Whitelist музыкальных сервисов.
+  - **Media & Audio Guard:** ограничитель громкости (`Volume Clamp`: макс. 60% днем / 25% ночью, защита от скачков > +20%, принудительная проверка `EnsureSafeVolumeBeforePlayback()` перед `Play`) + многослойный фильтр 18+ / NSFW + Whitelist музыкальных сервисов.
 - [ ] Разработка **`Tier 0` Deterministic Router** (Regex / шаблоны / слэш-команды) + базовые `CyberPipe.Skills.Host`:
   - `MediaControlSkill`, `AudioVolumeSkill`, `SystemStatusSkill`.
   - `WorkspaceProfileSkill` (`/mode coding`, `/mode call`, `/focus`, `/lock`, `/sleep`).
   - Быстрый учет личных расходов и заметок за 0 токенов.
+- [ ] Запуск обязательных гейтов **`CyberPipe.Tests.Architecture`** (`ArchUnitNET`) и **`CyberPipe.Tests.Isolation`** (PoC проверки `UnauthorizedAccessException` при попытке чтения `data/cyberpipe.db` из `Brainstem`, `ACCESS_DENIED` при `OpenProcess` к демону и сохранности `SecretsVault` после перезапуска процесса).
+- **Критерий приемки (DoD Спринта 1):** Все сборки компилируются без циклических ссылок; проходят тесты `Tests.Architecture` и `Tests.Isolation`; команды `Tier 0` из Telegram выполняются за `< 1 мс` (0 токенов); `SecretsVault` успешно расшифровывает секреты после перезапуска `CyberPipe`.
 
 ---
 
 ### Фаза 2: Радикальная экономия токенов (Tier 1/2), Локальный Голос, Память «Второй мозг» и Контроллер Бюджета (Спринт 2)
 *Цель: Снизить расход токенов в 10–50 раз на естественном языке, добавить голосовой ввод за 0 токенов, векторную память и авто-паузу при росте расходов.*
 
-- [ ] Разработка `CyberPipe.Storage.Sqlite` (режим WAL + `FTS5` + асинхронный Write-Behind):
-  - Таблицы учета токенов, чекпоинтов пауз и локального семантического кэша.
-  - **`KnowledgeVault` («Второй мозг»), `PersonalCrm` и `FinanceLedger`** (заметки, карточки клиентов, подписки, база решенных багов `/remember-fix`).
-- [ ] Интеграция локального голосового конвейера **`Whisper.net` (ONNX)** внутри `CyberPipe.Brainstem.exe` для расшифровки голосовых сообщений из Telegram за **0 облачных токенов**.
+- [ ] Расширение `CyberPipe.Storage.Sqlite` (индекс `FTS5` + in-memory буфер векторов `Memory<float>` SIMD):
+  - Таблицы `BudgetLedger`, `TaskCheckpoints`, `SemanticIntentCache` и ролевой `SemanticResponseCache` (с ключом `(UserRole, ExpiresAtUtc)` и `TTL = 24ч`).
+  - **`KnowledgeVault` («Второй мозг» с обязательным столбцом `TrustSource`) и `PersonalCrm`** (заметки, карточки клиентов, подписки, база решенных багов `/remember-fix`).
+- [ ] Интеграция локального голосового конвейера **`Whisper.net` (ONNX)** в выделенном прогретом пуле `CyberPipe.Brainstem` (`Stateful Voice STT Pool`) для расшифровки голосовых сообщений из Telegram за **0 облачных токенов**.
 - [ ] Разработка **`Tier 1` Local Semantic Router**:
-  - Подключение локальной ONNX-модели эмбеддингов (`multilingual-e5-small`) и SIMD-поиска (`TensorPrimitives.CosineSimilarity`).
-  - Реализация **`SemanticResponseCache`** и гибридного поиска по `KnowledgeVault` за 0 токенов.
+  - Подключение локальной ONNX-модели эмбеддингов (`multilingual-e5-small`) внутри `CyberPipe` и SIMD-поиска (`TensorPrimitives.CosineSimilarity`).
+  - Реализация `SemanticIntentCache`, ролевого `SemanticResponseCache` и гибридного поиска по `KnowledgeVault` за 0 токенов.
 - [ ] Разработка **`TokenBudgetGovernor` (`CyberPipe.Security.Budget`)**:
-  - Точный подсчет токенов до вызова API (`Microsoft.ML.Tokenizers`).
-  - Раздельный учет: `$0.00` для моделей `ModelHostingType.Local` (контроль только `MaxTurns`) и строгий долларовый лимит для `ModelHostingType.RemoteCloud`.
-  - **Механизм Авто-Паузы (`TaskPausedByBudget`):** заморозка задачи при достижении 70% лимита с отправкой в Telegram инлайн-кнопок `[▶️ Продолжить (+5k)]`, `[⚡ Выдать итог]`, `[🛑 Стоп]`.
+  - Предварительная оценка токенов (`Microsoft.ML.Tokenizers` с коэффициентом `1.2x` для кириллицы в не-OpenAI моделях) и точное списание по `UsageDetails` (`InputCostPer1M` / `OutputCostPer1M`), плюс принудительная установка `ChatOptions.MaxOutputTokens` против перерасхода reasoning-моделей.
+  - Раздельный учет: `$0.00` для моделей `ModelHostingType.Local` (контроль только `MaxLlmTurnsPerTask = 3`) и строгий долларовый лимит для `ModelHostingType.RemoteCloud`.
+  - **Механизм Авто-Паузы (`TaskLifecycleState.PausedByBudget`):** заморозка задачи при достижении `SoftTaskTokenLimit (4 000 токенов)` или `3 шагов` с отправкой в Telegram инлайн-кнопок `[▶️ Разрешить еще +5 000 токенов]` (добавляет `+5 000 токенов` и `+3 шага` вплоть до `HardTaskTokenLimit = 12 000`), `[⚡ Выдать итог]`, `[🛑 Стоп]`.
 - [ ] Разработка связки сервисов подбора моделей (**`IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor`**):
-  - Сбор характеристик ПК (Total/Free RAM, CPU AVX2, GPU VRAM) в `IHardwareCapabilitiesProbe`.
-  - Расчет совместимости в `IModelCompatibilityAdvisor` по **Curated-каталогу из 15 локальных моделей** и **Curated-списку платных моделей** (для легких `Tier 2` и сложных `Tier 3` задач).
-- [ ] Разработка **`Tier 2` Classifier (`Local` или `RemoteCloud` по выбору пользователя)** + **Dynamic Tool Pruning** (подстановка только 2–3 релевантных тулов и топ-3 фактов из памяти).
-- [ ] Создание `CyberPipe.Security.Sanitization` (вырезание ключей/паролей `[REDACTED]` перед любым вызовом облака).
+  - Сбор характеристик ПК (Total/Free RAM, CPU AVX2, GPU VRAM) в `IHardwareCapabilitiesProbe` (`CyberPipe.Contracts.Hardware`).
+  - Расчет совместимости в `IModelCompatibilityAdvisor` по **Curated-каталогу из 15 локальных моделей** (работающих через локальный HTTP-сервер `Ollama / LM Studio`, с учетом рабочего контекста `8K–16K` и `KV-Cache`) и **Curated-списку платных моделей**.
+- [ ] Разработка **`Tier 2` Classifier (`Local` через `Ollama / LM Studio` или `RemoteCloud`)** + **Dynamic Tool Pruning** (подстановка только 2–3 релевантных тулов и топ-3 доверенных фактов из памяти с `TrustSource <= ToolOutput`).
+- [ ] Создание выходного шлюза `CyberPipe.Security.Sanitization` (`CentralDataSanitizer` перед отправкой в `RemoteCloud`, `Serilog` и `Telegram`, без слепой обратной подстановки `[REDACTED:ID]` в команды LLM).
+- [ ] Добавление доменных подкоманд CLI: `CyberPipe models` (`scan`, `list`, `set`) и `CyberPipe memory` (`search`, `add`, `status`), `CyberPipe infer`.
+- **Критерий приемки (DoD Спринта 2):** Голосовое сообщение распознается через `Brainstem` за `< 1 с`; поиск по 10 000 векторов в памяти выполняется за `< 3 мс`; проходят тесты `CyberPipe.Tests.Router`, `CyberPipe.Tests.Sanitization` и тесты авто-паузы бюджета.
 
 ---
 
-### Фаза 3: Инженерные и Бизнес-Скиллы, Проактивный Планировщик, Песочницы и SecurityGuard (Спринт 3)
-*Цель: Автоматизация задач программирования (Git, сборки, мониторинг), бизнеса (брифинги, звонки, договоры) и безопасное выполнение кода в изоляции.*
+### Фаза 3: Все 16+ Прикладных Скиллов (Личное, Dev/DevOps, Бизнес), Планировщик, Песочницы и SecurityGuard (Спринт 3)
+*Цель: Реализовать полный каталог из 16+ прикладных скиллов в едином скоупе Релиза 1.0, проактивный планировщик и изолированные песочницы `Tier 3`.*
 
-- [ ] Разработка **`ProactiveScheduler`** (`Cronos` + событийные триггеры):
+- [ ] Разработка **`ProactiveScheduler`** (`Cronos` + событийные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
   - Утренний (09:00) и вечерний (20:00) исполнительные брифинги, умные напоминания с кнопкой `[✅ Выполнено]`, предупреждения о списании подписок за 3 дня.
-- [ ] Разработка инженерных скиллов (`CyberPipe.Skills.Host.DevAndInfra`):
-  - **`GitRepoRadarSkill` (`/repos`, `/standup`):** сканирование `source\repos`, сводка коммитов за день за 0 токенов, генератор Conventional Commits и пре-ревью диффов.
-  - **`InfraHealthWatchdog`:** фоновый мониторинг рабочих серверов, контейнеров Docker и сроков жизни SSL-сертификатов.
-  - **`BuildAndTestWatchdog`:** запуск `dotnet build/test` с обрезкой вывода через `ToolOutputTruncator` и кнопкой `[🛠 Предложить фикс]`.
+- [ ] Разработка инженерных скиллов (`CyberPipe.Skills.Host.DevAndInfra`) и сервиса `DevToolProcessRunner` (`CyberPipe.Execution.Providers`):
+  - **`GitRepoRadarSkill` (`/repos`, `/standup`) & `DiffReviewSkill`:** сканирование `%USERPROFILE%\source\repos` через `LibGit2Sharp` / `IDevToolProcessRunner`, сводка коммитов за 0 токенов, генератор Conventional Commits и пре-ревью диффов.
+  - **`InfraHealthWatchdog` & `DevMemorySkill`:** фоновый мониторинг рабочих серверов, контейнеров Docker, сроков жизни SSL-сертификатов и база фиксов `/remember-fix`.
+  - **`BuildAndTestWatchdog`:** запуск `dotnet build/test` через контракт `IDevToolProcessRunner` (реализованный в `CyberPipe.Execution.Providers` со строгим белым списком бинарников и папок) с обрезкой вывода через `ToolOutputTruncator` и кнопкой `[🛠 Предложить фикс]`.
 - [ ] Разработка бизнес-скиллов (`CyberPipe.Skills.Host.Business`):
-  - **`MeetingAssistantSkill`:** запись системного звука и микрофона на созвонах (`NAudio`) + локальная расшифровка (`Whisper.net` в `Brainstem`) + выжимка резюме и **Action Items**.
-  - **`PersonalCrmSkill` & `ContractRedFlagScanner`:** контроль «подвисших» ответов клиентов (Follow-up), извлечение текста PDF/DOCX договоров через `Brainstem` и проверка на риски.
-- [ ] Разработка `CyberPipe.Security.Guards` (расширение для Tier 3) и песочниц (`ISandboxProvider`: `CliWrap`, `Wasmtime`, `Docker`):
-  - Локальный AST-анализатор PowerShell/Bash (`System.Management.Automation`), пассивный Stealth OSINT и маркировка доверия `MemoryTrustSource`.
+  - **`MeetingAssistantSkill`:** запись системного звука и микрофона на созвонах (`IAudioDeviceController` / `NAudio`) + локальная расшифровка (`Whisper.net` в `Brainstem`) + выжимка резюме и **Action Items**.
+  - **`PersonalCrmSkill`, `ContractRedFlagScanner`, `BusinessTemplateSkill` & `MarketOsintDigestSkill`:** контроль «подвисших» ответов клиентов (Follow-up), извлечение текста PDF/DOCX договоров в одноразовом процессе `Brainstem` (`SingleUse Document Parser Pool`), проверка на риски, генерация КП и пассивный OSINT-дайджест.
+- [ ] Разработка `CyberPipe.Security.Guards` (расширение для Tier 3) и реальных песочниц (`ISandboxProvider`: `OsRestrictedSandboxProvider` [`AppContainer`/`bwrap`/`Seatbelt`], `Wasmtime`, `Docker`):
+  - Физическое удаление хостовых тулов из `ChatOptions.Tools` при наличии `MemoryTrustSource.UntrustedExternal` (`Hard Tool Stripping`), обязательное подтверждение владельцем (`RequiresApproval`) для нативных процессов, локальный AST-анализатор (Defense-in-Depth) и пассивный Stealth OSINT в режиме `Fail-Closed`.
   - Разработка `ISystemResourceMonitor` и потокового препроцессора телеметрии (`1 ГБ логов ➔ 30 КБ дайджест`).
+- [ ] Добавление подкоманд CLI: `CyberPipe cron`, `approvals`, `sandbox`, `skills`, `backup`, `health`/`triage`, `security audit`.
+- **Критерий приемки (DoD Спринта 3):** Все 16+ скиллов проходят модульные и интеграционные тесты; `Skills.Host` проходит проверку `HostSkills_Must_Never_Invoke_Arbitrary_Processes_Or_Shell`; разбор 50 МБ PDF в `Pool 2` не блокирует распознавание голоса в `Pool 1`; `UntrustedExternal` PDF физически лишается доступа к тулам управления ПК в `ChatOptions.Tools`.
 
 ---
 
-### Фаза 4: Кроссплатформенный Avalonia UI (Спринт 4)
-*Цель: Удобная визуальная панель управления моделями по Tiers, бюджетом, безопасностью, разработкой и личной продуктивностью на рабочем столе.*
+### Фаза 4: Кроссплатформенный Avalonia UI и Терминальный TUI (Спринт 4)
+*Цель: Удобная визуальная панель управления моделями по Tiers, бюджетом, безопасностью, разработкой и личной продуктивностью на рабочем столе и в терминале.*
 
-- [ ] Разработка `CyberPipe.UI` и `CyberPipe.UI.Desktop` (gRPC клиент поверх Named Pipes к локальному демону).
+- [ ] Разработка `CyberPipe.UI` и `CyberPipe.UI.Desktop` (gRPC клиент поверх Named Pipes / Unix Domain Sockets к локальному демону), а также интерактивного режима `CyberPipe tui`.
 - [ ] Экраны управления:
-  - **Мастер выбора моделей по Tiers (`Tier Model Selector`):** выбор пользователем модели (`🏠 Local 0$` vs `☁️ RemoteCloud $`) отдельно для `Tier 2` и `Tier 3`, таблица 15 локальных моделей с вердиктами совместимости под ПК (`🟢/🟡/🔴` от `IModelCompatibilityAdvisor`) и витрина платных моделей.
+  - **Мастер выбора моделей по Tiers (`Tier Model Selector`):** выбор пользователем модели (`🏠 Local 0$` через `Ollama / LM Studio` vs `☁️ RemoteCloud $`) отдельно для `Tier 2` и `Tier 3`, таблица 15 локальных моделей с вердиктами совместимости под ПК (`🟢/🟡/🔴` от `IModelCompatibilityAdvisor`) и витрина платных моделей.
   - **Дашборд экономии и бюджета:** графики сэкономленных токенов (`Tier 0/1/Local` vs `RemoteCloud`), настройка лимитов в $ и токенах, кнопка *«Cloud Freeze (Только локально)»*.
   - **Хаб Помощника, Dev-Радар и Запись Встреч:** переключатели режимов (`/mode coding`, `/mode call`), статус локальных Git-репозиториев и серверов, управление записью созвона, быстрый поиск по «Второму мозгу» и CRM.
   - **Панель безопасности хоста:** настройка потолка громкости (день/ночь), управление белым списком Telegram ID, журнал заблокированных угроз.
   - **Живой монитор задач:** кнопка экстренного стопа `[🛑 STOP ALL]`, разблокировка задач на паузе и графики нагрузки CPU/RAM.
+- **Критерий приемки (DoD Спринта 4):** `CyberPipe.UI` зависит исключительно от `CyberPipe.Contracts`; закрытие или перезапуск GUI не влияет на работу демона `CyberPipe`; все экраны работают по IPC.
 
 ---
 
-### Фаза 5: Верификация изоляции в CI, Архитектурные тесты и Бенчмарки SLO (Спринт 5)
-*Цель: Инструментальная проверка границ безопасности ОС, IPC, устойчивости к сбоям и целевых показателей скорости.*
+### Фаза 5: Полная Верификация Безопасности, Пентесты, Стресс-тесты Обновлений и Бенчмарки SLO (Спринт 5)
+*Цель: Финальная инструментальная аттестация границ безопасности ОС, устойчивости к сбоям, миграций БД и целевых показателей скорости.*
 
-- [ ] Статические тесты `CyberPipe.Tests.Architecture` (`ArchUnitNET`) + CI-скрипт **`Publish Directory Layout Gate`** (проверка отсутствия сборок демона в `publish/worker/`).
-- [ ] Интеграционный набор проверки изоляции ОС **`CyberPipe.Tests.Isolation`** (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md#L211-L234)):
-  - Проверка фактического `IntegrityLevel == Low` / `Restricted SID` и отсутствия привилегий у запущенного `CyberPipe.Brainstem.exe`.
-  - Негативные тесты попыток обхода (`OpenProcess` к демону $\rightarrow$ `ACCESS_DENIED`, чтение `../data/cyberpipe.db` $\rightarrow$ `UnauthorizedAccessException`, попытка запуска дочернего `cmd.exe` при `ActiveProcessLimit = 1`).
-  - Тесты восстановления после искусственного `AccessViolation` и превышения лимита памяти `Job Object` в `Brainstem`.
+- [ ] Полный прогон статических тестов `CyberPipe.Tests.Architecture` (`ArchUnitNET`) + CI-скрипт **`Publish Directory Layout Gate`** (проверка отсутствия сборок демона в `publish/worker/` и генерация/проверка `worker.manifest.json` для всех `.exe` и `.dll`).
+- [ ] Полный регрессионный прогон **`CyberPipe.Tests.Isolation`** на целевых ОС (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)):
+  - Проверка изоляции `AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` (Windows), `bwrap` (Linux), `Seatbelt` (macOS).
+  - Негативные тесты попыток обхода (`OpenProcess` к демону $\rightarrow$ `ACCESS_DENIED`, чтение `../data/cyberpipe.db` и `secrets.vault` $\rightarrow$ `UnauthorizedAccessException`, попытка запуска дочернего процесса при `ActiveProcessLimit = 1`).
+  - Тесты восстановления после искусственного `AccessViolation` и превышения лимита памяти `Job Object` в `Brainstem`, а также проверка атомарного обновления и отката (`Side-by-Side Update` + авто-восстановление бэкапа SQLite `cyberpipe.v{N}.bak`).
 - [ ] Пентест-набор `CyberPipe.Tests.SafetyAndBudget`:
-  - Попытки промпт-инъекций из Telegram и внешних документов (PDF/Web) на удаление файлов (`rm -rf`, `Format-Volume`), установку громкости 100% и поиск 18+ контента.
-  - Проверка срабатывания авто-паузы при искусственном зацикливании агента и замер времени срабатывания `/stop`.
-- [ ] Бенчмарки `BenchmarkDotNet` (`CyberPipe.Tests.Router`): проверка соответствия целевым SLO для `Tier 0`, `Tier 1 ONNX`, поиска в `KnowledgeVault` и задержки IPC.
+  - Попытки промпт-инъекций из Telegram, `KnowledgeVault` и внешних документов (PDF/Web) на удаление файлов (`[System.IO.File]::Delete`, `rm -rf`, `Format-Volume`), эксфильтрацию секретов `[REDACTED:ID]`, установку громкости 100% и поиск 18+ контента (включая гомоглифы).
+  - Проверка принудительного ограничения `ChatOptions.MaxOutputTokens`, срабатывания авто-паузы при зацикливании агента и замер времени срабатывания `/stop` (`< 50 мс`).
+- [ ] Бенчмарки `BenchmarkDotNet` (`CyberPipe.Tests.Router`): проверка соответствия целевым SLO для `Tier 0 (< 1 мс)`, `Tier 1 ONNX (5–15 мс)`, in-memory SIMD поиска в `KnowledgeVault (< 1.5 мс)` и задержки IPC (`p95 < 25 мс`).
+- **Критерий приемки (DoD Спринта 5 / Релиз 1.0):** 100% прохождение всех 5 тестовых проектов (`Architecture`, `Isolation`, `SafetyAndBudget`, `Router`, `Sanitization`) и соответствие всем целевым SLO.

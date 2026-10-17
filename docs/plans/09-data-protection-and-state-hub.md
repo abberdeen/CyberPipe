@@ -4,55 +4,63 @@
 
 ---
 
-### 1. Централизованный шлюз очистки секретов (`Central Data Sanitizer`)
+### 1. Выходной шлюз очистки секретов (`Central Data Sanitizer` на границе Egress)
 
-Ни один промпт, отправляемый во внешнюю LLM (`Tier 2 / Tier 3`), ни одно сообщение в Telegram и ни одна строка лога не обходят `CyberPipe.Security.Sanitization`.
+`CyberPipe.Security.Sanitization` работает исключительно на **выходных границах доверенного контура (`Egress Middleware`)** — перед отправкой промпта во внешнюю облачную LLM (`SanitizingChatClient` для `RemoteCloud`), перед записью в файлы логов (`Serilog` Enricher/Sink) и перед отправкой сообщений/отчетов в `Telegram` (`TelegramOutputFormatter`). Локальные команды `Tier 0 / Tier 1` и заметки, сохраняемые в локальную зашифрованную базу `KnowledgeVault`, **не искажаются** на входе.
 
 ```
- [Ввод / Вывод тулов / Логи] ──► [Central Data Sanitizer] ──► [Куда уходят данные]
-                                  • Regex + Энтропия Шеннона   • Облачные LLM (0 шансов утечки ключей)
-                                  • Замена на [REDACTED:ID]    • Telegram чат
-                                  • < 0.5 мс на проверку       • Локальные файлы логов (Serilog)
+ [Внутренний контекст / Вывод тулов] ──► [Central Data Sanitizer (Egress)] ──► [Куда уходят данные]
+                                          • Regex + Энтропия Шеннона           • Облачные LLM (RemoteCloud)
+                                          • Замена на [REDACTED:ID]            • Telegram чат
+                                          • < 0.5 мс на проверку               • Локальные файлы логов (Serilog)
 ```
 
-#### Что автоматически вырезается и маскируется:
+#### Что автоматически вырезается и маскируется на выходе:
 1. **API-ключи и токены:** OpenAI (`sk-...`), Anthropic, Telegram Bot Token, GitHub PAT (`ghp_...`), AWS, JWT.
 2. **Пароли и строки подключения:** `Password=...`, `https://user:pass@host`, локальные куки и сессии.
 3. **Приватные ключи:** SSH, RSA, PGP, `.pem` / `.pfx` содержимое.
 4. **Чувствительные пути и PII:** Номера банковских карт и системные переменные окружения.
 
-#### Токенизация с сохранением смысла:
+#### Токенизация и категорический запрет слепой обратной подстановки (`No Blind Rehydration`):
 ```text
 До очистки:     git clone https://ghp_928374829374923@github.com/my/repo.git
 После очистки:  git clone https://[REDACTED:GITHUB_TOKEN:e8a1]@github.com/my/repo.git
 ```
-Облачная нейросеть видит структуру команды, но **не получает сам секрет**. Если команда одобрена к локальному исполнению, реальный токен подставляется только в момент вызова внутри защищенного раннера.
+Облачная нейросеть видит структуру команды, но **не получает сам секрет**.
+> [!IMPORTANT]
+> **Защита от Confused Deputy при работе с секретами:**
+> Система **никогда не выполняет автоматическую строковую замену** плейсхолдера `[REDACTED:ID]` обратно на реальный секрет в тексте команд или URL, сгенерированных LLM (так как промпт-инъекция могла бы подставить `[REDACTED:GITHUB_TOKEN:e8a1]` в URL атакующего хоста `attacker.com` или записать его в файл). Если доверенному скиллу (например, `git` в `DevToolProcessRunner`) требуется аутентификация, учетные данные передаются исключительно через штатный `Git Credential Helper` или изолированные переменные окружения процесса со строгой привязкой к белому списку доменов (`github.com`, `gitlab.com`).
 
 ---
 
 ### 2. Локальный Сейф Секретов (`Local Secret Vault`) и Шифрование на Диске
 
-Вместо сложной инфраструктуры внешних крипто-брокеров используется надежное платформенное шифрование:
-* **Хранение ключей (API Keys, Bot Tokens):** Все ключи шифруются алгоритмом **AES-256-GCM**, где мастер-ключ защищен нативным механизмом ОС (**Windows DPAPI / Linux LibSecret / macOS Keychain**), привязанным к учетной записи пользователя ПК.
-* **Чувствительные поля в SQLite:** Чекпоинты задач и сохраненные переменные окружения шифруются прозрачно при записи на диск с аппаратным ускорением `AES-NI`.
+Вместо сложной инфраструктуры внешних крипто-брокеров используется надежное персистентное платформенное шифрование (`ISecretVaultPlatform`):
+* **Персистентность между перезапусками и работа в CLI:** Все ключи (API Keys, Bot Tokens) в файле `data/secrets.vault` шифруются алгоритмом **AES-256-GCM**, где мастер-ключ защищен нативным персистентным хранилищем ОС (**Windows DPAPI** с детерминированной привязкой к профилю установки и опциональным мастер-паролем пользователя / **Linux LibSecret** / **macOS Keychain**). Благодаря этому демон `CyberPipe` и `Hybrid`-команды CLI (`CyberPipe setup`, `CyberPipe secrets set|list`) надежно расшифровывают сейф после перезапуска процесса или перезагрузки ПК.
+* **Файловая изоляция от `Brainstem` и зануление буферов в ОЗУ:** Защита от чтения `secrets.vault` дочерним процессом `CyberPipe.Brainstem` и песочницами обеспечивается **на уровне файловой системы ОС** (явный `ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid` в DACL папки `data\` и отсутствие прав у `AppContainer` в Windows; несмонтированный каталог в `bwrap` на Linux и запрет в профиле `Seatbelt` на macOS), поэтому изолированный воркер физически не может прочитать блоб `secrets.vault` с диска. Внутри `CyberPipe` расшифрованные буферы ключей немедленно очищаются в памяти через `CryptographicOperations.ZeroMemory`.
+* **Чувствительные поля в SQLite:** Чекпоинты задач, приватные заметки и сохраненные переменные окружения шифруются прозрачно при записи на диск с аппаратным ускорением `AES-NI`.
 
 ---
 
-### 3. Сверхбыстрое локальное хранилище (`SQLite WAL` + Семантический Кэш)
+### 3. Сверхбыстрое локальное хранилище (`SQLite WAL`, In-Memory SIMD и Миграции)
 
-Отказ от обязательного PostgreSQL и RabbitMQ в пользу правильно настроенного **SQLite в режиме `WAL` (Write-Ahead Logging)** дает идеальный баланс надежности и скорости (чтение за микросекунды, нулевое потребление RAM в простое):
+Отказ от обязательного PostgreSQL и RabbitMQ в пользу правильно настроенного **SQLite в режиме `WAL` (Write-Ahead Logging)** дает идеальный баланс надежности и скорости:
 
-1. **Локальный Семантический Кэш (`SemanticResponseCache`):**
-   * Хранит пары `(EmbeddingVector, IntentOrAnswer, CreatedAtUtc, HitCount)`.
-   * Позволяет `Tier 1 Router` мгновенно (за 5–10 мс) отдавать готовые решения для повторяющихся или похожих вопросов без запроса в ИИ (**0 токенов**).
-2. **Память «Второй мозг», Личная CRM и Финансы (`KnowledgeVault`, `PersonalCrm`, `FinanceLedger`):**
-   * Гибридный индекс **`SQLite FTS5` + `SIMD CosineSimilarity`** для мгновенного поиска по личным заметкам, сохраненным ссылкам, карточкам клиентов, договоренностям (Follow-up), подпискам и базе решенных багов (`/remember-fix`).
+1. **Раздельный Семантический Кэш (`SemanticIntentCache` + ролевой `SemanticResponseCache`):**
+   * **`SemanticIntentCache`:** хранит сопоставление `(EmbeddingVector, IntentName, SkillName, CreatedAtUtc)` для мгновенного распознавания команд.
+   * **`SemanticResponseCache`:** хранит статические ответы со строгой ролевой изоляцией **`(EmbeddingVector, UserRole, Answer, CreatedAtUtc, ExpiresAtUtc, HitCount)` и `TTL = 24 часа`**. Ответы, сгенерированные для `Owner`, физически никогда не возвращаются пользователям с ролью `Guest`, а динамические запросы (*«какие сегодня встречи?»*) не кэшируются как статический текст.
+2. **Память «Второй мозг», Личная CRM и In-Memory SIMD Буфер (`KnowledgeVault`, `PersonalCrm`, `FinanceLedger`):**
+   * Каждая запись в `KnowledgeVault` и `PersonalCrm` обязательно хранит столбец **`TrustSource` (`MemoryTrustSource`)** для защиты от отложенных промпт-инъекций.
+   * Для мгновенного векторного поиска без чтения всех `BLOB` с диска в оперативной памяти поддерживается компактный плоский буфер нормализованных векторов **`Memory<float>`** (для 10 000 записей по 384 `float` это всего `~15 МБ` RAM!), обеспечивающий полное SIMD-сканирование `TensorPrimitives.CosineSimilarity` за **`< 1.5 мс`** в связке с полнотекстовым индексом **`SQLite FTS5`**.
 3. **Журнал Бюджета и Чекпоинты Пауз (`BudgetLedger` & `TaskCheckpoints`):**
    * Точный учет каждого потраченного токена по задачам и часам.
-   * При срабатывании авто-паузы (`TaskPausedByBudget`) полное состояние задачи сохраняется одной атомарной записью. Даже если ПК перезагрузится, после нажатия кнопки `[▶️ Продолжить]` в Telegram задача продолжит работу с того же шага!
-4. **Асинхронная запись без задержек (`Write-Behind Channel`):**
-   * Запись логов, аудита и статистики токенов никогда не тормозит ответ пользователю в Telegram: события кладутся в неблокирующий `Channel<PersistItem>` и сбрасываются на диск фоновым воркером батчами раз в 200 мс.
-   * Фоновый сервис следит за размером журнала (`PRAGMA wal_checkpoint(TRUNCATE)`), исключая разрастание файлов БД.
+   * При срабатывании авто-паузы (`TaskLifecycleState.PausedByBudget`) полное состояние задачи сохраняется одной атомарной записью. Даже если ПК перезагрузится, после нажатия кнопки `[▶️ Разрешить еще +5 000 токенов]` в Telegram задача продолжит работу с того же шага!
+4. **Асинхронная запись (`Write-Behind Channel`) и синхронный `InFlightOperations`:**
+   * Запись логов, аудита и статистики токенов идет через неблокирующий `Channel<PersistItem>` батчами раз в 200 мс, а синхронный `COMMIT` в `InFlightOperations` применяется только для тяжелых/внешних входов (`Brainstem`, файлы, `Tier 2/3`).
+   * Фоновый воркер `WalCheckpointWorker` следит за размером журнала (`PRAGMA wal_checkpoint(TRUNCATE)`).
+5. **Версионные миграции схемы БД и авто-бэкап (`SqliteMigrationRunner` & `SqliteBackupService`):**
+   * При старте `CyberPipe.Storage.Sqlite` проверяет `PRAGMA user_version` и последовательно накатывает встроенные SQL-миграции внутри транзакции.
+   * Перед применением новых миграций при обновлении версии автоматически создается горячий бэкап `cyberpipe.v{N}.bak` (хранятся последние 3 снимка) для безопасного отката в режиме `Side-by-Side Update`.
 
 ---
 
@@ -60,13 +68,13 @@
 
 Даже внутри процесса действует принцип минимальных привилегий:
 * **Скиллы Хоста (`Skills.Host`):** Имеют доступ только к параметрам своей узкой задачи (например, `MediaControlSkill` видит название трека и безопасный лимит громкости, но не видит историю чатов или ключи API).
-* **Воркеры `Tier 3`:** Получают только очищенный санитайзером текст конкретной подзадачи и строго урезанный набор из 2–3 инструментов (`Dynamic Tool Pruning`).
+* **Воркеры `Tier 3`:** Получают только очищенный выходным санитайзером текст конкретной подзадачи и строго урезанный набор из 2–3 инструментов (`Dynamic Tool Pruning` + `Hard Tool Stripping` при `UntrustedExternal`).
 
 ---
 
 ### 5. Конфигурация без хардкода (`IOptionsMonitor<T>`)
 
-Все лимиты безопасности и экономии настраиваются в едином прозрачном файле `appsettings.json` (и через ползунки в Avalonia UI) с горячей перезагрузкой без перезапуска помощника:
+Все лимиты безопасности и экономии настраиваются в едином прозрачном файле `appsettings.json` (с раскрытием платформенных переменных окружения и поддержкой горячей перезагрузки):
 
 ```json
 {
@@ -82,18 +90,25 @@
       "NightHoursEnd": "08:00",
       "EnableNsfwFilter": true,
       "AllowedMediaProviders": [ "Spotify", "YandexMusic", "LocalLibrary" ],
-      "AllowedShareDirectories": [ "D:\\Work\\Exports" ]
+      "AllowedShareDirectories": [ "%USERPROFILE%/Work/Exports" ]
     },
     "Budget": {
       "SoftTaskTokenLimit": 4000,
       "HardTaskTokenLimit": 12000,
+      "MaxStepOutputTokens": 2048,
       "MaxLlmTurnsPerTask": 3,
       "MaxTokensPerMinute": 15000,
       "DailyBudgetUsdCap": 0.50
     },
     "Router": {
       "Tier1SimilarityThreshold": 0.86,
-      "WhisperOnnxModelPath": "models/whisper-small-onnx"
+      "EmbeddingOnnxModelPath": "models/multilingual-e5-small.onnx"
+    },
+    "Brainstem": {
+      "WhisperOnnxModelPath": "models/whisper-small-onnx",
+      "VoiceWorkerIdleTimeoutMinutes": 45,
+      "VoiceWorkerMaxTasks": 500,
+      "DocumentParserSingleUse": true
     },
     "TierModels": {
       "Tier2LightTask": {
@@ -101,6 +116,7 @@
         "CuratedModelId": 7,
         "ModelName": "Qwen3-4B",
         "Endpoint": "http://localhost:11434",
+        "DefaultContextTokens": 8192,
         "MinRamGb": 4.0
       },
       "Tier3HeavyTask": {
@@ -110,7 +126,7 @@
       }
     },
     "Assistant": {
-      "GitRepositoriesRoot": "C:\\Users\\Conqueror\\source\\repos",
+      "GitRepositoriesRoot": "%USERPROFILE%/source/repos",
       "MorningBriefingCron": "0 9 * * *",
       "EveningReviewCron": "0 20 * * *",
       "SubscriptionWarningDaysBefore": 3
