@@ -1,5 +1,18 @@
 # Архитектурная документация CyberPipe
 
+> [!CAUTION]
+> **Статус плана: pre-implementation (AUD-01).** Репозиторий пока docs-only (`CyberPipe.slnx` пуст, кода `.cs` нет).
+> Реализация продукта начинается только после закрытия этапа 0 (ADR + реестр БД + PoC шифрования и изоляции)
+> из [`08-implementation-roadmap.md`](08-implementation-roadmap.md).
+> До этого допустимы только ADR, реестр БД и проверочные PoC по [`muse-wonder-audit.md`](muse-wonder-audit.md) (раздел K.1).
+
+**Канонические решения MVP (ответы на вопросы L1–L6 аудита):** шина — `MassTransit` (`InMemory` по умолчанию,
+`SQLite WAL` опционально, `RabbitMQ` только как enterprise-опция); раскладка БД — `cyberpipe_master.db`
+(`data/cyberpipe_master.db`) + `data/subsystems/*.db` через `ISubsystemDatabaseManager`; шифрование SQLite — только
+через SQLCipher-провайдер (гипотеза до PoC, см. `03`, `09`); целевая ОС MVP — Windows 10/11, Linux/macOS после первой
+рабочей версии; DevTools вне песочницы запрещены; SLO делятся на локальные и сквозные (сеть Telegram исключена,
+методика — см. `15`, разд. 2).
+
 Сверхбыстрый, надежный и экономный к токенам умный помощник и оркестратор автономных агентов на платформе **.NET 10** с управлением через **Telegram** и **Avalonia UI**, 4-уровневым локальным маршрутизатором намерений (**0 токенов на бытовые задачи**), жесткими предохранителями безопасности хоста (**Anti-Wipe & Media/Volume Guard**), контроллером бюджета (**TokenBudgetGovernor** с авто-паузой) и подключаемыми песочницами.
 
 ---
@@ -10,13 +23,13 @@
    *Простота и скорость без внешних брокеров, каскадный 4-Tier роутер (0 токенов на рутину), защита ПК от вайпа и 18+ контента на полной громкости, контроллер бюджета токенов с авто-паузой и мгновенным стоп-краном.*
 
 2. [**02. Диаграмма взаимодействия и защищенных потоков данных**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md)  
-   *Mermaid-схема двух путей: мгновенный Fast-Path (< 20 мс, 0 токенов) для скиллов помощника (музыка, звук, таймеры) и защищенный конвейер для сложных агентных задач под контролем `TokenBudgetGovernor`.*
+   *Mermaid-схема двух путей: мгновенный Fast-Path (локальный бюджет < 20 мс, 0 токенов; сеть Telegram не входит, см. методику SLO в 15) для скиллов помощника (музыка, звук, таймеры) и защищенный конвейер для сложных агентных задач под контролем `TokenBudgetGovernor`.*
 
 3. [**03. Технологический стек и библиотеки (.NET 10)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md)  
-   *Быстрый локальный стек без лишних зависимостей: `System.Threading.Channels`, `SQLite WAL`, `ONNX Runtime + SIMD TensorPrimitives` (локальные эмбеддинги), `NAudio`, `Telegram.Bot`, `Microsoft.Extensions.AI` + `Tokenizers`.*
+   *Быстрый локальный стек без лишних зависимостей: `MassTransit (транспорт InMemory по умолчанию, см. 03)`, `SQLite WAL`, `ONNX Runtime + SIMD TensorPrimitives` (локальные эмбеддинги), `NAudio`, `Telegram.Bot`, `Microsoft.Extensions.AI` + `Tokenizers`.*
 
 4. [**04. Каскадный Маршрутизатор (Zero-Token Fast-Path), Контроль Бюджета и Пауза/Стоп**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md)  
-   *Архитектура `Tier 0` (Regex) ➔ `Tier 1` (ONNX + Semantic Cache) ➔ `Tier 2` (Легкая задача: `Local` или `RemoteCloud` по выбору из UI + Dynamic Tool Pruning) ➔ `Tier 3` (Сложная задача: `Local` или `RemoteCloud`). Авто-пауза в Telegram и мгновенный `/stop` (< 50 мс).*
+   *Архитектура `Tier 0` (Regex) ➔ `Tier 1` (ONNX + Semantic Cache) ➔ `Tier 2` (Легкая задача: `Local` или `RemoteCloud` по выбору из UI + Dynamic Tool Pruning) ➔ `Tier 3` (Сложная задача: `Local` или `RemoteCloud`). Авто-пауза в Telegram и мгновенный локальный `/stop` (< 50 мс без учета сети Telegram).*
 
 5. [**05. Безопасность Хоста (Anti-Wipe & Media Guard), Периметр Telegram и SecurityGuard**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md)  
    *Whitelist авторизация Telegram (`Owner` vs `Guest`), запрет Raw Shell из чата, жесткий потолок громкости (`Volume Clamp` 60%/25%), локальный фильтр 18+/NSFW, AST-анализ скриптов и Stealth OSINT.*
@@ -57,3 +70,5 @@
 17. [**Экспертный аудит плана (Muse Wonder Audit)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/muse-wonder-audit.md)  
     *Комплексный стресс-тест архитектурных планов моделью `muse-wonder-1.0`: реестр замечаний (`AUD-01` – `AUD-15`), противоречия шины/БД/шифрования, анализ рисков и поэтапный план доработок (`K.1` – `K.4`).*
 
+18. [**17. Реестр решений MVP (ADR-001 – ADR-003)**](17-adr-mvp.md)
+   *Канонические ответы на вопросы L1–L6 аудита: шина, реестр БД, шифрование/SQLCipher, целевая ОС, песочница DevTools, методика SLO.*

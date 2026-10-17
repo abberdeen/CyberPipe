@@ -233,6 +233,21 @@ data/netrunner-packages/<slug>/<version>/
 
 ---
 
+## 2.5. Обязательное изолированное исполнение (AUD-07)
+
+> [!CAUTION]
+> **SHA-256 манифеста доказывает только целостность файлов, а не изоляцию выполнения.** Без OS-механизма скрипт
+> работал бы с полными правами хоста.
+
+* **Запуск только через изолированный воркер:** `NetrunnerScriptNode` выполняется исключительно внутри `ISandboxProvider`
+  (`OsRestrictedSandboxProvider` / `Wasmtime` / `Docker`) или изолированного `CyberPipe.Brainstem` с правами из манифеста
+  (`permissions.filesystemScope = IsolatedRunWorkspaceOnly`, `allowNetwork = false` по умолчанию); прямой `Process.Start`
+  на хосте запрещен архитектурным тестом.
+* **Проверка:** негативный тест — скрипт не может прочитать файлы вне своей рабочей папки (`workspace/out/`);
+  попытка чтения `data/subsystems/*.db` или `secrets.vault` завершается отказом в доступе.
+
+---
+
 ## 3. Типы Узлов и Спецификация Графа (`NetrunnerWorkflowDefinition`)
 
 Граф автоматизации описывается декларативным JSON-документом и поддерживает **8 типов узлов**:

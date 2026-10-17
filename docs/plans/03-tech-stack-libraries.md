@@ -8,7 +8,7 @@
 
 | Область | Рекомендуемая библиотека | Обоснование и решаемая задача |
 | :--- | :--- | :--- |
-| **Универсальная шина сообщений (Message Bus)** | `MassTransit` (`MassTransit`, `MassTransit.RabbitMQ`, `MassTransit.SqlTransport.Sqlite`) | Единая абстракция шины сообщений вместо `System.Threading.Channels`, позволяющая прозрачно менять транспорт. По умолчанию: **InMemory** (отключен внешний брокер, без посредников и персистентной памяти). Пользователь в UI выбирает провайдер: (1) **InMemory**, (2) **RabbitMQ** (с автозапуском через Центр и учетными данными в `SecretsVault`), (3) **Отдельный SQLite + WAL (`data/masstransit.db`)**, защищенный паролем в `SecretsVault`, которым пользуется **только MassTransit и никто другой**. |
+| **Универсальная шина сообщений (Message Bus)** | `MassTransit` (`MassTransit`, `MassTransit.RabbitMQ`, `MassTransit.SqlTransport.Sqlite`) | Единая абстракция шины сообщений вместо `System.Threading.Channels`, позволяющая прозрачно менять транспорт. По умолчанию: **InMemory** (отключен внешний брокер, без посредников и персистентной памяти). Пользователь в UI выбирает провайдер: (1) **InMemory**, (2) **RabbitMQ** (с автозапуском через Центр и учетными данными в `SecretsVault`), (3) **Отдельный SQLite + WAL (`data/subsystems/masstransit.db`)**, защищенный паролем в `SecretsVault`, которым пользуется **только MassTransit и никто другой**. |
 | **Архитектура баз данных (Центральный Мастер + Изолированные БД подсистем)** | `Microsoft.Data.Sqlite` (WAL + `FTS5`) + `Dapper` + `ISubsystemDatabaseManager` | **Центральный Мастер SQLite (`cyberpipe_master.db`)** хранит только базовые настройки приложения и таблицу-реестр `SubsystemDatabaseRegistry`. **Каждая подсистема и сервис имеют свой отдельный SQLite-файл** в `data/subsystems/*.db` (`hangfire.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) со своим паролем шифрования в `SecretsVault` (DPAPI/LibSecret/Keychain). Выделенный сервис `ISubsystemDatabaseManager` управляет lazy-созданием, реестром, генерацией паролей и выдачей защищенных `SqliteConnection`. |
 | **Telegram-интеграция** | `Telegram.Bot` | Быстрый клиент Telegram API (Long Polling / Webhook), поддержка голосовых сообщений, файлов, Inline-кнопок бюджета (`[▶️ Продолжить]`, `[🛑 Стоп]`) и фильтрация по `UserId`. |
 | **Локальное распознавание речи (0$ Voice STT)** | `Whisper.net` (ONNX / GGML runtime в `CyberPipe.Brainstem`) | Локальная транскрибация голосовых сообщений из Telegram и записей рабочих созвонов на CPU/GPU внутри прогретого пула `CyberPipe.Brainstem` за **0 облачных токенов**. |
@@ -58,9 +58,9 @@ sequenceDiagram
     Hangfire-->>Browser: Отрисовка Read-Only Hangfire Dashboard
 ```
 
-#### 1. Отдельная зашифрованная база данных SQLite (`data/hangfire.db`)
-* **Физическая изоляция:** задачи Hangfire хранятся в отдельном файле `%LOCALAPPDATA%\CyberPipe\data\hangfire.db` (на Linux/macOS: `~/.local/share/CyberPipe/data/hangfire.db`), полностью изолированном от основной базы состояния `cyberpipe.db`.
-* **Защита паролем:** строка подключения Hangfire SQLite использует криптографический ключ/пароль (`Password=...` / шифрование страниц базы), динамически генерируемый при первой инициализации (`CyberPipe setup`) и сохраняемый в платформенном сейфе `SecretsVault` (под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**).
+#### 1. Отдельная зашифрованная база данных SQLite (`data/subsystems/hangfire.db`)
+* **Физическая изоляция:** задачи Hangfire хранятся в отдельном файле `%LOCALAPPDATA%\CyberPipe\data\subsystems\hangfire.db` (на Linux/macOS: `~/.local/share/CyberPipe/data/subsystems/hangfire.db`), полностью изолированном от центрального мастера `cyberpipe_master.db`.
+* **Защита паролем:** строка подключения Hangfire SQLite использует криптографический ключ/пароль (`Password=...` / шифрование страниц базы через SQLCipher-провайдер `SQLitePCLRaw.bundle_e_sqlcipher` или эквивалент — стоковый `Microsoft.Data.Sqlite` без него не шифрует; статус — гипотеза до PoC AUD-04), динамически генерируемый при первой инициализации (`CyberPipe setup`) и сохраняемый в платформенном сейфе `SecretsVault` (под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**).
 * **Права файловой системы:** на каталог и файл `hangfire.db` распространяются те же строгие правила изоляции ядра ОС: запрет доступа для воркера `CyberPipe.Brainstem` (`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
 
 #### 2. Режим Read-Only для веб-панели (Zero Mutation from Browser)
@@ -211,7 +211,7 @@ Process.Start(new ProcessStartInfo
 
 ### Архитектура MassTransit: Выбор Провайдера в UI, RabbitMQ с Супервизией, Отдельный SQLite WAL (`masstransit.db`) и GlobalStateHub
 
-Для передачи сообщений между сервисами, воркерами и агентами вместо привязки к единственной библиотеке внедрена универсальная шина **`MassTransit`**. Это позволяет прозрачно заменять транспорт очередей без изменения бизнес-логики и кода потребителей (`IConsumer<T>`).
+Для передачи сообщений между сервисами, воркерами и агентами вместо привязки к единственной библиотеке в проекте выбрана универсальная шина **`MassTransit`**. Это позволяет прозрачно заменять транспорт очередей без изменения бизнес-логики и кода потребителей (`IConsumer<T>`).
 
 ```mermaid
 flowchart TD
@@ -222,7 +222,7 @@ flowchart TD
     Config --> P3["3. RabbitMQ Transport (AMQP 5672)<br/>• Автозапуск через Центр при отключении<br/>• Авто-админ cyberpipe_admin (только для себя)<br/>• Учетные данные в SecretsVault"]
 
     P1 & P2 & P3 --> Hub["GlobalStateHub (Реактивный Синглтон)"]
-    Hub -->|Запись в SQLite| DB[("cyberpipe.db<br/>InfrastructureHealthRecords")]
+    Hub -->|Запись в SQLite| DB[("data/subsystems/health.db<br/>InfrastructureHealthRecords")]
     Hub -->|gRPC State Stream| UI
 ```
 
@@ -231,10 +231,10 @@ flowchart TD
    * Внешний брокер полностью отключен.
    * Работает без посредников и без персистентной памяти.
    * Обеспечивает мгновенный отклик и автономность на любом ПК с расходом 0 дополнительных ресурсов.
-2. **`SQLite WAL` (Отдельная изолированная база `data/masstransit.db`):**
+2. **`SQLite WAL` (Отдельная изолированная база `data/subsystems/masstransit.db`):**
    * Используется пакет `MassTransit.SqlTransport.Sqlite`.
    * **Строгая изоляция:** для MassTransit выделен отдельный файл `%LOCALAPPDATA%\CyberPipe\data\masstransit.db` в режиме `WAL`. **Никакой другой сервис или компонент системы к этой базе не обращается**.
-   * **Защита паролем:** база шифруется стойким криптографическим ключом (`Password=...`), который генерируется при инициализации и сохраняется в системном сейфе `SecretsVault` (Windows DPAPI / Linux LibSecret / macOS Keychain).
+   * **Защита паролем:** база шифруется стойким криптографическим ключом (`Password=...` на SQLCipher-провайдере — обязателен, см. выше), который генерируется при инициализации и сохраняется в системном сейфе `SecretsVault` (Windows DPAPI / Linux LibSecret / macOS Keychain).
    * Идеально для надежной персистентной доставки и очередей без необходимости устанавливать или запускать сторонние службы.
 3. **`RabbitMQ` (Промышленный брокер через `MassTransit.RabbitMQ`):**
    * Для распределенных или внешних интеграций.
@@ -249,7 +249,7 @@ flowchart TD
 * При смене провайдера:
   1. UI отправляет gRPC-запрос `SwitchMessageBusProvider(providerType)`.
   2. Демон выполняет мягкую остановку предыдущей шины (`IBusControl.StopAsync`), инициализирует новый транспорт и запускает шину (`IBusControl.StartAsync`).
-  3. Результат проверки нового транспорта пишется в таблицу `InfrastructureHealthRecords` в `cyberpipe.db`.
+  3. Результат проверки нового транспорта пишется в таблицу `InfrastructureHealthRecords` в `data/subsystems/health.db`.
   4. Обновленный статус транслируется через `GlobalStateHub` обратно в UI.
 
 #### 3. Диагностика и проверка подключения из UI:
@@ -258,4 +258,12 @@ flowchart TD
 * **Кнопка `[🚀 Запустить через Центр]`:** доступна при выборе RabbitMQ, если нода остановлена.
 * **Лог ошибок:** при сбое подключения подробности выводятся в UI с кнопкой копирования диагностического отчета.
 
+---
 
+### Каноническое решение MVP (ADR-001, AUD-02/AUD-10)
+
+Каноническая шина MVP — **`MassTransit`**. Транспорт по умолчанию — **`InMemory`** (нулевые внешние зависимости).
+`SQLite WAL` (`data/subsystems/masstransit.db`) — опциональный персистентный режим, `RabbitMQ` — только enterprise-опция
+за отдельным ADR. Упоминания `System.Threading.Channels` как шины межсервисных сообщений недействительны.
+Доставка: `InMemory` теряет сообщения при рестарте; `SQLite`/`RabbitMQ` дают повторы — потребители обязаны быть
+идемпотентными (дедупликация по `MessageDeduplicationId`).

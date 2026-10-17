@@ -33,7 +33,7 @@
 flowchart TD
     Entry["Запуск CyberPipe [args]"] --> Parse{"Разбор аргументов (CLI Parser)"}
 
-    Parse -->|"Нет аргументов ИЛИ 'daemon run'"| DaemonMode["Режим 1: DaemonHostMode<br/>• Инициализация DI, SQLite WAL, Channels<br/>• Запуск 4-Tier Router, Telegram, Cron<br/>• Поднятие Named Pipe IPC серверов"]
+    Parse -->|"Нет аргументов ИЛИ 'daemon run'"| DaemonMode["Режим 1: DaemonHostMode<br/>• Инициализация DI, SQLite WAL, MassTransit (InMemory)<br/>• Запуск 4-Tier Router, Telegram, Cron<br/>• Поднятие Named Pipe IPC серверов"]
     
     Parse -->|"Команда CLI (status, doctor, models...)"| CheckCmdType{"Тип команды CLI"}
     CheckCmdType -->|"Autonomous (doctor, config validate, setup)"| OfflineExec["Локальное выполнение без демона"]
@@ -47,12 +47,19 @@ flowchart TD
 * **Разбор аргументов в `Program.cs` (выбор ветки `Daemon` vs `CLI`):** целевой показатель $p95 < 2\text{ мс}$ (без инициализации `HostBuilder`).
 * **Round-trip простого CLI-запроса (`CyberPipe status --json`) к уже запущенному демону по Named Pipe:** единый целевой показатель по всей документации $p95 < 25\text{ мс}$ (включая старт процесса CLI, подключение к пайпу и сериализацию JSON).
 * **Холодный старт `CyberPipe.Brainstem` до готовности Named Pipe (для `DocumentExtractText` без загрузки весов `Whisper`):** целевой показатель $p95 < 80\text{ мс}$.
+* **Сквозной путь через Telegram — вне локальных бюджетов:** сетевые задержки Telegram не нормируются;
+  сквозной сценарий `Telegram → роутер → песочница → ответ` измеряется отдельно как best-effort до накопления статистики.
+  Отчетность по всем SLO — процентилями `p95/p99` на эталонном железе; разовые замеры минимума не являются доказательством.
 
 ---
 
 ## 3. Кроссплатформенная модель безопасности для `CyberPipe.Brainstem` (`IBrainstemIsolationPlatform`)
 
 Разделение на процессы само по себе **не гарантирует** изоляцию, если дочерний процесс наследует токен и файловые права родителя. Контракт `IBrainstemIsolationPlatform` (в `CyberPipe.Contracts`) реализует строгую изоляцию памяти и файловой системы с учетом реального поведения ядра каждой ОС.
+> [!CAUTION]
+> **Эквивалентность AppContainer / bwrap / Seatbelt не доказана (AUD-13, гипотеза).** Гарантии, API и модели разрешений
+> платформ различаются. Требуется PoC на каждой целевой ОС с одинаковым набором негативных тестов (раздел 9);
+> расхождения фиксируются документально. MVP стартует на Windows 10/11.
 
 ### 3.1. Архитектура изоляции на Windows (`WindowsBrainstemIsolationPlatform`)
 В ядре Windows механизм Mandatory Integrity Control (MIC) по умолчанию реализует политику **`No-Write-Up`**, а монитор безопасности **NTFS игнорирует флаг `SYSTEM_MANDATORY_LABEL_NO_READ_UP` в SACL файлов и папок** (применяя `NO_READ_UP` только к объектам процессов и потоков в памяти). Кроме того, обычный процесс `Medium Integrity` не обладает привилегией `SeAssignPrimaryTokenPrivilege` для произвольного `CreateProcessAsUserW`.
@@ -108,6 +115,15 @@ flowchart TD
 3. **Ограничения размеров и таймауты:**
    * Для Контура 1 (gRPC): `MaxReceiveMessageSize = 4 МБ`, `MaxSendMessageSize = 4 МБ`, `KeepAliveTimeout = 10 с`.
    * Для Контура 2 (`Brainstem`): чтение заголовка длины (`int32`), при `frameLength <= 0 || frameLength > MaxConfiguredPayloadBytes (16 МБ)` поток немедленно закрывается до выделения буфера в памяти.
+4. **Одноразовый `SessionNonce` с TTL и защитой от повторов (AUD-09):** nonce генерируется на каждый запуск воркера,
+   действует только в пределах одной сессии и сжигается после первого успешного рукопожатия; повторный кадр
+   с тем же nonce отклоняется. Окно рукопожатия ограничено таймаутом (воркер без валидного handshake за N секунд уничтожается).
+5. **Авторизация команд (не только аутентификация воркера):** контур 1 (`UI/CLI ↔ CyberPipe`) проверяет роль
+   вызывающего (`Owner` vs `Guest` из белого списка `TelegramUserId`/конфига): гостю запрещены команды управления задачами
+   Tier 3, секретами и лимитами. Неавторизованная команда возвращает ошибку, а не выполняется частично.
+6. **Fail-closed и негативные тесты:** подмененный клиент (чужой `PID`, неверный/повторный nonce, перехват имени пайпа)
+   получает отказ (`ExitCode = 3`, разрыв соединения). Обязательные тесты: подмена IPC-клиента, перехват endpoint,
+   повторная отправка кадра управления.
 
 ---
 
@@ -201,7 +217,7 @@ public record BrainstemControlSignal(
 
 1. **Структура каталогов при установке:**
    * `C:\Program Files\CyberPipe\` (или защищенный системный каталог `/opt/cyberpipe`, `/Applications/CyberPipe.app`): содержит `CyberPipe`, `CyberPipe.UI.Desktop`, управляемые `.dll` демона и подкаталог `worker/` (`CyberPipe.Brainstem` + манифест `worker.manifest.json`). Права на запись (`Write/Modify`) есть только у администратора (`BUILTIN\Administrators` / `root`). Обычный пользователь и сам демон имеют только `Read & Execute`.
-   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe.db` (`SQLite WAL`), `hangfire.db` (отдельная база задач Hangfire, защищенная паролем), `masstransit.db` (отдельная база шины MassTransit, защищенная паролем), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
+   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe_master.db` (`SQLite WAL`, только настройки и реестр) и подкаталог `subsystems/` (`hangfire.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`, `netrunner.db` — каждая со своим паролем в `SecretsVault`), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
 2. **Полная проверка целостности `worker/worker.manifest.json` перед запуском (`Full Worker Directory Integrity Check`):**
    * Чтобы исключить атаку подмены зависимых библиотек (`DLL Hijacking` через `whisper.dll` или управляемые `.dll`), при сборке релиза генерируется подписанный манифест `worker/worker.manifest.json`, содержащий **SHA-256 хеши `CyberPipe.Brainstem.exe` и всех `.dll` / `.so` / `.dylib` в каталоге `./worker/`**.
    * Перед созданием процесса `Brainstem` супервизор сверяет SHA-256 всех исполняемых и библиотечных файлов в `./worker/` против эталонного манифеста и удерживает дескриптор `FileShare.Read` на время работы воркера. При любом несовпадении запуск блокируется с кодом `ExitCode = 3`.
@@ -225,7 +241,7 @@ public record BrainstemControlSignal(
 4. **Пентест-попытка пробить границу процесса и диска (`Negative Escape Tests`):**
    * Специальный тестовый обработчик внутри `Brainstem` в рамках интеграционного теста пытается:
      * Вызвать `OpenProcess(PROCESS_VM_READ, daemonPid)` $\rightarrow$ тест проходит **только если получен `ACCESS_DENIED (5)`** (благодаря `Process SACL NO_READ_UP`).
-     * Открыть файл базы `../data/cyberpipe.db`, `../data/hangfire.db`, `../data/masstransit.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
+     * Открыть файл базы `../data/cyberpipe_master.db`, `../data/subsystems/hangfire.db`, `../data/subsystems/masstransit.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
      * Вызвать `Process.Start("cmd.exe")` внутри `Job Object` с `ActiveProcessLimit = 1` $\rightarrow$ тест проходит **только при блокировке создания процесса ядром ОС**.
 5. **Тест на `AccessViolation`, OOM и защиту от ложного `Poison-Pill` (`Crash & Cancellation Resilience Test`):**
    * Намеренный вызов нативного падения памяти (`AccessViolation`) и превышения лимита `512 МБ` внутри `Brainstem` подтверждает, что `CyberPipe` остается жив, инкрементирует `AttemptCount` в `InFlightOperations` и готов к следующему запросу менее чем через `200 мс`, тогда как штатная отмена задачи через `/stop` (`OperationCanceledException`) удаляет запись `InFlightOperations` без пометки `Poisoned`.

@@ -45,6 +45,10 @@
 ### 3. Архитектура баз данных: Центральный Мастер SQLite (`cyberpipe_master.db`) + Изолированные БД подсистем (`data/subsystems/*.db`)
 
 Вместо монолитной общей базы данных или обязательного внешнего сервера PostgreSQL, в **CyberPipe** реализована строгая децентрализованная архитектура локального хранения на базе **SQLite в режиме `WAL` (Write-Ahead Logging)** с центральным реестром и раздельными паролями:
+> [!NOTE]
+> **Канонический реестр путей (ADR-002, AUD-03):** мастер — `data/cyberpipe_master.db` (корень каталога данных,
+> только `AppGlobalSettings` и `SubsystemDatabaseRegistry`); все БД подсистем — строго `data/subsystems/*.db`.
+> Имена `cyberpipe.db`, `data/hangfire.db`, `data/masstransit.db` вне `subsystems/` недействительны.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -122,7 +126,7 @@ CREATE TABLE IF NOT EXISTS SubsystemDatabaseRegistry (
 8. **`data/subsystems/netrunner.db`** — специализированная база детерминированных ETL-скриптов и JSON-схем ассистента Netrunner.
 
 #### 3. Раздельные доступы, криптографические пароли и сейф секретов
-* **Уникальный пароль для каждой БД:** Каждая база данных защищена собственным уникальным 256-битным ключом/паролем шифрования (`Password=...`). Общий мастер-пароль на все базы **запрещен**.
+* **Уникальный пароль для каждой БД:** Каждая база данных защищена собственным уникальным 256-битным ключом SQLCipher-провайдера (`Password=...`; требуется `SQLitePCLRaw.bundle_e_sqlcipher` или эквивалент — стоковый `Microsoft.Data.Sqlite` без него страницы не шифрует, статус — гипотеза до PoC AUD-04). Общий мастер-пароль на все базы **запрещен**.
 * **Хранение паролей в `SecretsVault`:** Все пароли подсистем шифруются алгоритмом **AES-256-GCM** и хранятся в `data/secrets.vault` под защитой платформенного механизма (**Windows DPAPI**, **Linux LibSecret**, **macOS Keychain**).
 * **Зануление в оперативной памяти:** При получении пароля из сейфа и формировании строки подключения, промежуточные байтовые буферы очищаются через `CryptographicOperations.ZeroMemory`.
 * **Защита на уровне ОС:** Каталог `data/subsystems/` аппаратно и логически изолирован от дочернего процесса `CyberPipe.Brainstem` и песочниц (`ACCESS_DENIED_ACE` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
@@ -168,7 +172,7 @@ public interface ISubsystemDatabaseManager
    * Выполняет SQL `CREATE TABLE SubsystemDatabaseRegistry ...` в мастер-базе с фиксацией пути и ссылки на ключ сейфа.
    * Настраивает в новой базе `PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;`.
 3. **Получение пароля:** Запрашивает расшифрованный пароль из `SecretsVault` по ссылке `SecretVaultKeyRef`.
-4. **Открытие подключения:** Конструирует защищенную строку подключения `Data Source={fullPath};Password={secretPassword};Mode=ReadWriteCreate;Cache=Shared;`.
+4. **Открытие подключения:** Конструирует защищенную строку подключения `Data Source={fullPath};Password={secretPassword};Mode=ReadWriteCreate;Cache=Shared;` (требуется SQLCipher-провайдер; без него `Password` не шифрует — гипотеза до PoC AUD-04).
 5. **Предотвращение Confused Deputy:** Сервисы инжектируют только свои клиенты (например, `IKnowledgeStore` получает доступ исключительно к ключу `"KnowledgeVault"` и не имеет права запрашивать соединение с `"FinanceLedger"` или `"Hangfire"`).
 
 ---
@@ -237,10 +241,6 @@ public sealed class GlobalStateHub : IGlobalStateHub
 * Учетные данные RabbitMQ (`rabbitmq:username` и `rabbitmq:password`) шифруются алгоритмом **AES-256-GCM** и хранятся исключительно в `data/secrets.vault` под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**.
 * В базу `health.db` или мастер-базу пароли **никогда не записываются** (пишутся только статус `Connected/Error`, пинг и имя ноды).
 * При первом старте, если учетные данные отсутствуют:
-  1. `RabbitMqSupervisionService` генерирует 256-битный случайный пароль.
-  2. Создает администратора `cyberpipe_admin` с тегом `administrator`.
-  3. Ограничивает права vhost только для созданного пользователя (`rabbitmqctl set_permissions -p / cyberpipe_admin ".*" ".*" ".*"`).
-  4. Сохраняет пару в `SecretsVault` и завершает подключение.
   1. `RabbitMqSupervisionService` генерирует 256-битный случайный пароль.
   2. Создает администратора `cyberpipe_admin` с тегом `administrator`.
   3. Ограничивает права vhost только для созданного пользователя (`rabbitmqctl set_permissions -p / cyberpipe_admin ".*" ".*" ".*"`).
@@ -328,3 +328,17 @@ public sealed class GlobalStateHub : IGlobalStateHub
 }
 ```
 
+---
+
+### 7. Ротация ключей, утеря мастер-ключа, бэкап/восстановление (AUD-12, AUD-14)
+
+* **Ротация пароля подсистемы:** `ISubsystemDatabaseManager` генерирует новый ключ в `SecretsVault`, перешифровывает БД
+  (SQLCipher `rekey`), обновляет `SubsystemDatabaseRegistry`. Проверка: учебная ротация без потери данных.
+* **Утеря мастер-ключа ОС (DPAPI/LibSecret/Keychain):** данные считаются невосстановимыми; процедура — поднять последний
+  проверенный бэкап (`SqliteBackupService`, `backups/cyberpipe.v{N}.bak`) и заново инициализировать секреты через `CyberPipe setup`.
+  Поведение fail-closed: без ключа система останавливает выполнение, а не продолжает без защиты.
+* **Бэкап/восстановление:** тестируемая процедура `backup sqlite create|verify|restore`; интеграционный тест восстановления
+  БД из бэкапа обязателен до релиза (K.3).
+* **Обновления/откат:** `Side-by-Side Update` + авто-восстановление бэкапа (см. `15`, разд. 8).
+* **Поддерживаемые ОС и .NET:** целевая ОС MVP — Windows 10/11; Linux/macOS — после первой рабочей версии (K.4).
+  Точная версия .NET и матрица ОС фиксируются в Фазе 0 и проверяются `CyberPipe doctor`.
