@@ -1,6 +1,6 @@
 # 07. Изоляция UI, Панель Контроля Расходов и Архитектурные Тесты (ArchUnitNET)
 
-Пользовательский интерфейс **CyberPipe** на базе **Avalonia UI 11+** — это легкий и отзывчивый центр управления умным помощником. Он не нагружает ПК (в отличие от Electron) и общается с фоновой службой **`CyberCortex` (`CyberCortex.exe`)** исключительно по быстрому локальному `gRPC`.
+Десктопный клиент **`CyberPipe.UI.Desktop.exe`** на базе **Avalonia UI 11+** — это легкий и отзывчивый центр управления умным помощником. Он не нагружает ПК (в отличие от Electron) и общается с фоновой службой **`CyberPipe.exe`** (работающей в режиме демона) исключительно по быстрому локальному `gRPC (Named Pipes)`.
 
 ---
 
@@ -108,6 +108,35 @@ public class ArchitectureIntegrityTests
             .That().HaveNameContaining("ModelCompatibilityAdvisor")
             .Should().DependOnAny(Types().That().HaveNameContaining("IHardwareCapabilitiesProbe"))
             .Because("Помощник подбора моделей обязан получать характеристики ПК от выделенного сервиса IHardwareCapabilitiesProbe!")
+            .Check(Architecture);
+    }
+
+    [Fact]
+    public void All_Background_Workers_Must_Inherit_From_IsolatedWorkerBase()
+    {
+        // Гарантия неубиваемости CyberPipe.exe: запрет наследования напрямую от BackgroundService в обход авто-карантина
+        Classes()
+            .That().HaveNameEndingWith("Worker").Or().HaveNameEndingWith("Watchdog")
+            .Should().BeAssignableTo("CyberPipe.Core.Orchestration.Resilience.IsolatedWorkerBase")
+            .Because("Любой фоновый воркер обязан работать внутри IsolatedWorkerBase с Circuit Breaker и таймаутом, чтобы не уронить CyberPipe.exe!")
+            .Check(Architecture);
+    }
+
+    [Fact]
+    public void Brainstem_Worker_Must_Never_Reference_Daemon_Assemblies()
+    {
+        // Защита от рефлексии: в CyberPipe.Brainstem.exe физически не должно быть классов демона
+        IObjectProvider<IType> forbiddenDaemonTypes = Types()
+            .That().ResideInNamespace("CyberPipe.Core.*")
+            .Or().ResideInNamespace("CyberPipe.Gateway.*")
+            .Or().ResideInNamespace("CyberPipe.Storage.*")
+            .Or().ResideInNamespace("CyberPipe.Skills.*")
+            .Or().ResideInNamespace("CyberPipe.Security.*");
+
+        Types()
+            .That().ResideInNamespace("CyberPipe.Brainstem.*")
+            .Should().NotDependOnAny(forbiddenDaemonTypes)
+            .Because("CyberPipe.Brainstem.exe — это стерильный процесс, в котором не должно быть кода демона даже через рефлексию!")
             .Check(Architecture);
     }
 }

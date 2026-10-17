@@ -7,7 +7,13 @@
 ### Фаза 1: Сверхбыстрое ядро, Периметр Telegram и Безопасные Скиллы Хоста (Спринт 1)
 *Цель: Запустить помощника, который за < 20 мс управляет музыкой и звуком из Telegram за 0 токенов и на 100% защищен от вайпа системы и 18+ контента.*
 
-- [ ] Инициализация чистого Solution (`CyberPipe.slnx`) на .NET 10 без внешних контейнеров.
+- [ ] Инициализация чистого Solution (`CyberPipe.slnx`) на .NET 10 с 3 исполняемыми файлами (`CyberPipe.exe`, `CyberPipe.UI.Desktop.exe` и `./worker/CyberPipe.Brainstem.exe`).
+- [ ] Реализация диспетчера **2 режимов запуска внутри `CyberPipe.exe`** (`DaemonHostMode` и `CliClientMode`).
+- [ ] Внедрение **5-уровневой защиты от падений ядра (`CyberPipe.exe`)**:
+  - Настройка `BackgroundServiceExceptionBehavior.Ignore`, `SafeModuleRegistration` и базового класса `IsolatedWorkerBase` (с авто-карантином после 3 ошибок).
+  - Разделение ресурсов на **Bulkhead-отсеки**, жесткий запрет `UnboundedChannel` (`BoundedChannel` only), потоковая квота `QuotaBoundedStream (16 МБ)` и `Pre-Execution Flight Recorder` против «отравленных» сообщений.
+  - Изоляция нативных C++ вызовов в отдельном стерильном бинарнике **`./worker/CyberPipe.Brainstem.exe`** (0 ссылок на сборки демона) внутри **Windows Job Object** (`Low Integrity` + `KillOnJobClose`).
+- [ ] Разработка базового системного **CLI и TUI (`CyberPipe <command>`)** на `System.CommandLine` + `Spectre.Console` (`doctor`, `status`, `daemon`, `models scan`, `triage`, `tui`, строгий `--json`).
 - [ ] Внутрипроцессная шина на `System.Threading.Channels` + приоритетный канал управления **`PriorityKillSwitch` (`/stop`, `/pause`)**.
 - [ ] Разработка `CyberPipe.Gateway.Telegram`:
   - Строгий фильтр `TelegramAuthGuard` (Whitelist `UserId`, разделение `Owner` и `Guest`, отсев чужих за 0.1 мс).

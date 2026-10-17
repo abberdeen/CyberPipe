@@ -44,3 +44,9 @@
 
 13. [**13. Конфигурация Tiers (Local vs Remote), Сервис Совместимости Железа и Curated-Каталог Моделей**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md)  
     *Четкое разделение `Local` и `RemoteCloud` моделей в UI и ядре, связка сервисов `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor`, полный Curated-каталог из 15 локальных моделей (с оценкой RAM/Q4) и Curated-список платных облачных моделей для легких и сложных задач.*
+
+14. [**14. Защита ядра `CyberPipe.exe` от падений, Переполнения Буферов и Взаимного Влияния (5-Уровневая Изоляция)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md)  
+    *Неубиваемость `CyberPipe.exe`: `BackgroundServiceExceptionBehavior.Ignore`, запрет тяжелых конструкторов DI, `IsolatedWorkerBase` с авто-карантином после 3 ошибок, отсеки `Bulkhead Lanes`, `BoundedChannel` + `QuotaBoundedStream`, черный ящик `InFlightOperations` против Poison-Pill и вынос нативного C++ кода в стерильный `./worker/CyberPipe.Brainstem.exe` (`Low Integrity` + `Windows Job Object`).*
+
+15. [**15. Исполняемые файлы (`.exe`), Режимы Запуска `CyberPipe.exe`, `CyberPipe.Brainstem.exe` и Системный CLI / TUI**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)  
+    *Архитектура из 3-х бинарников по уровням привилегий (`CyberPipe.exe` — демон + CLI/TUI клиент, `CyberPipe.UI.Desktop.exe` — графический клиент, `./worker/CyberPipe.Brainstem.exe` — стерильный воркер без кода демона) и полный справочник команд CLI (`doctor`, `status`, `models scan`, `infer`, `tui`, строгий `--json`).*

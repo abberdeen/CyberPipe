@@ -8,9 +8,10 @@
 
 ```mermaid
 flowchart TD
-    subgraph Clients ["Клиенты, Голос и Проактивные Триггеры"]
+    subgraph Clients ["Клиенты, CLI/TUI, Голос и Проактивные Триггеры"]
         TG["Telegram Bot Client<br/>(Текст, Голосовые, Документы, Кнопки Паузы/Стоп)"]
-        UI["Avalonia UI (Desktop / Browser)<br/>(gRPC Stream, Панель управления, Графики)"]
+        UI["CyberPipe.UI.Desktop.exe (Avalonia UI)<br/>(gRPC Named Pipes, Панель управления, Графики)"]
+        CLI["CyberPipe.exe CLI & TUI<br/>(status, doctor, models scan, infer, tui, --json)"]
         Cron["Proactive Scheduler & Event Watchdogs<br/>(Утренний брифинг, Git/Infra/SSL пингер, Подписки)"]
     end
 
