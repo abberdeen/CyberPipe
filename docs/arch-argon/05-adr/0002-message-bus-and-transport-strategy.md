@@ -3,7 +3,7 @@
 - **Status:** `Proposed (Revises Plan ADR-001)`
 - **Date:** 2026-10-18
 - **Deciders:** CyberPipe Architecture Team
-- **Source Plan Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`03-tech-stack-libraries.md`](../../plans/03-tech-stack-libraries.md) (L46), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md) (L40), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-001`)
+- **Source Plan Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`03-tech-stack-libraries.md`](../../plans/03-tech-stack-libraries.md) (L46), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md) (L40), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-001`)
 - **Related Requirements:** `REQ-008`, `REQ-010`, `REQ-018`
 - **Related Quality Scenarios (ATAM):** [`QAS-010`](../03-atam/quality-attribute-scenarios.md#qas-010), [`QAS-011`](../03-atam/quality-attribute-scenarios.md#qas-011)
 - **Related Risks & Threats:** [`RISK-001`](../03-atam/risk-register.md#risk-001), [`THREAT-015`](../04-threat-model/threat-register.md#threat-015)

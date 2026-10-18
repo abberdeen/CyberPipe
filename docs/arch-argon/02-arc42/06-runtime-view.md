@@ -51,7 +51,7 @@ sequenceDiagram
 
 ### Failure Paths & Architectural Risks in Scenario A
 1. **Stale `L2 SemanticResponseCache` Across Decentralized DBs (`RISK-010`, `AUD-05`):**
-   - *Failure Mechanism:* [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md) invalidates `SemanticResponseCache` via `PRAGMA data_version`. However, in SQLite, `PRAGMA data_version` is per-database file. If `SemanticResponseCache` only checks `cyberpipe_master.db`, mutations in `crm.db` or `finance.db` will not increment the version, causing stale data to be returned.
+   - *Failure Mechanism:* [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md) invalidates `SemanticResponseCache` via `PRAGMA data_version`. However, in SQLite, `PRAGMA data_version` is per-database file. If `SemanticResponseCache` only checks `cyberpipe_master.db`, mutations in `crm.db` or `finance.db` will not increment the version, causing stale data to be returned.
    - *Required Mitigation:* Maintain an in-memory `ConcurrentDictionary<string, long> SubsystemMutationEpochs` in `SubsystemDatabaseManager` incremented on every write transaction, or tag every `SemanticResponseCache` entry with its target `SubsystemId` and verify `PRAGMA data_version` on that specific `.db` connection before returning a cache hit.
 2. **In-Process `ONNX Runtime` Native Fault (`RISK-011`):**
    - *Failure Mechanism:* If `Microsoft.ML.OnnxRuntime` encounters a corrupted model buffer or AVX-512 driver fault inside `CyberPipe.exe`, the native `SEGV`/`AccessViolationException` terminates the entire daemon.
@@ -223,7 +223,7 @@ sequenceDiagram
 ```
 
 ### Runtime Transport Switching Constraint (`RISK-001`)
-In [`02-architecture-overview.md`](../../plans/02-architecture-overview.md) and [`17-adr-mvp.md`](../../plans/17-adr-mvp.md), `ISubsystemTransportManager` is proposed to switch `MassTransit` at runtime between `InMemory`, `SqlTransport.Sqlite`, and `RabbitMQ` via `StopAsync()`/`StartAsync()`. As documented in [`RISK-001`](../03-atam/risk-register.md#risk-001) and [`ADR-0002`](../05-adr/0002-message-bus-and-transport-strategy.md):
+In [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md) and [`17-adr-mvp.md`](../../plans/17-adr-mvp.md), `ISubsystemTransportManager` is proposed to switch `MassTransit` at runtime between `InMemory`, `SqlTransport.Sqlite`, and `RabbitMQ` via `StopAsync()`/`StartAsync()`. As documented in [`RISK-001`](../03-atam/risk-register.md#risk-001) and [`ADR-0002`](../05-adr/0002-message-bus-and-transport-strategy.md):
 1. `MassTransit.SqlTransport.Sqlite` **does not exist**.
 2. `MassTransit` registers `IBusControl`/`IBus` as singletons tied to a single transport configuration at host build time. Therefore, changing the transport mode (`cyberpipe config set Transport=RabbitMQ`) must either trigger a **graceful `IHost` restart** (`< 2 s` downtime after draining `InFlightOperations`) or route all publishes through a custom `IAdaptiveMessageBus` wrapper backed by a SQLite Transactional Outbox in `masstransit.db`.
 

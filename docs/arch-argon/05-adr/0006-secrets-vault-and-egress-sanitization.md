@@ -3,7 +3,7 @@
 - **Status:** `Proposed`
 - **Date:** 2026-10-18
 - **Deciders:** CyberPipe Architecture Team
-- **Source Plan Evidence:** [`05-security-and-zero-trust.md`](../../plans/05-security-and-zero-trust.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-006`)
+- **Source Plan Evidence:** [`05-security-agent.md`](../../plans/05-security-agent.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-006`)
 - **Related Requirements:** `REQ-005`, `REQ-006`
 - **Related Quality Scenarios (ATAM):** [`QAS-007`](../03-atam/quality-attribute-scenarios.md#qas-007), [`QAS-008`](../03-atam/quality-attribute-scenarios.md#qas-008)
 - **Related Risks & Threats:** [`RISK-014`](../03-atam/risk-register.md#risk-014), [`RISK-016`](../03-atam/risk-register.md#risk-016), [`THREAT-001`](../04-threat-model/threat-register.md#threat-001), [`THREAT-003`](../04-threat-model/threat-register.md#threat-003), [`THREAT-007`](../04-threat-model/threat-register.md#threat-007)

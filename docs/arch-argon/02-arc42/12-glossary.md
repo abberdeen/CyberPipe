@@ -33,10 +33,10 @@ Several terms and identifiers vary across `docs/plans/01`..`17`. The table below
 
 | Concept | Variant A in `docs/plans/` | Variant B in `docs/plans/` | Canonical Identifier in `docs/arch-argon/` |
 | :--- | :--- | :--- | :--- |
-| **Trust Level Enum (`CyberPipe.Contracts`)** | `OwnerExplicit`, `ExternalUntrusted` (`05-security-and-zero-trust.md`) | `TrustedOwner`, `UntrustedExternal` (`12-proactive-automation-and-scheduling.md`) | `enum OriginTrustLevel { Owner = 0, TrustedAutomation = 1, UntrustedExternal = 2 }` |
-| **Max LLM Turns Per Task** | `MaxLlmTurnsPerTask = 3` globally (`02-architecture-overview.md`, `08-token-optimization-and-caching.md`) | `3` for Cloud, `5` for Local (`13-llm-and-model-routing.md`) | `MaxCloudLlmTurnsPerTask = 3`, `MaxLocalLlmTurnsPerTask = 5` |
-| **CLI Scheduling Command** | `cyberpipe schedule list/add/remove` (`12-proactive-automation-and-scheduling.md`) | `CyberPipe cron list/add/Pause` (`15-cli-and-execution-modes.md`) | `cyberpipe schedule` (with `cron` registered as a command alias) |
-| **Main CLI Binary Name** | `CyberPipe` (`15-cli-and-execution-modes.md` examples) | `cyberpipe.exe` (`04-project-structure-and-dependencies.md`) | `cyberpipe` / `cyberpipe.exe` (`CyberPipe.Cli` project) |
+| **Trust Level Enum (`CyberPipe.Contracts`)** | `OwnerExplicit`, `ExternalUntrusted` (`05-security-agent.md`) | `TrustedOwner`, `UntrustedExternal` (`12-assistant-capabilities-and-skills.md`) | `enum OriginTrustLevel { Owner = 0, TrustedAutomation = 1, UntrustedExternal = 2 }` |
+| **Max LLM Turns Per Task** | `MaxLlmTurnsPerTask = 3` globally (`02-architecture-diagram.md`, `10-sandbox-telemetry-and-heuristics.md`) | `3` for Cloud, `5` for Local (`13-model-advisor-and-tier-configuration.md`) | `MaxCloudLlmTurnsPerTask = 3`, `MaxLocalLlmTurnsPerTask = 5` |
+| **CLI Scheduling Command** | `cyberpipe schedule list/add/remove` (`12-assistant-capabilities-and-skills.md`) | `CyberPipe cron list/add/Pause` (`15-cli-and-execution-modes.md`) | `cyberpipe schedule` (with `cron` registered as a command alias) |
+| **Main CLI Binary Name** | `CyberPipe` (`15-cli-and-execution-modes.md` examples) | `cyberpipe.exe` (`06-solution-structure.md`) | `cyberpipe` / `cyberpipe.exe` (`CyberPipe.Cli` project) |
 | **Brainstem Task Enum (`CyberPipe.Contracts`)** | `Ping = 0, WhisperTranscribe = 1, DocumentExtractText = 2` (`15-cli-and-execution-modes.md`) | Netrunner script execution referenced in `16-netrunner-etl-and-workflow-engine.md` | Keep `Brainstem` for `WhisperTranscribe` (Pool A) and `DocumentExtractText` (Pool B); route `Netrunner` scripts through `ISandboxProvider` (`TB-05`) |
 
 ---

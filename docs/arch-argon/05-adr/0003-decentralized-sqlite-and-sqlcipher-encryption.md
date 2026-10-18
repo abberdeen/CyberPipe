@@ -3,7 +3,7 @@
 - **Status:** `Proposed (Revises Plan ADR-004 & ADR-010 Connection Config)`
 - **Date:** 2026-10-18
 - **Deciders:** CyberPipe Architecture Team
-- **Source Plan Evidence:** [`03-tech-stack-libraries.md`](../../plans/03-tech-stack-libraries.md), [`07-resilience-and-self-healing.md`](../../plans/07-resilience-and-self-healing.md), [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-004`, `ADR-010`)
+- **Source Plan Evidence:** [`03-tech-stack-libraries.md`](../../plans/03-tech-stack-libraries.md), [`14-fault-isolation-and-resilience.md`](../../plans/14-fault-isolation-and-resilience.md), [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-004`, `ADR-010`)
 - **Related Requirements:** `REQ-007`, `REQ-010`, `REQ-019`
 - **Related Quality Scenarios (ATAM):** [`QAS-006`](../03-atam/quality-attribute-scenarios.md#qas-006), [`QAS-011`](../03-atam/quality-attribute-scenarios.md#qas-011)
 - **Related Risks & Threats:** [`RISK-002`](../03-atam/risk-register.md#risk-002), [`RISK-008`](../03-atam/risk-register.md#risk-008), [`RISK-010`](../03-atam/risk-register.md#risk-010), [`THREAT-006`](../04-threat-model/threat-register.md#threat-006), [`THREAT-015`](../04-threat-model/threat-register.md#threat-015)

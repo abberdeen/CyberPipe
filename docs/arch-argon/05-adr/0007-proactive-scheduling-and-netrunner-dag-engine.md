@@ -3,7 +3,7 @@
 - **Status:** `Proposed (Revises Plan ADR-008 & Netrunner Script Engine)`
 - **Date:** 2026-10-18
 - **Deciders:** CyberPipe Architecture Team
-- **Source Plan Evidence:** [`03-tech-stack-libraries.md`](../../plans/03-tech-stack-libraries.md), [`12-proactive-automation-and-scheduling.md`](../../plans/12-proactive-automation-and-scheduling.md), [`16-netrunner-etl-and-workflow-engine.md`](../../plans/16-netrunner-etl-and-workflow-engine.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-008`), [`.agents/skills/netrunner-script-package/SKILL.md`](../../../.agents/skills/netrunner-script-package/SKILL.md)
+- **Source Plan Evidence:** [`03-tech-stack-libraries.md`](../../plans/03-tech-stack-libraries.md), [`12-assistant-capabilities-and-skills.md`](../../plans/12-assistant-capabilities-and-skills.md), [`16-netrunner-etl-and-workflow-engine.md`](../../plans/16-netrunner-etl-and-workflow-engine.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-008`), [`.agents/skills/netrunner-script-package/SKILL.md`](../../../.agents/skills/netrunner-script-package/SKILL.md)
 - **Related Requirements:** `REQ-011`, `REQ-013`, `REQ-020`
 - **Related Quality Scenarios (ATAM):** [`QAS-011`](../03-atam/quality-attribute-scenarios.md#qas-011), [`QAS-012`](../03-atam/quality-attribute-scenarios.md#qas-012)
 - **Related Risks & Threats:** [`RISK-003`](../03-atam/risk-register.md#risk-003), [`RISK-005`](../03-atam/risk-register.md#risk-005), [`THREAT-011`](../04-threat-model/threat-register.md#threat-011), [`THREAT-012`](../04-threat-model/threat-register.md#threat-012)

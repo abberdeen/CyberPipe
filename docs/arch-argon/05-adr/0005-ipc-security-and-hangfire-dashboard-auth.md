@@ -3,7 +3,7 @@
 - **Status:** `Proposed`
 - **Date:** 2026-10-18
 - **Deciders:** CyberPipe Architecture Team
-- **Source Plan Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`05-security-and-zero-trust.md`](../../plans/05-security-and-zero-trust.md), [`12-proactive-automation-and-scheduling.md`](../../plans/12-proactive-automation-and-scheduling.md), [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-009`)
+- **Source Plan Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`05-security-agent.md`](../../plans/05-security-agent.md), [`12-assistant-capabilities-and-skills.md`](../../plans/12-assistant-capabilities-and-skills.md), [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-009`)
 - **Related Requirements:** `REQ-002`, `REQ-011`, `REQ-016`
 - **Related Quality Scenarios (ATAM):** [`QAS-004`](../03-atam/quality-attribute-scenarios.md#qas-004), [`QAS-005`](../03-atam/quality-attribute-scenarios.md#qas-005)
 - **Related Risks & Threats:** [`RISK-009`](../03-atam/risk-register.md#risk-009), [`THREAT-004`](../04-threat-model/threat-register.md#threat-004), [`THREAT-005`](../04-threat-model/threat-register.md#threat-005), [`THREAT-008`](../04-threat-model/threat-register.md#threat-008)

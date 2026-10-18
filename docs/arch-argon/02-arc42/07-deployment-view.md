@@ -1,7 +1,7 @@
 # 7. Deployment View
 
 > **Document Role:** Describes the physical/local deployment topology, directory layout, OS session requirements, filesystem ACL boundaries, worker binary integrity verification, and atomic update mechanics of **CyberPipe**.
-> **Epistemic Status:** **Proposed Deployment Architecture** derived from [`06-sandbox-and-process-execution.md`](../../plans/06-sandbox-and-process-execution.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md), [`11-hardware-os-and-media-control.md`](../../plans/11-hardware-os-and-media-control.md), and [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md), evaluated against discovered OS security constraints (`RISK-006`, `RISK-013`).
+> **Epistemic Status:** **Proposed Deployment Architecture** derived from [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md), [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), and [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md), evaluated against discovered OS security constraints (`RISK-006`, `RISK-013`).
 
 ---
 
@@ -59,7 +59,7 @@ flowchart TB
 
 ## 7.2 Mandatory Interactive User Session Constraint (Windows `Session >= 1`)
 
-A critical operational requirement documented in [`11-hardware-os-and-media-control.md`](../../plans/11-hardware-os-and-media-control.md) and [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md) is how `CyberPipe.exe` is started at boot/login:
+A critical operational requirement documented in [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md) and [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md) is how `CyberPipe.exe` is started at boot/login:
 
 - **Why Windows `Session 0` Service Mode Fails Hardware/Media Features:**
   Windows Services run in isolated **Session 0**, which has no access to the interactive desktop station (`WinSta0\Default`), the user's `GlobalSystemMediaTransportControlsSessionManager` (GSMTC media keys), interactive CoreAudio endpoint volume sessions, or `GetLastInputInfo` idle detection (`REQ-012`). Furthermore, Windows Services running under `LocalSystem` or `NetworkService` have a different `DPAPI` `CurrentUser` key hive than the interactive user.
@@ -119,7 +119,7 @@ Per [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-s
 ## 7.4 Discovered Deployment Risks & Required Architectural Reconciliation
 
 ### 1. Windows `AppContainer` (`S-1-15-2-1`) vs `RestrictedToken + Deny DACL` (`RISK-006`)
-- **The Conflict:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md) and [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md) state that `CyberPipe.Brainstem.exe` runs inside a Windows **AppContainer** (`CreateAppContainerProfile`) *or* a **Restricted Token** (`CreateRestrictedToken` with a Restricted SID).
+- **The Conflict:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md) and [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md) state that `CyberPipe.Brainstem.exe` runs inside a Windows **AppContainer** (`CreateAppContainerProfile`) *or* a **Restricted Token** (`CreateRestrictedToken` with a Restricted SID).
 - **Hidden OS Constraint:** In Windows, `ALL APPLICATION PACKAGES` (`S-1-15-2-1`) has default `Read & Execute` permissions on `C:\Program Files` and `C:\Windows`, but **zero access** to `%LOCALAPPDATA%` or `%USERPROFILE%`. Furthermore, an `AppContainer` process cannot open a parent process's Named Pipe unless the pipe's `PipeSecurity` DACL explicitly grants `PipeAccessRights.ReadWrite` to the specific AppContainer SID (`DeriveAppContainerSidFromAppContainerName`).
 - **Required Deployment Rule (`ADR-0004`):**
   1. At startup, `BrainstemSupervisor` must programmatically apply explicit **Allow `RX` ACLs** for the worker's AppContainer/Restricted SID onto `./worker/` and `./models/whisper/`, and add the SID to the Contour 2 Named Pipe DACL.

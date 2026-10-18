@@ -3,7 +3,7 @@
 - **Status:** `Proposed`
 - **Date:** 2026-10-18
 - **Deciders:** CyberPipe Architecture Team
-- **Source Plan Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`07-resilience-and-self-healing.md`](../../plans/07-resilience-and-self-healing.md), [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md), [`13-llm-and-model-routing.md`](../../plans/13-llm-and-model-routing.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-002`, `ADR-005`)
+- **Source Plan Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`14-fault-isolation-and-resilience.md`](../../plans/14-fault-isolation-and-resilience.md), [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), [`13-model-advisor-and-tier-configuration.md`](../../plans/13-model-advisor-and-tier-configuration.md), [`17-adr-mvp.md`](../../plans/17-adr-mvp.md) (`ADR-002`, `ADR-005`)
 - **Related Requirements:** `REQ-004`, `REQ-009`, `REQ-010`, `REQ-012`
 - **Related Quality Scenarios (ATAM):** [`QAS-003`](../03-atam/quality-attribute-scenarios.md#qas-003), [`QAS-009`](../03-atam/quality-attribute-scenarios.md#qas-009), [`QAS-010`](../03-atam/quality-attribute-scenarios.md#qas-010), [`QAS-012`](../03-atam/quality-attribute-scenarios.md#qas-012)
 - **Related Risks & Threats:** [`RISK-008`](../03-atam/risk-register.md#risk-008), [`RISK-015`](../03-atam/risk-register.md#risk-015), [`RISK-016`](../03-atam/risk-register.md#risk-016), [`THREAT-013`](../04-threat-model/threat-register.md#threat-013), [`THREAT-014`](../04-threat-model/threat-register.md#threat-014), [`THREAT-015`](../04-threat-model/threat-register.md#threat-015)

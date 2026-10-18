@@ -23,7 +23,7 @@
 ### `QAS-001` — Tier 0 Deterministic Fast-Path Routing Latency & Zero Token Cost {#qas-001}
 - **Priority:** `(H, L)` | **Quality Attribute:** Performance (Latency) & Cost Governance
 - **Related Requirements & ADRs:** `REQ-003`, [`ADR-0001`](../05-adr/0001-example-decision.md)
-- **Source Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md)
+- **Source Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -39,7 +39,7 @@
 ### `QAS-002` — Tier 1 Local ONNX Semantic Routing & SIMD Vector Cache Lookup {#qas-002}
 - **Priority:** `(H, M)` | **Quality Attribute:** Performance (Latency) & Cost Governance
 - **Related Requirements & ADRs:** `REQ-003`, [`ADR-0001`](../05-adr/0001-example-decision.md), [`RISK-010`](risk-register.md#risk-010), [`RISK-011`](risk-register.md#risk-011)
-- **Source Evidence:** [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md), [`13-llm-and-model-routing.md`](../../plans/13-llm-and-model-routing.md)
+- **Source Evidence:** [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), [`13-model-advisor-and-tier-configuration.md`](../../plans/13-model-advisor-and-tier-configuration.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -55,7 +55,7 @@
 ### `QAS-003` — Priority `/stop` Preemption & Sandbox Termination Under Active Load {#qas-003}
 - **Priority:** `(H, H)` | **Quality Attribute:** Performance (Preemption Latency) & Availability
 - **Related Requirements & ADRs:** `REQ-004`, [`ADR-0008`](../05-adr/0008-token-budget-governance-and-crash-recovery.md)
-- **Source Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`07-resilience-and-self-healing.md`](../../plans/07-resilience-and-self-healing.md)
+- **Source Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`14-fault-isolation-and-resilience.md`](../../plans/14-fault-isolation-and-resilience.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -87,7 +87,7 @@
 ### `QAS-005` — `Brainstem` Worker OS Filesystem & Network Isolation {#qas-005}
 - **Priority:** `(H, H)` | **Quality Attribute:** Security (Isolation & Containment)
 - **Related Requirements & ADRs:** `REQ-002`, `REQ-015`, [`ADR-0004`](../05-adr/0004-brainstem-process-isolation-and-sandboxing.md), [`RISK-006`](risk-register.md#risk-006), [`THREAT-008`](../04-threat-model/threat-register.md#threat-008)
-- **Source Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`05-security-and-zero-trust.md`](../../plans/05-security-and-zero-trust.md), [`06-sandbox-and-process-execution.md`](../../plans/06-sandbox-and-process-execution.md)
+- **Source Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`05-security-agent.md`](../../plans/05-security-agent.md), [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -119,7 +119,7 @@
 ### `QAS-007` — Deterministic Hard Tool Stripping Under `UntrustedExternal` Taint {#qas-007}
 - **Priority:** `(H, M)` | **Quality Attribute:** Security (Integrity / Non-Bypassability)
 - **Related Requirements & ADRs:** `REQ-006`, [`ADR-0006`](../05-adr/0006-secrets-vault-and-egress-sanitization.md), [`THREAT-001`](../04-threat-model/threat-register.md#threat-001)
-- **Source Evidence:** [`05-security-and-zero-trust.md`](../../plans/05-security-and-zero-trust.md)
+- **Source Evidence:** [`05-security-agent.md`](../../plans/05-security-agent.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -135,7 +135,7 @@
 ### `QAS-008` — Egress `CentralDataSanitizer` Latency & Non-Rehydration Guarantee {#qas-008}
 - **Priority:** `(H, M)` | **Quality Attribute:** Security (Confidentiality) & Performance
 - **Related Requirements & ADRs:** `REQ-005`, [`ADR-0006`](../05-adr/0006-secrets-vault-and-egress-sanitization.md), [`THREAT-003`](../04-threat-model/threat-register.md#threat-003)
-- **Source Evidence:** [`05-security-and-zero-trust.md`](../../plans/05-security-and-zero-trust.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md)
+- **Source Evidence:** [`05-security-agent.md`](../../plans/05-security-agent.md), [`09-data-protection-and-state-hub.md`](../../plans/09-data-protection-and-state-hub.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -151,7 +151,7 @@
 ### `QAS-009` — `TokenBudgetGovernor` Hard Spend Cap Auto-Pause & Loop Breaker {#qas-009}
 - **Priority:** `(H, M)` | **Quality Attribute:** Cost Governance & Predictability
 - **Related Requirements & ADRs:** `REQ-009`, [`ADR-0008`](../05-adr/0008-token-budget-governance-and-crash-recovery.md), [`THREAT-013`](../04-threat-model/threat-register.md#threat-013)
-- **Source Evidence:** [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md), [`13-llm-and-model-routing.md`](../../plans/13-llm-and-model-routing.md)
+- **Source Evidence:** [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), [`13-model-advisor-and-tier-configuration.md`](../../plans/13-model-advisor-and-tier-configuration.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -167,7 +167,7 @@
 ### `QAS-010` — `Brainstem` Pool B Bulkhead Survival Under `50 MB` Malformed PDF Bomb {#qas-010}
 - **Priority:** `(H, H)` | **Quality Attribute:** Reliability (Fault Containment & Availability)
 - **Related Requirements & ADRs:** `REQ-002`, [`ADR-0004`](../05-adr/0004-brainstem-process-isolation-and-sandboxing.md), [`THREAT-010`](../04-threat-model/threat-register.md#threat-010)
-- **Source Evidence:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md), [`07-resilience-and-self-healing.md`](../../plans/07-resilience-and-self-healing.md)
+- **Source Evidence:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md), [`14-fault-isolation-and-resilience.md`](../../plans/14-fault-isolation-and-resilience.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -183,7 +183,7 @@
 ### `QAS-011` — `Netrunner` DAG WAL Checkpoint & Crash / `HITL` Recovery {#qas-011}
 - **Priority:** `(H, H)` | **Quality Attribute:** Reliability (Recoverability & Idempotency)
 - **Related Requirements & ADRs:** `REQ-010`, `REQ-013`, [`ADR-0007`](../05-adr/0007-proactive-scheduling-and-netrunner-dag-engine.md), [`RISK-003`](risk-register.md#risk-003)
-- **Source Evidence:** [`07-resilience-and-self-healing.md`](../../plans/07-resilience-and-self-healing.md), [`16-netrunner-etl-and-workflow-engine.md`](../../plans/16-netrunner-etl-and-workflow-engine.md)
+- **Source Evidence:** [`14-fault-isolation-and-resilience.md`](../../plans/14-fault-isolation-and-resilience.md), [`16-netrunner-etl-and-workflow-engine.md`](../../plans/16-netrunner-etl-and-workflow-engine.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -199,7 +199,7 @@
 ### `QAS-012` — Event-Driven Resource Monitor Overhead & `1 GB -> 30 KB` Log Compression {#qas-012}
 - **Priority:** `(M, M)` | **Quality Attribute:** Resource Efficiency
 - **Related Requirements & ADRs:** `REQ-011`, `REQ-012`, [`ADR-0008`](../05-adr/0008-token-budget-governance-and-crash-recovery.md)
-- **Source Evidence:** [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md), [`11-hardware-os-and-media-control.md`](../../plans/11-hardware-os-and-media-control.md)
+- **Source Evidence:** [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md), [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -215,7 +215,7 @@
 ### `QAS-013` — Compile-Time `ArchUnitNET` 16-Project DAG & Publish-Layout Enforcement {#qas-013}
 - **Priority:** `(M, L)` | **Quality Attribute:** Modifiability & Architectural Governance
 - **Related Requirements & ADRs:** `REQ-001`, [`ADR-0001`](../05-adr/0001-example-decision.md)
-- **Source Evidence:** [`04-project-structure-and-dependencies.md`](../../plans/04-project-structure-and-dependencies.md), [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md)
+- **Source Evidence:** [`06-solution-structure.md`](../../plans/06-solution-structure.md), [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |
@@ -231,7 +231,7 @@
 ### `QAS-014` — Hardware Acoustic Safety (`VolumeClamp <= 60%/25%` & Pre-Playback Guard) {#qas-014}
 - **Priority:** `(M, L)` | **Quality Attribute:** Physical & Acoustic Human Safety
 - **Related Requirements & ADRs:** `REQ-012`, [`ADR-0001`](../05-adr/0001-example-decision.md)
-- **Source Evidence:** [`11-hardware-os-and-media-control.md`](../../plans/11-hardware-os-and-media-control.md)
+- **Source Evidence:** [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md)
 
 | ATAM Element | Specification |
 | :--- | :--- |

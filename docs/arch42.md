@@ -1,10 +1,10 @@
-# Task: Create a comprehensive software architecture documentation in `docs/arch-wonder/`
+# Task: Create a comprehensive software architecture documentation in `docs/arch-glm/`
 
 ## 1. Role and objective
 
 Act as a Senior/Principal Software Architect, Security Architect, and Reliability Engineer.
 
-Your task is to analyze the existing project plans in `docs/plans/` and create a comprehensive, evidence-based software architecture documentation in a new directory: `docs/arch-wonder/`.
+Your task is to analyze the existing project plans in `docs/plans/` and create a comprehensive, evidence-based software architecture documentation in a new directory: `docs/arch-glm/`.
 
 Use the following methodologies together:
 
@@ -32,11 +32,11 @@ Do not assume the system's architecture, technology stack, deployment model, or 
 
 Do not modify `docs/plans/` or existing application code. This task is primarily architecture analysis and documentation.
 
-Create `docs/arch-wonder/` if it does not exist. Preserve existing files if the directory already contains content. Inspect and reconcile them before adding or modifying documents.
+Create `docs/arch-glm/` if it does not exist. Preserve existing files if the directory already contains content. Inspect and reconcile them before adding or modifying documents.
 
 ## 3. Methodology descriptions and authoritative references
 
-Create `docs/arch-wonder/00-methodology.md`.
+Create `docs/arch-glm/00-methodology.md`.
 
 Explain the purpose, scope, workflow, expected outputs, limitations, and practical application of each methodology.
 
@@ -108,9 +108,9 @@ Every reference must explain what the methodology contributes to this project, n
 
 ## 4. Required output structure
 
-Create the following structure under `docs/arch-wonder/`. You may add files or directories when justified, but maintain a clear entry point and avoid unnecessary fragmentation.
+Create the following structure under `docs/arch-glm/`. You may add files or directories when justified, but maintain a clear entry point and avoid unnecessary fragmentation.
 
-    docs/arch-wonder/
+    docs/arch-glm/
     ├── README.md
     ├── 00-methodology.md
     ├── 01-overview.md
@@ -552,7 +552,7 @@ If a missing answer would fundamentally change the architecture, present the alt
 
 The task is complete only when:
 
-- `docs/arch-wonder/README.md` provides a usable entry point.
+- `docs/arch-glm/README.md` provides a usable entry point.
 - The arc42 structure is populated to the level justified by available evidence.
 - ATAM-inspired quality scenarios and trade-off analysis exist.
 - A threat model includes concrete system-relevant threats and verification activities.
@@ -565,7 +565,7 @@ The task is complete only when:
 - Existing plans and application code remain unchanged.
 
 After completing the work, provide a concise execution report containing:
-1. Files created or modified under `docs/arch-wonder/`.
+1. Files created or modified under `docs/arch-glm/`.
 2. Major architectural findings.
 3. Critical risks discovered.
 4. Decisions that remain unresolved.

@@ -8,30 +8,27 @@
 ## 11.1 Risk Distribution Matrix (Severity vs. Likelihood)
 
 ```mermaid
-quadrantChart
-    title CyberPipe Architectural Risk Heat Map (Severity vs Likelihood)
-    x-axis "Low Likelihood" --> "High Likelihood / Guaranteed"
-    y-axis "Low/Medium Impact" --> "Critical / Blocker Impact"
-    quadrant-1 "Critical Priority (Fix Before Coding)"
-    quadrant-2 "High Impact / Monitor & Harden"
-    quadrant-3 "Low Priority / Routine Hygiene"
-    quadrant-4 "Moderate Impact / Standard Engineering"
-    "RISK-001 MassTransit Sqlite": [0.95, 0.95]
-    "RISK-002 SQLCipher / Cache=Shared": [0.90, 0.92]
-    "RISK-004 Zero Code vs 16-Proj Scope": [0.95, 0.88]
-    "RISK-003 Netrunner 64MB Roslyn OOM": [0.88, 0.82]
-    "RISK-005 Hangfire SQLite + LGPLv3": [0.80, 0.72]
-    "RISK-006 AppContainer ACLs": [0.78, 0.78]
-    "RISK-008 Orphan Tables & No 2PC": [0.85, 0.70]
-    "RISK-007 DevTools Code Exec": [0.65, 0.80]
-    "RISK-009 Named Pipe Pool / Auth": [0.70, 0.68]
-    "RISK-010 Cross-DB Cache Stale": [0.75, 0.62]
-    "RISK-013 Program Files Update ACL": [0.72, 0.58]
-    "RISK-011 In-Proc ONNX Crash": [0.35, 0.75]
-    "RISK-014 DPAPI Key Loss": [0.30, 0.82]
-    "RISK-015 Unverified SLOs": [0.65, 0.50]
-    "RISK-012 External Player DNS": [0.60, 0.45]
-    "RISK-016 Cross-Doc Naming Drift": [0.85, 0.40]
+flowchart LR
+    subgraph P0["P0: Critical Blockers (Severity: Critical/High | Likelihood: Certain/High)"]
+        R1["RISK-001: Non-Existent MassTransit.SqlTransport.Sqlite & v9 License"]
+        R2["RISK-002: SQLitePCLRaw Native Binary Clash & Cache=Shared"]
+        R3["RISK-003: Netrunner 64 MB Roslyn OOM & Missing Task Contract"]
+        R4["RISK-004: Zero Source Code (CyberPipe.slnx Empty) vs 16-Proj Scope"]
+    end
+
+    subgraph P1["P1: High-Priority Security & Concurrency Risks"]
+        R5["RISK-005: Hangfire.Storage.SQLite (sqlite-net-pcl) & LGPL v3"]
+        R6["RISK-006: Windows AppContainer ACLs Outside Program Files"]
+        R7["RISK-007: DevToolProcessRunner MSBuild & Git Hook Code Exec"]
+        R8["RISK-008: Orphan SQLite Tables & Lack of Cross-DB 2PC"]
+        R9["RISK-009: Named Pipe FirstPipeInstance Pool & Local Role Auth"]
+    end
+
+    subgraph P2["P2: Operational, Consistency & Specification Debt Risks"]
+        R10["RISK-010..016: Cross-DB Cache Epoch, In-Proc ONNX, 1.1.1.3 DNS,\nProgram Files Update ACL, DPAPI Recovery Kit, Unverified SLOs, Doc Drift"]
+    end
+
+    P0 --> P1 --> P2
 ```
 
 ---
@@ -65,8 +62,8 @@ For full scoring rubrics, affected components, sensitivity points, and validatio
 
 Because `docs/plans/` may not be modified during this architectural analysis, the following specification debt items in `docs/plans/` are formally superseded by the contracts in [`12-glossary.md`](12-glossary.md) and [`../05-adr/`](../05-adr/README.md):
 
-1. **Local Model Loop Limit Drift:** [`02-architecture-overview.md`](../../plans/02-architecture-overview.md) and [`08-token-optimization-and-caching.md`](../../plans/08-token-optimization-and-caching.md) specify `MaxLlmTurnsPerTask = 3` globally, whereas [`13-llm-and-model-routing.md`](../../plans/13-llm-and-model-routing.md) specifies `3` for Cloud and `5` for Local (`Ollama`/`LlamaSharp`). **Canonical Rule (`ADR-0008`):** `MaxCloudLlmTurnsPerTask = 3`, `MaxLocalLlmTurnsPerTask = 5` (configurable down to `3`).
-2. **CLI Scheduling Subcommand Drift:** [`12-proactive-automation-and-scheduling.md`](../../plans/12-proactive-automation-and-scheduling.md) uses `cyberpipe schedule ...`, whereas [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md) uses `CyberPipe cron ...`. **Canonical Rule:** Primary noun is `cyberpipe schedule` with `cron` registered as a CLI alias in `Spectre.Console.Cli`.
+1. **Local Model Loop Limit Drift:** [`02-architecture-diagram.md`](../../plans/02-architecture-diagram.md) and [`10-sandbox-telemetry-and-heuristics.md`](../../plans/10-sandbox-telemetry-and-heuristics.md) specify `MaxLlmTurnsPerTask = 3` globally, whereas [`13-model-advisor-and-tier-configuration.md`](../../plans/13-model-advisor-and-tier-configuration.md) specifies `3` for Cloud and `5` for Local (`Ollama`/`LlamaSharp`). **Canonical Rule (`ADR-0008`):** `MaxCloudLlmTurnsPerTask = 3`, `MaxLocalLlmTurnsPerTask = 5` (configurable down to `3`).
+2. **CLI Scheduling Subcommand Drift:** [`12-assistant-capabilities-and-skills.md`](../../plans/12-assistant-capabilities-and-skills.md) uses `cyberpipe schedule ...`, whereas [`15-cli-and-execution-modes.md`](../../plans/15-cli-and-execution-modes.md) uses `CyberPipe cron ...`. **Canonical Rule:** Primary noun is `cyberpipe schedule` with `cron` registered as a CLI alias in `Spectre.Console.Cli`.
 3. **`OriginTrustLevel` Enum Drift:** Across `docs/plans/`, trust levels are variously written as `Owner` / `OwnerExplicit` / `TrustedOwner` and `Untrusted` / `UntrustedExternal`. **Canonical Enum (`CyberPipe.Contracts`):** `Owner = 0`, `TrustedAutomation = 1`, `UntrustedExternal = 2`.
 
 ---
