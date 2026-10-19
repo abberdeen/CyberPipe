@@ -53,6 +53,9 @@ public sealed record CyberPipeOptions
     /// <summary>Параметры защитного барьера от необратимого уничтожения данных (TASK-070).</summary>
     public AntiWipeOptions AntiWipe { get; init; } = new();
 
+    /// <summary>Параметры эвристической безопасности аудиоконтента (TASK-071).</summary>
+    public AudioContentSafetyOptions AudioContentSafety { get; init; } = new();
+
     /// <summary>
     /// Проверяет опции и возвращает ошибки с именами ключей в форме Section:Property.
     /// Значения секретов в ошибки не попадают: секретов-значений в конфигурации нет.
@@ -154,6 +157,13 @@ public sealed record CyberPipeOptions
 
         if (AntiWipe.BulkDeleteThreshold <= 0)
             errors.Add("AntiWipe:BulkDeleteThreshold must be positive.");
+
+        if (AudioContentSafety.LowRiskThreshold < 0 || AudioContentSafety.LowRiskThreshold > 1)
+            errors.Add("AudioContentSafety:LowRiskThreshold must be between 0 and 1.");
+        if (AudioContentSafety.MediumRiskThreshold < AudioContentSafety.LowRiskThreshold || AudioContentSafety.MediumRiskThreshold > 1)
+            errors.Add("AudioContentSafety:MediumRiskThreshold must be between LowRiskThreshold and 1.");
+        if (AudioContentSafety.HighRiskThreshold < AudioContentSafety.MediumRiskThreshold || AudioContentSafety.HighRiskThreshold > 1)
+            errors.Add("AudioContentSafety:HighRiskThreshold must be between MediumRiskThreshold and 1.");
 
         return errors;
     }

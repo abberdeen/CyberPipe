@@ -79,4 +79,4 @@ dotnet test --filter "FullyQualifiedName~AudioContentSafety"
 
 ## Статус
 
-Planned
+Done

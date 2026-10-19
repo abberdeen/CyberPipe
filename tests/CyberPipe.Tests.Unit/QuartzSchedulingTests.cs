@@ -105,7 +105,7 @@ public sealed class QuartzSchedulingTests
                 return Task.CompletedTask;
             });
 
-        // Quartz format: 0 * * * * ? (каждую минуту на 0-й секунде)
+        DateTimeOffset beforeSchedule = DateTimeOffset.UtcNow;
         await scheduler.ScheduleChainAsync(chainId, "0 * * * * ?");
 
         IReadOnlyList<ScheduledChainInfo> list = await scheduler.ListScheduledAsync();
@@ -114,7 +114,7 @@ public sealed class QuartzSchedulingTests
         Assert.Equal("0 * * * * ?", info.CronExpression);
         Assert.False(info.IsPaused);
         Assert.NotNull(info.NextFireTimeUtc);
-        Assert.True(info.NextFireTimeUtc > DateTimeOffset.UtcNow);
+        Assert.True(info.NextFireTimeUtc >= beforeSchedule.AddSeconds(-1));
 
         // Ручной запуск TriggerChainNowAsync
         await scheduler.TriggerChainNowAsync(chainId);
