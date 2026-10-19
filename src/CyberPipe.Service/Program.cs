@@ -38,7 +38,7 @@ public static class Program
 
         if (validateOnly)
         {
-            return RunValidateConfig(options, logger);
+            return await RunValidateConfigAsync(options, logger).ConfigureAwait(false);
         }
 
         logger.LogInformation(
@@ -117,11 +117,11 @@ public static class Program
     /// Диагностический прогон конфигурации (TASK-090): связность DI-графа, каталоги
     /// моделей, запрещённые сервисы. Без запуска каналов и без записи в БД.
     /// </summary>
-    private static int RunValidateConfig(CyberPipeOptions options, ILogger logger)
+    private static async Task<int> RunValidateConfigAsync(CyberPipeOptions options, ILogger logger)
     {
         var services = new ServiceCollection();
         services.AddCyberPipeService(options);
-        using ServiceProvider provider = services.BuildServiceProvider();
+        await using ServiceProvider provider = services.BuildServiceProvider();
 
         ConfigurationValidationReport report = ServiceComposition.ValidateConfiguration(provider, options);
         if (report.IsValid)

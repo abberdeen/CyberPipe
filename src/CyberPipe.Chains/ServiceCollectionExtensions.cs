@@ -43,7 +43,15 @@ public static class ChainsServiceCollectionExtensions
         services.TryAddSingleton<IChainExecutor, ChainExecutor>();
         services.TryAddSingleton<ChainRecoveryService>();
         services.TryAddSingleton<IHitlApprovalService>(sp => sp.GetRequiredService<HitlApprovalService>());
-        services.TryAddSingleton<HitlApprovalService>();
+        services.TryAddSingleton<HitlApprovalService>(sp => new HitlApprovalService(
+            sp.GetRequiredService<IHitlApprovalRepository>(),
+            sp.GetRequiredService<IEnumerable<IHitlCardSender>>(),
+            sp.GetRequiredService<IOwnerGuard>(),
+            new DeferredChainExecutor(sp),
+            sp.GetService<ISchemaValidator>(),
+            sp.GetService<IChainDefinitionRepository>(),
+            sp.GetService<IPackageRegistryRepository>(),
+            sp.GetService<IChainExecutionRepository>()));
         services.TryAddSingleton<IHitlApprovalGate, HitlApprovalGate>();
         services.TryAddSingleton<IDelayedResumeScheduler>(sp =>
             new TimerDelayedResumeScheduler((runId, ct) =>

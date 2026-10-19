@@ -49,7 +49,7 @@ public static class ChannelsServiceCollectionExtensions
                 sp.GetRequiredKeyedService<IOwnerGuard>("telegram"),
                 sp.GetService<TelegramOptions>(),
                 sp.GetService<IMessageBus>(),
-                sp.GetService<IHitlApprovalService>()));
+                new DeferredHitlApprovalService(sp)));
         services.TryAddSingleton<IDeliveryPort>(sp => sp.GetRequiredService<TelegramChannelService>());
         services.TryAddSingleton<IHitlCardSender>(sp => sp.GetRequiredService<TelegramChannelService>());
         services.AddHostedService(sp => sp.GetRequiredService<TelegramChannelService>());

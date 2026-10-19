@@ -47,9 +47,9 @@ public sealed class CompositionRootTests
     }
 
     [Fact]
-    public void FullComposition_ValidatesWithoutDatabaseOrNetwork()
+    public async Task FullComposition_ValidatesWithoutDatabaseOrNetwork()
     {
-        using ServiceProvider provider = BuildComposition();
+        await using ServiceProvider provider = BuildComposition();
 
         ConfigurationValidationReport report =
             ServiceComposition.ValidateConfiguration(provider, TestOptions());
@@ -58,9 +58,9 @@ public sealed class CompositionRootTests
     }
 
     [Fact]
-    public void FullComposition_ResolvesKeyServices()
+    public async Task FullComposition_ResolvesKeyServices()
     {
-        using ServiceProvider provider = BuildComposition();
+        await using ServiceProvider provider = BuildComposition();
 
         Assert.NotNull(provider.GetRequiredService<IMessageBus>());
         Assert.NotNull(provider.GetRequiredService<IMessageTransport>());
@@ -83,9 +83,9 @@ public sealed class CompositionRootTests
     }
 
     [Fact]
-    public void FullComposition_RegistersNoForbiddenServices()
+    public async Task FullComposition_RegistersNoForbiddenServices()
     {
-        using ServiceProvider provider = BuildComposition();
+        await using ServiceProvider provider = BuildComposition();
 
         ConfigurationValidationReport report =
             ServiceComposition.ValidateConfiguration(provider, TestOptions());
@@ -94,9 +94,9 @@ public sealed class CompositionRootTests
     }
 
     [Fact]
-    public void ValidateConfiguration_ReportsInvalidOptions()
+    public async Task ValidateConfiguration_ReportsInvalidOptions()
     {
-        using ServiceProvider provider = BuildComposition();
+        await using ServiceProvider provider = BuildComposition();
         var broken = TestOptions() with
         {
             Database = new DatabaseOptions { Host = string.Empty },
