@@ -237,11 +237,17 @@ public sealed record RouterOptions
     /// <summary>Максимум записей семантического кэша.</summary>
     public int SemanticCacheMaxEntries { get; init; } = 1000;
 
+    /// <summary>Минимальный отрыв уверенности лучшего кандидата от второго для защиты от неоднозначности.</summary>
+    public double Tier1MarginThreshold { get; init; } = 0.05;
+
     /// <summary>Тайм-аут сопоставления регулярного выражения Tier 0 по умолчанию в миллисекундах.</summary>
     public int RegexMatchTimeoutMs { get; init; } = 200;
 
     /// <summary>Пользовательские правила для Tier 0 regex-роутера (TASK-030).</summary>
     public IReadOnlyList<RegexRuleDefinition> RegexRules { get; init; } = [];
+
+    /// <summary>Пользовательские эталонные примеры для Tier 1 семантического роутера (TASK-031).</summary>
+    public IReadOnlyList<SemanticExampleDefinition> Tier1Examples { get; init; } = [];
 }
 
 /// <summary>
@@ -252,6 +258,9 @@ public sealed record ModelOptions
 {
     /// <summary>Стандартная мультиязычная эмбеддинг-модель Tier1, предлагаемая при первом запуске (Q10).</summary>
     public string EmbeddingModelId { get; init; } = "multilingual-e5-small";
+
+    /// <summary>Путь к файлу ONNX-модели эмбеддингов; если не задан, используется путь по умолчанию.</summary>
+    public string? EmbeddingModelPath { get; init; }
 
     /// <summary>Путь к JSON-каталогу локальных моделей.</summary>
     public string LocalCatalogPath { get; init; } = "models/local-models.json";

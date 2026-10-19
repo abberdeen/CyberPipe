@@ -66,6 +66,16 @@ public sealed class ContractsBoundaryTests
         "IRegexRuleProvider",
         "IBudgetStore",
         "IModelPriceProvider",
+        "EmbeddingNamespaces",
+        "EmbeddingRecord",
+        "EmbeddingQuery",
+        "EmbeddingMatch",
+        "IEmbeddingStore",
+        "IEmbeddingProvider",
+        "CacheStatsDto",
+        "ISemanticCache",
+        "SemanticExampleDefinition",
+        "ISemanticExampleProvider",
     ];
 
     [Fact]

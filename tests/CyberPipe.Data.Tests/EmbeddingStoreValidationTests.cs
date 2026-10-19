@@ -1,3 +1,4 @@
+using CyberPipe.Contracts;
 using CyberPipe.Data;
 using Npgsql;
 using Xunit;

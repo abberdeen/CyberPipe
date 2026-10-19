@@ -1,27 +1,12 @@
 using System.Globalization;
 using System.Text.Json;
+using CyberPipe.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace CyberPipe.Data;
-
-/// <summary>Известные пространства имён эмбеддингов; потребители изолированы по namespace.</summary>
-public static class EmbeddingNamespaces
-{
-    /// <summary>Эталоны намерений семантического роутера (TASK-031).</summary>
-    public const string Router = "router";
-
-    /// <summary>Семантический кэш (TASK-034).</summary>
-    public const string SemanticCache = "semantic-cache";
-
-    /// <summary>Поиск по знаниям / второй мозг (TASK-053).</summary>
-    public const string Knowledge = "knowledge";
-
-    /// <summary>Эвристическая оценка риска (TASK-071).</summary>
-    public const string Safety = "safety";
-}
 
 /// <summary>Стратегия поиска ближайших соседей (TASK-012). Смена стратегии не меняет контракт.</summary>
 public enum EmbeddingSearchStrategy
@@ -97,77 +82,6 @@ public sealed class EmbeddingDimensionMismatchException : Exception
 
     /// <summary>Идентификатор модели.</summary>
     public string ModelId { get; }
-}
-
-/// <summary>
-/// Запись эмбеддинга. Нормализация вектора — ответственность вызывающего (модели):
-/// хранилище хранит вектор как есть; для косинусной метрики ожидаются нормализованные векторы.
-/// </summary>
-public sealed record EmbeddingRecord
-{
-    /// <summary>Идентификатор записи; Guid.Empty — сгенерировать при записи.</summary>
-    public Guid Id { get; init; }
-
-    /// <summary>Пространство имён потребителя, например router / semantic-cache / knowledge / safety.</summary>
-    public required string Namespace { get; init; }
-
-    /// <summary>Ссылка на источник (намерение, документ, запись кэша).</summary>
-    public required string SourceRef { get; init; }
-
-    /// <summary>Идентификатор модели эмбеддингов.</summary>
-    public required string ModelId { get; init; }
-
-    /// <summary>Размерность; 0 — равна длине вектора, иначе должна совпадать с длиной вектора и конфигурацией модели.</summary>
-    public int Dimension { get; init; }
-
-    /// <summary>Вектор эмбеддинга как есть (ожидается нормализованным вызывающим).</summary>
-    public required IReadOnlyList<float> Vector { get; init; }
-
-    /// <summary>Хеш исходного текста.</summary>
-    public required string TextHash { get; init; }
-
-    /// <summary>Метаданные записи (jsonb).</summary>
-    public IReadOnlyDictionary<string, string> Metadata { get; init; } =
-        new Dictionary<string, string>();
-
-    /// <summary>Время создания; default — now() базы данных.</summary>
-    public DateTimeOffset CreatedAt { get; init; }
-}
-
-/// <summary>Запрос поиска ближайших соседей.</summary>
-public sealed record EmbeddingQuery
-{
-    /// <summary>Вектор запроса (ожидается нормализованным вызывающим).</summary>
-    public required IReadOnlyList<float> Vector { get; init; }
-
-    /// <summary>Пространство имён для поиска.</summary>
-    public required string Namespace { get; init; }
-
-    /// <summary>Максимум возвращаемых соседей; должен быть положительным.</summary>
-    public int TopK { get; init; } = 10;
-
-    /// <summary>Минимальное косинусное сходство в [-1, 1]; ниже порога результаты не возвращаются.</summary>
-    public double MinScore { get; init; } = -1.0;
-
-    /// <summary>Необязательный фильтр по модели.</summary>
-    public string? ModelId { get; init; }
-}
-
-/// <summary>Один сосед из результата поиска.</summary>
-public sealed record EmbeddingMatch
-{
-    /// <summary>Идентификатор записи.</summary>
-    public required Guid Id { get; init; }
-
-    /// <summary>Ссылка на источник записи.</summary>
-    public required string SourceRef { get; init; }
-
-    /// <summary>Косинусное сходство в [-1, 1] (не расстояние pgvector).</summary>
-    public required double Score { get; init; }
-
-    /// <summary>Метаданные записи.</summary>
-    public IReadOnlyDictionary<string, string> Metadata { get; init; } =
-        new Dictionary<string, string>();
 }
 
 /// <summary>Преобразование расстояния pgvector в косинусное сходство контракта.</summary>
@@ -253,44 +167,6 @@ public static class EmbeddingValidation
 /// <summary>
 /// Хранилище эмбеддингов на pgvector (TASK-012). Потребители: TASK-031, TASK-034, TASK-053, TASK-071.
 /// Только хранилище: без генерации эмбеддингов, классификации и политики кэша.
-/// </summary>
-public interface IEmbeddingStore
-{
-    /// <summary>Идемпотентно записывает запись по (Namespace, SourceRef, ModelId): повтор обновляет вектор и метаданные.</summary>
-    /// <param name="record">Запись эмбеддинга.</param>
-    /// <param name="cancellationToken">Токен отмены.</param>
-    Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default);
-
-    /// <summary>Пакетная идемпотентная запись в одной транзакции; все записи валидируются до транзакции.</summary>
-    /// <param name="records">Записи эмбеддингов.</param>
-    /// <param name="cancellationToken">Токен отмены.</param>
-    Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default);
-
-    /// <summary>Ищет ближайших соседей по косинусному сходству, сортировка по убыванию Score.</summary>
-    /// <param name="query">Запрос поиска.</param>
-    /// <param name="cancellationToken">Токен отмены.</param>
-    /// <returns>Соседи с Score &gt;= MinScore, не более TopK.</returns>
-    Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default);
-
-    /// <summary>Удаляет одну запись по пространству имён и ссылке на источник (все модели).</summary>
-    /// <param name="namespace">Пространство имён.</param>
-    /// <param name="sourceRef">Ссылка на источник.</param>
-    /// <param name="cancellationToken">Токен отмены.</param>
-    /// <returns>true, если запись была удалена.</returns>
-    Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default);
-
-    /// <summary>Удаляет все записи пространства имён (область владельца-потребителя).</summary>
-    /// <param name="namespace">Пространство имён.</param>
-    /// <param name="cancellationToken">Токен отмены.</param>
-    /// <returns>Число удалённых записей.</returns>
-    Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default);
-
-    /// <summary>Считает записи пространства имён.</summary>
-    /// <param name="namespace">Пространство имён.</param>
-    /// <param name="cancellationToken">Токен отмены.</param>
-    /// <returns>Число записей.</returns>
-    Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default);
-}
 
 /// <summary>
 /// Реализация <see cref="IEmbeddingStore" /> поверх app.embeddings (TASK-011) и pgvector.

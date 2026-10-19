@@ -1,3 +1,4 @@
+using CyberPipe.Contracts;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 

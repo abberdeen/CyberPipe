@@ -7,4 +7,7 @@
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
     <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
+  </ItemGroup>
 </Project>
