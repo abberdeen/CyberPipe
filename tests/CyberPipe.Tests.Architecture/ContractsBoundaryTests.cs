@@ -52,6 +52,7 @@ public sealed class ContractsBoundaryTests
         "ErrorDto",
         "Result",
         "IServiceControl",
+        "IServiceController",
     ];
 
     [Fact]

@@ -15,5 +15,6 @@
     <ProjectReference Include="..\..\src\CyberPipe.Logging\CyberPipe.Logging.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Security\CyberPipe.Security.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Service\CyberPipe.Service.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.ServiceControl\CyberPipe.ServiceControl.csproj" />
   </ItemGroup>
 </Project>

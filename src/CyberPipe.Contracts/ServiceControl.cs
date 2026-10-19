@@ -80,6 +80,20 @@ public interface IServiceControl
 }
 
 /// <summary>
+/// Расширенный контракт управления и непрерывного наблюдения за службой (TASK-021).
+/// Потребитель: UI Desktop (TASK-061) и CLI (TASK-062).
+/// </summary>
+public interface IServiceController : IServiceControl
+{
+    /// <summary>
+    /// Непрерывно наблюдает за состоянием службы с экспоненциальным бэкоффом при потере связи.
+    /// </summary>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Асинхронный поток состояний службы.</returns>
+    IAsyncEnumerable<ServiceStatusDto> WatchStatusAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Внутренний управляющий канал службы: health-проверка и запросы остановки/перезапуска.
 /// Хостинг канала — TASK-020; клиент — TASK-021. Транспорт канала контрактом не фиксируется.
 /// </summary>

@@ -45,7 +45,7 @@
 | TASK-012 | Хранилище эмбеддингов на pgvector | TASK-002, TASK-011 | Done |
 | TASK-013 | Репозитории и доступ к данным | TASK-002, TASK-011, TASK-012 | Done |
 | TASK-020 | Windows Service Host | TASK-001, TASK-002, TASK-003, TASK-004 | Done |
-| TASK-021 | Управление Service из Desktop (Start/Stop/Restart) | TASK-002, TASK-020 | Ready |
+| TASK-021 | Управление Service из Desktop (Start/Stop/Restart) | TASK-002, TASK-020 | Done |
 | TASK-022 | Супервизор Brainstem-воркера | TASK-002, TASK-020, TASK-023 | Planned |
 | TASK-023 | Sandbox: Restricted Token + Job Object + Deny-ACL | TASK-002 | Ready |
 | TASK-030 | Tier 0: regex-роутер | TASK-002 | Ready |
@@ -65,7 +65,7 @@
 | TASK-052 | Голос: распознавание речи Whisper (voice-whisper) | TASK-002 | Ready |
 | TASK-053 | Знания: второй мозг (knowledge-second-brain, search/memory) | TASK-002, TASK-011, TASK-012 | Ready |
 | TASK-060 | Telegram-бот: первый канал связи | TASK-002, TASK-020 | Ready |
-| TASK-061 | Avalonia Desktop UI | TASK-002, TASK-021 | Planned |
+| TASK-061 | Avalonia Desktop UI | TASK-002, TASK-021 | Ready |
 | TASK-062 | CLI/TUI клиент | TASK-002 | Ready |
 | TASK-063 | Мастер первого запуска (First-Run Setup Wizard) | TASK-002, TASK-010, TASK-011 | Ready |
 | TASK-070 | Anti-wipe guard | TASK-002 | Ready |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 9 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020 |
+| Done | 10 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020, TASK-021 |
 | In Progress | 0 | — |
-| Ready | 19 | TASK-021, TASK-023, TASK-030, TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
-| Planned | 15 | TASK-022, TASK-032, TASK-041, TASK-043–TASK-046, TASK-061, TASK-081, TASK-082, TASK-090–TASK-093 |
+| Ready | 19 | TASK-023, TASK-030, TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Planned | 14 | TASK-022, TASK-032, TASK-041, TASK-043–TASK-046, TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 9 завершённых задач (области 01-foundation, 02-data-layer, TASK-020). `Ready` у 19 разблокированных задач без незавершённых зависимостей.
+`Done` у 10 завершённых задач (области 01-foundation, 02-data-layer, TASK-020, TASK-021). `Ready` у 19 разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

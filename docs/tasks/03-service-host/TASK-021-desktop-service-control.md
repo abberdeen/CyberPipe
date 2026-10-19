@@ -85,4 +85,4 @@ dotnet test CyberPipe.slnx --filter "FullyQualifiedName~ServiceControl"
 
 Пути проектов — к созданию; команды заработают после TASK-001 и TASK-020.
 
-## Статус: Planned
+## Статус: Done
