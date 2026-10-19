@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>CyberPipe.Tests.E2E</AssemblyName>
+    <RootNamespace>CyberPipe.Tests.E2E</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Data\CyberPipe.Data.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Security\CyberPipe.Security.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Service\CyberPipe.Service.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Router\CyberPipe.Router.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Chains\CyberPipe.Chains.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Skills\CyberPipe.Skills.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Channels.Telegram\CyberPipe.Channels.Telegram.csproj" />
+  </ItemGroup>
+</Project>
