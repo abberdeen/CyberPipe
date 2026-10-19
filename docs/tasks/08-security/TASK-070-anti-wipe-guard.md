@@ -79,5 +79,5 @@ dotnet test --filter "FullyQualifiedName~AntiWipe"
 > Пути решения/проектов — к созданию; команды — стандартные для .NET 10 после появления скелета (TASK-001).
 
 ## Статус
-
-Planned
+ 
+Done

@@ -50,6 +50,9 @@ public sealed record CyberPipeOptions
     /// <summary>Параметры службы и управляющего канала (TASK-020).</summary>
     public HostingOptions Hosting { get; init; } = new();
 
+    /// <summary>Параметры защитного барьера от необратимого уничтожения данных (TASK-070).</summary>
+    public AntiWipeOptions AntiWipe { get; init; } = new();
+
     /// <summary>
     /// Проверяет опции и возвращает ошибки с именами ключей в форме Section:Property.
     /// Значения секретов в ошибки не попадают: секретов-значений в конфигурации нет.
@@ -148,6 +151,9 @@ public sealed record CyberPipeOptions
             errors.Add("Brainstem:MaxBackoffSeconds must not be less than Brainstem:InitialBackoffSeconds.");
         if (Brainstem.MemoryLimitMb is <= 0)
             errors.Add("Brainstem:MemoryLimitMb must be positive if specified.");
+
+        if (AntiWipe.BulkDeleteThreshold <= 0)
+            errors.Add("AntiWipe:BulkDeleteThreshold must be positive.");
 
         return errors;
     }
