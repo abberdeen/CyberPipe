@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>CyberPipe.Security</AssemblyName>
+    <RootNamespace>CyberPipe.Security</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+  </ItemGroup>
+</Project>

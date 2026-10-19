@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>CyberPipe.Brainstem</AssemblyName>
+    <RootNamespace>CyberPipe.Brainstem</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+  </ItemGroup>
+</Project>

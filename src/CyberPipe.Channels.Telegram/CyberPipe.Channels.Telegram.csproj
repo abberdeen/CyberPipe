@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>CyberPipe.Channels.Telegram</AssemblyName>
+    <RootNamespace>CyberPipe.Channels.Telegram</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+  </ItemGroup>
+</Project>
