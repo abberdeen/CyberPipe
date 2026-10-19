@@ -161,6 +161,18 @@ public sealed class ContractsBoundaryTests
         "InteractionRecord",
         "IContactRepository",
         "IPersonalSkillRegistry",
+        "TranscriptionStatus",
+        "TranscriptionSegment",
+        "AudioInput",
+        "SttOptions",
+        "TranscriptionResult",
+        "ISpeechToTextEngine",
+        "IAudioConverter",
+        "AudioConversionException",
+        "AudioFormatNotSupportedException",
+        "VoiceSkillLimits",
+        "IVoiceSkill",
+        "IVoiceSkillRegistry",
     ];
 
     [Fact]

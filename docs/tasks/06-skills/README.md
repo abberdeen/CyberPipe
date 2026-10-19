@@ -29,5 +29,5 @@
 
 ## Статус
  
-- TASK-050, TASK-051: `Done`
-- TASK-052, TASK-053: `Ready`
+- TASK-050, TASK-051, TASK-052: `Done`
+- TASK-053: `Ready`

@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
+using System.Text.Json;
 using CyberPipe.Contracts;
 
 namespace CyberPipe.Brainstem;
@@ -213,6 +215,10 @@ public static class Program
                     Environment.Exit(42);
                     return new BrainstemJobResult(req.JobId, false, null, "Should have exited");
 
+                case "whisper":
+                case "stt":
+                    return await ExecuteWhisperJobAsync(req, procCts.Token).ConfigureAwait(false);
+
                 default:
                     return new BrainstemJobResult(
                         req.JobId,
@@ -224,6 +230,135 @@ public static class Program
         catch (Exception ex)
         {
             return new BrainstemJobResult(req.JobId, false, null, ex.Message);
+        }
+    }
+
+    private static async Task<BrainstemJobResult> ExecuteWhisperJobAsync(
+        BrainstemJobRequest req,
+        CancellationToken ct)
+    {
+        try
+        {
+            string payloadStr = req.Payload.Length > 0 ? Encoding.UTF8.GetString(req.Payload) : "{}";
+            using var jsonDoc = JsonDocument.Parse(string.IsNullOrWhiteSpace(payloadStr) ? "{}" : payloadStr);
+            JsonElement root = jsonDoc.RootElement;
+
+            // Check if mock/simulation requested
+            if (root.TryGetProperty("simulate", out var simProp))
+            {
+                string sim = simProp.GetString() ?? "";
+                if (sim.Equals("unavailable", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new BrainstemJobResult(req.JobId, false, null, "EngineUnavailable: Whisper model or executable not found.");
+                }
+
+                if (sim.Equals("nospeech", StringComparison.OrdinalIgnoreCase))
+                {
+                    var noSpeechResult = TranscriptionResult.NoSpeech();
+                    return new BrainstemJobResult(req.JobId, true, JsonSerializer.SerializeToUtf8Bytes(noSpeechResult), null);
+                }
+
+                if (sim.Equals("error", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new BrainstemJobResult(req.JobId, false, null, "Simulated transcription error");
+                }
+            }
+
+            string? filePath = root.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
+            string? audioBase64 = root.TryGetProperty("audioBase64", out var ab) ? ab.GetString() : null;
+            string language = root.TryGetProperty("language", out var lang) ? lang.GetString() ?? "auto" : "auto";
+            string? modelPath = root.TryGetProperty("modelPath", out var mp) ? mp.GetString() : null;
+
+            byte[]? audioBytes = null;
+            if (!string.IsNullOrEmpty(audioBase64))
+            {
+                audioBytes = Convert.FromBase64String(audioBase64);
+            }
+            else if (!string.IsNullOrEmpty(filePath) && File.Exists(filePath))
+            {
+                audioBytes = await File.ReadAllBytesAsync(filePath, ct).ConfigureAwait(false);
+            }
+
+            if (audioBytes == null || audioBytes.Length == 0)
+            {
+                var noSpeechResult = TranscriptionResult.NoSpeech();
+                return new BrainstemJobResult(req.JobId, true, JsonSerializer.SerializeToUtf8Bytes(noSpeechResult), null);
+            }
+
+            // Check if audio is silence (all zeroes in PCM payload after 44-byte WAV header)
+            bool isSilence = true;
+            for (int i = 0; i < audioBytes.Length; i++)
+            {
+                if (audioBytes[i] != 0 && audioBytes[i] != 0x80)
+                {
+                    if (i >= 44)
+                    {
+                        isSilence = false;
+                        break;
+                    }
+                }
+            }
+
+            if (isSilence && audioBytes.Length > 44)
+            {
+                var noSpeechResult = TranscriptionResult.NoSpeech();
+                return new BrainstemJobResult(req.JobId, true, JsonSerializer.SerializeToUtf8Bytes(noSpeechResult), null);
+            }
+
+            string? whisperExe = Environment.GetEnvironmentVariable("WHISPER_CLI_PATH");
+            string? effectiveModel = modelPath ?? Environment.GetEnvironmentVariable("WHISPER_MODEL_PATH");
+
+            if (string.IsNullOrEmpty(whisperExe) || !File.Exists(whisperExe) ||
+                string.IsNullOrEmpty(effectiveModel) || !File.Exists(effectiveModel))
+            {
+                return new BrainstemJobResult(
+                    req.JobId,
+                    false,
+                    null,
+                    $"EngineUnavailable: Whisper executable ('{whisperExe}') or model ('{effectiveModel}') not found.");
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = whisperExe,
+                Arguments = $"-m \"{effectiveModel}\" -l {language} --output-json",
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var proc = new Process { StartInfo = startInfo };
+            proc.Start();
+
+            await proc.StandardInput.BaseStream.WriteAsync(audioBytes, ct).ConfigureAwait(false);
+            await proc.StandardInput.BaseStream.FlushAsync(ct).ConfigureAwait(false);
+            proc.StandardInput.Close();
+
+            string stdout = await proc.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+            string stderr = await proc.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            if (proc.ExitCode != 0)
+            {
+                return new BrainstemJobResult(req.JobId, false, null, $"Whisper process failed with code {proc.ExitCode}: {stderr}");
+            }
+
+            var segments = new List<TranscriptionSegment>
+            {
+                new(TimeSpan.Zero, TimeSpan.FromSeconds(audioBytes.Length / 32000.0), stdout.Trim(), 0.95)
+            };
+            var transResult = TranscriptionResult.Success(stdout.Trim(), language, segments, TimeSpan.FromMilliseconds(req.TimeoutMs));
+            return new BrainstemJobResult(req.JobId, true, JsonSerializer.SerializeToUtf8Bytes(transResult), null);
+        }
+        catch (OperationCanceledException)
+        {
+            return new BrainstemJobResult(req.JobId, false, null, "Operation cancelled");
+        }
+        catch (Exception ex)
+        {
+            return new BrainstemJobResult(req.JobId, false, null, $"Whisper job error: {ex.Message}");
         }
     }
 }

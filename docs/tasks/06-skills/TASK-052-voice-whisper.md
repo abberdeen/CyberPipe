@@ -54,4 +54,4 @@
 - `dotnet test --filter "FullyQualifiedName~Skills.Voice"` (плановая)
 - `dotnet test --filter "Category=RequiresModel"` (плановая, только при установленной STT-модели)
 
-## Статус: Planned
+## Статус: Done
