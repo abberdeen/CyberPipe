@@ -61,10 +61,10 @@
 | TASK-045 | Планировщик Quartz.NET в той же PostgreSQL (Cron-цепочки) | TASK-002, TASK-010, TASK-011, TASK-040, TASK-041 | Done |
 | TASK-046 | HITL-подтверждения (Approve / Edit / Reject / Timeout) | TASK-002, TASK-011, TASK-044 | Done |
 | TASK-050 | Хост-навыки: медиа, система (media/volume/status/timers) | TASK-002, TASK-020 | Done |
-| TASK-051 | Персональные навыки (notes/finance/reminders/crm) | TASK-002, TASK-011 | Ready |
-| TASK-052 | Голос: распознавание речи Whisper (voice-whisper) | TASK-002 | Ready |
-| TASK-053 | Знания: второй мозг (knowledge-second-brain, search/memory) | TASK-002, TASK-011, TASK-012 | Ready |
-| TASK-060 | Telegram-бот: первый канал связи | TASK-002, TASK-020 | Ready |
+| TASK-051 | Персональные навыки (notes/finance/reminders/crm) | TASK-002, TASK-011 | Done |
+| TASK-052 | Голос: распознавание речи Whisper (voice-whisper) | TASK-002 | Done |
+| TASK-053 | Знания: второй мозг (knowledge-second-brain, search/memory) | TASK-002, TASK-011, TASK-012 | Done |
+| TASK-060 | Telegram-бот: первый канал связи | TASK-002, TASK-020 | Done |
 | TASK-061 | Avalonia Desktop UI | TASK-002, TASK-021 | Ready |
 | TASK-062 | CLI/TUI клиент | TASK-002 | Ready |
 | TASK-063 | Мастер первого запуска (First-Run Setup Wizard) | TASK-002, TASK-010, TASK-011 | Ready |
@@ -263,9 +263,9 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 28 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053 |
+| Done | 29 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060 |
 | In Progress | 0 | — |
-| Ready | 8 | TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Ready | 7 | TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
 | Planned | 7 | TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
