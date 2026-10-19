@@ -44,35 +44,35 @@
 | TASK-011 | Схема базы данных и миграции | TASK-010 | Done |
 | TASK-012 | Хранилище эмбеддингов на pgvector | TASK-002, TASK-011 | Done |
 | TASK-013 | Репозитории и доступ к данным | TASK-002, TASK-011, TASK-012 | Done |
-| TASK-020 | Windows Service Host | TASK-001, TASK-002, TASK-003, TASK-004 | In Progress |
-| TASK-021 | Управление Service из Desktop (Start/Stop/Restart) | TASK-002, TASK-020 | Planned |
+| TASK-020 | Windows Service Host | TASK-001, TASK-002, TASK-003, TASK-004 | Done |
+| TASK-021 | Управление Service из Desktop (Start/Stop/Restart) | TASK-002, TASK-020 | Ready |
 | TASK-022 | Супервизор Brainstem-воркера | TASK-002, TASK-020, TASK-023 | Planned |
 | TASK-023 | Sandbox: Restricted Token + Job Object + Deny-ACL | TASK-002 | Ready |
-| TASK-030 | Tier 0: regex-роутер | TASK-002 | Planned |
-| TASK-031 | Tier 1: семантический роутер на ONNX-эмбеддингах | TASK-002, TASK-012 | Planned |
+| TASK-030 | Tier 0: regex-роутер | TASK-002 | Ready |
+| TASK-031 | Tier 1: семантический роутер на ONNX-эмбеддингах | TASK-002, TASK-012 | Ready |
 | TASK-032 | Tier 2/3: LLM-роутер (лёгкая и тяжёлая модели) | TASK-002, TASK-033 | Planned |
-| TASK-033 | TokenBudgetGovernor | TASK-002, TASK-011 | Planned |
-| TASK-034 | Семантический кэш маршрутизации | TASK-002, TASK-012 | Planned |
-| TASK-040 | Определение цепочки конфигурацией (ChainDefinition) | TASK-002 | Planned |
+| TASK-033 | TokenBudgetGovernor | TASK-002, TASK-011 | Ready |
+| TASK-034 | Семантический кэш маршрутизации | TASK-002, TASK-012 | Ready |
+| TASK-040 | Определение цепочки конфигурацией (ChainDefinition) | TASK-002 | Ready |
 | TASK-041 | Триггеры: Webhook, Cron, function call, сообщение из чата | TASK-002, TASK-040 | Planned |
-| TASK-042 | Валидатор пакета скрипта (`skill-hack.*`, `netrunner.manifest.json`) | TASK-002 | Planned |
+| TASK-042 | Валидатор пакета скрипта (`skill-hack.*`, `netrunner.manifest.json`) | TASK-002 | Ready |
 | TASK-043 | Раннеры скриптов по языкам и средам | TASK-002, TASK-042 | Planned |
 | TASK-044 | Исполнитель цепочки Trigger → Skill → Script → Delivery с чекпоинтами в PostgreSQL | TASK-002, TASK-011, TASK-040, TASK-041, TASK-042, TASK-043 | Planned |
 | TASK-045 | Планировщик Quartz.NET в той же PostgreSQL (Cron-цепочки) | TASK-002, TASK-010, TASK-011, TASK-040, TASK-041 | Planned |
 | TASK-046 | HITL-подтверждения (Approve / Edit / Reject / Timeout) | TASK-002, TASK-011, TASK-044 | Planned |
-| TASK-050 | Хост-навыки: медиа, система (media/volume/status/timers) | TASK-002, TASK-020 | Planned |
-| TASK-051 | Персональные навыки (notes/finance/reminders/crm) | TASK-002, TASK-011 | Planned |
-| TASK-052 | Голос: распознавание речи Whisper (voice-whisper) | TASK-002 | Planned |
-| TASK-053 | Знания: второй мозг (knowledge-second-brain, search/memory) | TASK-002, TASK-011, TASK-012 | Planned |
-| TASK-060 | Telegram-бот: первый канал связи | TASK-002, TASK-020 | Planned |
+| TASK-050 | Хост-навыки: медиа, система (media/volume/status/timers) | TASK-002, TASK-020 | Ready |
+| TASK-051 | Персональные навыки (notes/finance/reminders/crm) | TASK-002, TASK-011 | Ready |
+| TASK-052 | Голос: распознавание речи Whisper (voice-whisper) | TASK-002 | Ready |
+| TASK-053 | Знания: второй мозг (knowledge-second-brain, search/memory) | TASK-002, TASK-011, TASK-012 | Ready |
+| TASK-060 | Telegram-бот: первый канал связи | TASK-002, TASK-020 | Ready |
 | TASK-061 | Avalonia Desktop UI | TASK-002, TASK-021 | Planned |
-| TASK-062 | CLI/TUI клиент | TASK-002 | Planned |
-| TASK-063 | Мастер первого запуска (First-Run Setup Wizard) | TASK-002, TASK-010, TASK-011 | Planned |
-| TASK-070 | Anti-wipe guard | TASK-002 | Planned |
-| TASK-071 | Эвристическая безопасность аудио и контента | TASK-002 | Planned |
-| TASK-072 | Egress sanitizer | TASK-002 | Planned |
-| TASK-073 | Owner auth whitelist | TASK-002 | Planned |
-| TASK-080 | Каталоги моделей в JSON (15 локальных + 8 облачных) | TASK-002 | Planned |
+| TASK-062 | CLI/TUI клиент | TASK-002 | Ready |
+| TASK-063 | Мастер первого запуска (First-Run Setup Wizard) | TASK-002, TASK-010, TASK-011 | Ready |
+| TASK-070 | Anti-wipe guard | TASK-002 | Ready |
+| TASK-071 | Эвристическая безопасность аудио и контента | TASK-002 | Ready |
+| TASK-072 | Egress sanitizer | TASK-002 | Ready |
+| TASK-073 | Owner auth whitelist | TASK-002 | Ready |
+| TASK-080 | Каталоги моделей в JSON (15 локальных + 8 облачных) | TASK-002 | Ready |
 | TASK-081 | Инструмент установки и настройки локальных моделей (Ollama) | TASK-002, TASK-080 | Planned |
 | TASK-082 | Советник по железу и совместимости локальных моделей | TASK-002, TASK-080 | Planned |
 | TASK-090 | Композиционный корень и DI: сборка Service, Desktop, CLI и Brainstem в единую систему | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-073, TASK-080–TASK-082 (все 39 задач областей 01–09) | Planned |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 8 | TASK-001–TASK-004, TASK-010–TASK-013 |
-| In Progress | 1 | TASK-020 |
-| Ready | 16 | TASK-023, TASK-030, TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-051, TASK-052, TASK-053, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
-| Planned | 18 | TASK-021, TASK-022, TASK-032, TASK-041, TASK-043–TASK-046, TASK-050, TASK-060, TASK-061, TASK-081, TASK-082, TASK-090–TASK-093 |
+| Done | 9 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020 |
+| In Progress | 0 | — |
+| Ready | 19 | TASK-021, TASK-023, TASK-030, TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Planned | 15 | TASK-022, TASK-032, TASK-041, TASK-043–TASK-046, TASK-061, TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у завершённых задач областей 01 и 02. `In Progress` у TASK-020. `Ready` у разблокированных задач без незавершённых зависимостей.
+`Done` у 9 завершённых задач (области 01-foundation, 02-data-layer, TASK-020). `Ready` у 19 разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 
