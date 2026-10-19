@@ -97,6 +97,13 @@ public sealed class ContractsBoundaryTests
         "WebhookResponse",
         "ITriggerRegistry",
         "ChainNotFoundException",
+        "PackageErrorCodes",
+        "PackageError",
+        "PackageValidationResult",
+        "INetrunnerPackageValidator",
+        "PackageRegistrationRecord",
+        "IPackageRegistryRepository",
+        "PackageRegistrationException",
     ];
 
     [Fact]

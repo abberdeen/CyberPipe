@@ -45,11 +45,11 @@
 
 ## Критерии приёмки
 
-- [ ] Валидный пакет проходит; `Manifest.Runtime.Entrypoint == "skill-hack.py"`, хэши совпали.
-- [ ] Пакет с `main.py` как entrypoint отклонён с `EntrypointNotSkillHack`; пакет без `languageVersion` — с `MissingRuntimeField`.
-- [ ] Изменённый после подписания `skill-hack.*` отклонён с `HashMismatch`; отсутствующий `tests/sample.fixture.json` — с `MissingFile`.
-- [ ] Невалидная JSON Schema и `filesystemScope=Host` отклонены соответствующими кодами; все ошибки пакета с двумя дефектами присутствуют в результате одновременно.
-- [ ] Валидатор ни разу не запускает скрипт (фикстура со скриптом-маркером: файл-маркер не создан).
+- [x] Валидный пакет проходит; `Manifest.Runtime.Entrypoint == "skill-hack.py"`, хэши совпали.
+- [x] Пакет с `main.py` как entrypoint отклонён с `EntrypointNotSkillHack`; пакет без `languageVersion` — с `MissingRuntimeField`.
+- [x] Изменённый после подписания `skill-hack.*` отклонён с `HashMismatch`; отсутствующий `tests/sample.fixture.json` — с `MissingFile`.
+- [x] Невалидная JSON Schema и `filesystemScope=Host` отклонены соответствующими кодами; все ошибки пакета с двумя дефектами присутствуют в результате одновременно.
+- [x] Валидатор ни разу не запускает скрипт (фикстура со скриптом-маркером: файл-маркер не создан).
 
 ## Тестирование
 
@@ -60,9 +60,9 @@
 
 ```powershell
 dotnet build CyberPipe.slnx
-dotnet test tests/CyberPipe.Tests.Chains/ --filter "FullyQualifiedName~PackageValidator"
+dotnet test tests/CyberPipe.Tests.Unit/ --filter "FullyQualifiedName~NetrunnerPackageValidator"
 ```
 
 (Путь тестового проекта — to-be-created, имя фиксируется в TASK-001.)
 
-## Статус: Planned
+## Статус: Done

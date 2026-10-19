@@ -55,8 +55,8 @@
 | TASK-034 | Семантический кэш маршрутизации | TASK-002, TASK-012 | Done |
 | TASK-040 | Определение цепочки конфигурацией (ChainDefinition) | TASK-002 | Done |
 | TASK-041 | Триггеры: Webhook, Cron, function call, сообщение из чата | TASK-002, TASK-040 | Done |
-| TASK-042 | Валидатор пакета скрипта (`skill-hack.*`, `netrunner.manifest.json`) | TASK-002 | Ready |
-| TASK-043 | Раннеры скриптов по языкам и средам | TASK-002, TASK-042 | Planned |
+| TASK-042 | Валидатор пакета скрипта (`skill-hack.*`, `netrunner.manifest.json`) | TASK-002 | Done |
+| TASK-043 | Раннеры скриптов по языкам и средам | TASK-002, TASK-042 | Ready |
 | TASK-044 | Исполнитель цепочки Trigger → Skill → Script → Delivery с чекпоинтами в PostgreSQL | TASK-002, TASK-011, TASK-040, TASK-041, TASK-042, TASK-043 | Planned |
 | TASK-045 | Планировщик Quartz.NET в той же PostgreSQL (Cron-цепочки) | TASK-002, TASK-010, TASK-011, TASK-040, TASK-041 | Ready |
 | TASK-046 | HITL-подтверждения (Approve / Edit / Reject / Timeout) | TASK-002, TASK-011, TASK-044 | Planned |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 19 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040, TASK-041 |
+| Done | 20 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-042 |
 | In Progress | 0 | — |
-| Ready | 14 | TASK-042, TASK-045, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
-| Planned | 10 | TASK-043, TASK-044, TASK-046, TASK-081, TASK-082, TASK-090–TASK-093 |
+| Ready | 14 | TASK-043, TASK-045, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Planned | 9 | TASK-044, TASK-046, TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 19 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host целиком, 04-router-tiers целиком, TASK-040 и TASK-041 из 05-chains). `Ready` у 14 разблокированных задач без незавершённых зависимостей.
+`Done` у 20 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host целиком, 04-router-tiers целиком, TASK-040–TASK-042 из 05-chains). `Ready` у 14 разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 
