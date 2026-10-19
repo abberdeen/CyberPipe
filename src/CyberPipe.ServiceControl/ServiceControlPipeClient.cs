@@ -2,11 +2,12 @@ using System.IO.Pipes;
 using System.Text.Json;
 using CyberPipe.Contracts;
 
-namespace CyberPipe.Service;
+namespace CyberPipe.ServiceControl;
 
 /// <summary>
 /// Клиент управляющего канала службы CyberPipe поверх Named Pipe (TASK-020, TASK-021).
-/// Реализует <see cref="IServiceControlChannel"/>.
+/// Реализует <see cref="IServiceControlChannel"/>; используется Desktop и CLI,
+/// живее в проекте управления, а не в Service (Desktop не ссылается на Service).
 /// </summary>
 public sealed class ServiceControlPipeClient : IServiceControlChannel
 {

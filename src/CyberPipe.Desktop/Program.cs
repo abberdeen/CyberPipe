@@ -3,12 +3,22 @@ using CyberPipe.Contracts;
 using CyberPipe.Logging;
 using CyberPipe.Logging.Telemetry;
 using Microsoft.Extensions.Logging;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("CyberPipe.Tests.Unit")]
 
 namespace CyberPipe.Desktop;
 
 internal static class Program
 {
     private static ILoggerFactory? _loggerFactory;
+
+    /// <summary>Опции процесса (TASK-003); фабрика ViewModel берёт имя pipe отсюда.</summary>
+    internal static CyberPipeOptions Options { get; private set; } = new CyberPipeOptions();
+
+    /// <summary>Фабрика логеров процесса.</summary>
+    internal static ILoggerFactory LoggerFactory =>
+        _loggerFactory ?? throw new InvalidOperationException("Desktop logger factory is not initialized.");
 
     public static void Main(string[] args)
     {
@@ -27,6 +37,7 @@ internal static class Program
             options = new CyberPipeOptions();
         }
 
+        Options = options;
         _loggerFactory = CyberPipeLogging.CreateLoggerFactory("Desktop", options, writeToConsole: true);
         _loggerFactory.CreateLogger("CyberPipe.Desktop").LogInformation("CyberPipe Desktop starting");
 

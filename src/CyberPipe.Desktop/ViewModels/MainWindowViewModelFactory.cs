@@ -1,16 +1,35 @@
 using CyberPipe.Contracts;
 using CyberPipe.Desktop.Services;
+using CyberPipe.ServiceControl;
+using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Desktop.ViewModels;
 
 /// <summary>
 /// Фабрика создания MainWindowViewModel для автономного запуска Desktop и UI-тестов.
+/// Панель Service подключается к реальной службе через клиент управляющего канала
+/// TASK-021 (Named Pipe + SCM-fallback); фейков здесь нет.
 /// </summary>
 public static class MainWindowViewModelFactory
 {
     public static MainWindowViewModel CreateDefault()
     {
-        var serviceController = new StandaloneServiceController();
+        CyberPipeOptions options = Program.Options;
+        ILogger? controlLogger = null;
+        try
+        {
+            controlLogger = Program.LoggerFactory.CreateLogger("CyberPipe.Desktop.ServiceControl");
+        }
+        catch (InvalidOperationException)
+        {
+            // Дизайнер/тесты без Main: действия панели логировать некуда, молчим.
+        }
+
+        IServiceController serviceController = new ServiceControllerManager(
+            new ServiceControlPipeClient(options.Hosting.PipeName),
+            new WindowsScmManager(),
+            options,
+            controlLogger);
         var router = new StandaloneIntentRouter();
         var budgetGovernor = new StandaloneBudgetGovernor();
         var chainRepo = new StandaloneChainDefinitionRepository();
@@ -37,43 +56,6 @@ public static class MainWindowViewModelFactory
             models,
             notifications,
             themeService);
-    }
-}
-
-internal sealed class StandaloneServiceController : IServiceController
-{
-    private string _state = "Stopped";
-
-    public Task<ServiceControlResult> StartAsync(CancellationToken cancellationToken = default)
-    {
-        _state = "Running";
-        return Task.FromResult(new ServiceControlResult(ServiceControlOutcome.Ok, null));
-    }
-
-    public Task<ServiceControlResult> StopAsync(CancellationToken cancellationToken = default)
-    {
-        _state = "Stopped";
-        return Task.FromResult(new ServiceControlResult(ServiceControlOutcome.Ok, null));
-    }
-
-    public Task<ServiceControlResult> RestartAsync(CancellationToken cancellationToken = default)
-    {
-        _state = "Running";
-        return Task.FromResult(new ServiceControlResult(ServiceControlOutcome.Ok, null));
-    }
-
-    public Task<ServiceStatusDto> GetStatusAsync(CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new ServiceStatusDto(
-            _state,
-            "1.0.0",
-            DateTimeOffset.UtcNow,
-            null));
-    }
-
-    public async IAsyncEnumerable<ServiceStatusDto> WatchStatusAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        yield return await GetStatusAsync(cancellationToken);
     }
 }
 

@@ -295,5 +295,3 @@ public sealed class ServiceControlPipeServer : IAsyncDisposable
         _cts.Dispose();
     }
 }
-
-public sealed record ServiceControlResponse<T>(bool Success, T? Data, string? Message);

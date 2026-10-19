@@ -1,5 +1,6 @@
 using CyberPipe.Contracts;
 using CyberPipe.Service;
+using CyberPipe.ServiceControl;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;

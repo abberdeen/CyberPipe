@@ -94,6 +94,14 @@ public interface IServiceController : IServiceControl
 }
 
 /// <summary>
+/// Конверт ответа управляющего канала (сериализуется в JSON обеими сторонами).
+/// </summary>
+/// <param name="Success">Запрос обработан успешно.</param>
+/// <param name="Data">Данные ответа.</param>
+/// <param name="Message">Сообщение об ошибке; может отсутствовать.</param>
+public sealed record ServiceControlResponse<T>(bool Success, T? Data, string? Message);
+
+/// <summary>
 /// Внутренний управляющий канал службы: health-проверка и запросы остановки/перезапуска.
 /// Хостинг канала — TASK-020; клиент — TASK-021. Транспорт канала контрактом не фиксируется.
 /// </summary>

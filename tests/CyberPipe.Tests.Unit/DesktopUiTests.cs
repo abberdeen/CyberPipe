@@ -111,6 +111,16 @@ public sealed class DesktopUiTests
     }
 
     [Fact]
+    public void MainWindowFactory_CreateDefault_WiresRealServiceController()
+    {
+        // TASK-021: панель Service обязана говорить с реальной службой через
+        // клиент управляющего канала, а не с заглушкой.
+        MainWindowViewModel vm = MainWindowViewModelFactory.CreateDefault();
+
+        Assert.IsType<CyberPipe.ServiceControl.ServiceControllerManager>(vm.Service.Controller);
+    }
+
+    [Fact]
     public async Task ServicePanel_WhenServiceUnavailable_DoesNotHangAndShowsUnavailableState()
     {
         // Arrange: controller throwing exceptions (e.g. named pipe disconnected)

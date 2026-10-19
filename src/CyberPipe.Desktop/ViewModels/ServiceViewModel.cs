@@ -104,6 +104,9 @@ public sealed class ServiceViewModel : ViewModelBase
     public AsyncRelayCommand RestartCommand { get; }
     public AsyncRelayCommand RefreshCommand { get; }
 
+    /// <summary>Контроллер панели (для тестов проводки фабрики).</summary>
+    internal IServiceController Controller => _controller;
+
     public async Task RefreshStatusAsync()
     {
         try

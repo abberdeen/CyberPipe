@@ -76,6 +76,9 @@ public sealed class ProjectGraphTests
     {
         // TASK-004/TASK-090: feature projects reference Contracts and at most Logging;
         // cross-area wiring happens only in the Service composition root.
+        // TASK-021 exception: Desktop is a composition root for its own process and
+        // hosts the real service-control client (Named Pipe + SCM), so it may also
+        // reference CyberPipe.ServiceControl — still never Data (see below).
         Dictionary<string, string[]> graph = LoadGraph();
         foreach (string name in FeatureProjects)
         {
@@ -86,7 +89,9 @@ public sealed class ProjectGraphTests
 
             Assert.Contains("CyberPipe.Contracts", graph[name]);
             Assert.True(
-                graph[name].All(r => r is "CyberPipe.Contracts" or "CyberPipe.Logging"),
+                graph[name].All(r =>
+                    r is "CyberPipe.Contracts" or "CyberPipe.Logging"
+                    || (name == "CyberPipe.Desktop" && r == "CyberPipe.ServiceControl")),
                 $"{name} references unexpected projects: {string.Join(", ", graph[name])}");
         }
     }
