@@ -1,3 +1,5 @@
+﻿> **Уточнение владельца 2026-10-19:** этот вариант - аудит старых формулировок. Хранение канонически - одна PostgreSQL + pgvector; конкретная шина/брокер не фиксируется, код пишется через собственные интерфейсы с возможностью замены транспорта. При расхождении верны [DECISIONS.md](../../DECISIONS.md) и [17-adr-mvp.md](../../initial_arch/17-adr-mvp.md).
+
 # CyberPipe Architecture Documentation Suite (`arch-argon`)
 
 > **System Under Analysis:** **CyberPipe** — Local-First, Zero-Trust, Resource-Governed Autonomous Personal Assistant (`.NET 10 / C# 14`)
@@ -91,3 +93,4 @@ To mitigate [`RISK-004`](03-atam/risk-register.md#risk-004), do **not** scaffold
    Implement `CyberPipe.Channels` (`Telegram.Bot`), `CyberPipe.Scheduling` (Dapper/SQLCipher store + `OTT` dashboard), and `CyberPipe.Netrunner` (host pre-compiler + Mini-n8n DAG runner).
 4. **Phase 3 — Domain Skills, Voice, Hardware & Telemetry (`Gates: TEST-012, TEST-014, TEST-015`):**
    Implement `CyberPipe.Skills` (CRM, Finance, Health, Docs, Email, DevTools), `CyberPipe.Voice`, `CyberPipe.Hardware` (`VolumeClamp`, `SystemResourceMonitor`), and `CyberPipe.Telemetry` (`LogCompressor`).
+

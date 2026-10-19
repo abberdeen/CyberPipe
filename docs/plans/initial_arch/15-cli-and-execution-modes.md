@@ -6,11 +6,11 @@
 
 ## 1. Состав дистрибутива и три точки входа (`.exe` / бинарники)
 
-Система включает **три собственных исполняемых файла (Entry-Point Executables)**, разделенных по ролям и уровню доверия, а также сопутствующие управляемые сборки (`.dll`), нативные рантайм-библиотеки (`onnxruntime`, `whisper`, `e_sqlite3`), файлы весов моделей (`.onnx` для эмбеддингов `multilingual-e5-small` и `.bin`/`.onnx` для `Whisper.net`), конфигурационные файлы и внешние системные сервисы (локальный HTTP-сервер `Ollama / LM Studio` для генеративных LLM `Tier 2 / Tier 3`, а также `git`, `dotnet`, `docker`).
+Система включает **три собственных исполняемых файла (Entry-Point Executables)**, разделенных по ролям и уровню доверия, а также сопутствующие управляемые сборки (`.dll`), нативные рантайм-библиотеки (`onnxruntime`, `whisper`, `e_PostgreSQL3`), файлы весов моделей (`.onnx` для эмбеддингов `multilingual-e5-small` и `.bin`/`.onnx` для `Whisper.net`), конфигурационные файлы и внешние системные сервисы (локальный HTTP-сервер `Ollama / LM Studio` для генеративных LLM `Tier 2 / Tier 3`, а также `git`, `dotnet`, `docker`).
 
 | № | Точка входа | Проект в Solution | Роль процесса и профиль привилегий |
 | :--- | :--- | :--- | :--- |
-| **1** | **`CyberPipe`** (`CyberPipe.exe`) | `src/Host/CyberPipe` | **Основной хост и CLI-диспетчер (`Medium Integrity` / стандартный пользователь в интерактивной сессии):**<br/>• *Режим 1 (Демон, по умолчанию / `daemon run`):* фоновая служба оркестрации, БД `SQLite`, роутер (`Tier 1` `Microsoft.ML.OnnxRuntime` in-process), шлюз `Telegram`, планировщик и сервер IPC.<br/>• *Режим 2 (CLI/TUI клиент):* консольный интерфейс управления и диагностики. |
+| **1** | **`CyberPipe`** (`CyberPipe.exe`) | `src/Host/CyberPipe` | **Основной хост и CLI-диспетчер (`Medium Integrity` / стандартный пользователь в интерактивной сессии):**<br/>• *Режим 1 (Демон, по умолчанию / `daemon run`):* фоновая служба оркестрации, БД `PostgreSQL`, роутер (`Tier 1` `Microsoft.ML.OnnxRuntime` in-process), шлюз `Telegram`, планировщик и сервер IPC.<br/>• *Режим 2 (CLI/TUI клиент):* консольный интерфейс управления и диагностики. |
 | **2** | **`CyberPipe.UI.Desktop`** (`CyberPipe.UI.Desktop.exe`) | `src/UI/CyberPipe.UI.Desktop` | **Графический клиент Avalonia UI (`Medium Integrity` / стандартный пользователь):**<br/>Окно управления, системный трей и быстрый попап (`Alt+Space`). Не выполняет бизнес-логику локально; общается с `CyberPipe` по локальному IPC. |
 | **3** | **`worker/CyberPipe.Brainstem`** (`worker/CyberPipe.Brainstem.exe`) | `src/Execution/CyberPipe.Brainstem` | **Изолированный процесс-исполнитель (`IBrainstemIsolationPlatform`: Windows `AppContainer` или `Restricted Token + Job Object`, Linux `bwrap + cgroups v2`, macOS `Seatbelt`):**<br/>Выделенный процесс в подкаталоге `./worker/` строго для двух задач: голосовой транскрибации (`Whisper.net`) и парсинга недоверенных документов (`PdfPig` / `OpenXml`). |
 
@@ -33,7 +33,7 @@
 flowchart TD
     Entry["Запуск CyberPipe [args]"] --> Parse{"Разбор аргументов (CLI Parser)"}
 
-    Parse -->|"Нет аргументов ИЛИ 'daemon run'"| DaemonMode["Режим 1: DaemonHostMode<br/>• Инициализация DI, SQLite WAL, MassTransit (InMemory)<br/>• Запуск 4-Tier Router, Telegram, Cron<br/>• Поднятие Named Pipe IPC серверов"]
+    Parse -->|"Нет аргументов ИЛИ 'daemon run'"| DaemonMode["Режим 1: DaemonHostMode<br/>• Инициализация DI, PostgreSQL, собственная абстракция сообщений (транспорт (реализация не фиксируется))<br/>• Запуск 4-Tier Router, Telegram, Cron<br/>• Поднятие Named Pipe IPC серверов"]
     
     Parse -->|"Команда CLI (status, doctor, models...)"| CheckCmdType{"Тип команды CLI"}
     CheckCmdType -->|"Autonomous (doctor, config validate, setup)"| OfflineExec["Локальное выполнение без демона"]
@@ -64,7 +64,7 @@ flowchart TD
 ### 3.1. Архитектура изоляции на Windows (`WindowsBrainstemIsolationPlatform`)
 В ядре Windows механизм Mandatory Integrity Control (MIC) по умолчанию реализует политику **`No-Write-Up`**, а монитор безопасности **NTFS игнорирует флаг `SYSTEM_MANDATORY_LABEL_NO_READ_UP` в SACL файлов и папок** (применяя `NO_READ_UP` только к объектам процессов и потоков в памяти). Кроме того, обычный процесс `Medium Integrity` не обладает привилегией `SeAssignPrimaryTokenPrivilege` для произвольного `CreateProcessAsUserW`.
 
-Поэтому на Windows защита памяти демона, баз `cyberpipe_master.db`, `data/subsystems/*.db` (`Quartz.NET.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) и `secrets.vault` от `CyberPipe.Brainstem.exe` строится на **трех реально работающих в ядре NT механизмах**:
+Поэтому на Windows защита памяти демона, баз `единая база PostgreSQL`, `таблицы единой PostgreSQL` (`Quartz.NET` (PostgreSQL), `собственная абстракция сообщений` (PostgreSQL), `knowledge` (PostgreSQL), `crm` (PostgreSQL), `finance` (PostgreSQL), `budget` (PostgreSQL), `health` (PostgreSQL)) и `secrets.vault` от `CyberPipe.Brainstem.exe` строится на **трех реально работающих в ядре NT механизмах**:
 
 1. **Защита процесса `CyberPipe.exe` в оперативной памяти (Process SACL `NO_READ_UP`):**
    * При старте `CyberPipe.exe` устанавливает на **собственный дескриптор процесса (`Process Kernel Object`)** метку SACL:
@@ -74,20 +74,20 @@ flowchart TD
    * **Профиль А (`AppContainer` — по умолчанию для `DocumentExtractText` и CPU-задач):**
      * Супервизор регистрирует профиль `CreateAppContainerProfile("CyberPipe.Brainstem.Sandbox", ...)` с **нулевым списком сетевых возможностей (`Capabilities = Empty`)** — ядро Windows полностью блокирует исходящую и входящую сеть.
      * Запуск выполняется штатным `CreateProcessW` с `EXTENDED_STARTUPINFO_PRESENT` и атрибутом `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES` (не требует административных привилегий или `SeAssignPrimaryTokenPrivilege`).
-     * Процесс в `AppContainer` получает уникальный `AppContainer SID` (`Low Integrity`) и по умолчанию **не имеет прав чтения (`ACCESS_DENIED`) ни к каким пользовательским папкам**, включая `%LOCALAPPDATA%\CyberPipe\data\` (`cyberpipe_master.db`, каталог `data/subsystems/`, `secrets.vault`), кроме явно разрешенных `Read & Execute` на `./worker/` и `Modify` на одноразовую папку `worker-temp/{InstanceGuid}`.
+     * Процесс в `AppContainer` получает уникальный `AppContainer SID` (`Low Integrity`) и по умолчанию **не имеет прав чтения (`ACCESS_DENIED`) ни к каким пользовательским папкам**, включая `%LOCALAPPDATA%\CyberPipe\data\` (`единая база PostgreSQL`, каталог `data/subsystems/`, `secrets.vault`), кроме явно разрешенных `Read & Execute` на `./worker/` и `Modify` на одноразовую папку `worker-temp/{InstanceGuid}`.
    * **Профиль Б (`RestrictedTokenWithRestrictingSids` — для `WhisperTranscribe` с GPU CUDA/DirectML, если драйвер видеокарты блокирует `AppContainer`):**
      * Формируется токен через `CreateRestrictedToken` с флагами `DISABLE_MAX_PRIVILEGE | SANDBOX_INERT` и массивом ограничивающих SID **`SidsToRestrict` (`RESTRICTED_SID`)**: `[Everyone (S-1-1-0), BuiltinUsers (S-1-5-32-545), CurrentUserSid, RestrictedWorkerCustomSid (S-1-5-99-214-1)]`.
      * При проверке доступа в Windows объект открывается только тогда, когда доступ разрешен **и** основному списку SID, **и** списку `SidsToRestrict`.
-     * На каталог `%LOCALAPPDATA%\CyberPipe\data\` (содержащий `cyberpipe_master.db`, `data/subsystems/` и `secrets.vault`) при инициализации (`CyberPipe setup` / старте демона) в **DACL** прописывается явная запись отказа **`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid (S-1-5-99-214-1)`**. Так как у основного процесса `CyberPipe.exe` этого SID нет, демон беспрепятственно работает с БД и секретами, а `Brainstem.exe` с `RestrictedWorkerCustomSid` в `SidsToRestrict` получает от NTFS жесткий `UnauthorizedAccessException` при любой попытке открыть `cyberpipe_master.db`, базы подсистем в `data/subsystems/*.db` или `secrets.vault`.
+     * На каталог `%LOCALAPPDATA%\CyberPipe\data\` (содержащий `единая база PostgreSQL`, `data/subsystems/` и `secrets.vault`) при инициализации (`CyberPipe setup` / старте демона) в **DACL** прописывается явная запись отказа **`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid (S-1-5-99-214-1)`**. Так как у основного процесса `CyberPipe.exe` этого SID нет, демон беспрепятственно работает с БД и секретами, а `Brainstem.exe` с `RestrictedWorkerCustomSid` в `SidsToRestrict` получает от NTFS жесткий `UnauthorizedAccessException` при любой попытке открыть `единая база PostgreSQL`, базы подсистем в `таблицы единой PostgreSQL` или `secrets.vault`.
 3. **Запрет наследования дескрипторов и очистка окружения:**
-   * При вызове `CreateProcess` устанавливается `bInheritHandles = FALSE` (воркер не наследует открытые дескрипторы SQLite или сокеты родителя), а в блок окружения передаются только `SystemRoot` и изолированный `TEMP`/`TMP`.
+   * При вызове `CreateProcess` устанавливается `bInheritHandles = FALSE` (воркер не наследует открытые дескрипторы PostgreSQL или сокеты родителя), а в блок окружения передаются только `SystemRoot` и изолированный `TEMP`/`TMP`.
 
 ### 3.2. Архитектура изоляции на Linux и macOS
 * **Linux (`LinuxBubblewrapIsolationPlatform`):** запуск воркера через `bwrap --unshare-all --die-with-parent --ro-bind ./worker /app/worker --bind ./worker-temp/{Guid} /tmp` (сетевое пространство имен `--unshare-net` отключено, каталог `~/.local/share/CyberPipe/data/` вообще не монтируется в файловое дерево воркера) + жесткие лимиты памяти и `pids.max = 1` через `cgroups v2`.
 * **macOS (`MacOsSeatbeltIsolationPlatform`):** запуск через профиль `sandbox-exec` с правилами `(deny network*)` и `(deny file-read* file-write* (subpath ".../Application Support/CyberPipe/data"))` + лимиты памяти через `setrlimit`.
 
 ### 3.3. Постоянное криптографическое хранилище `SecretsVault` (без потери ключей при перезапуске)
-* Чтобы секреты (`secrets.vault` и зашифрованные колонки в SQLite) надежно сохранялись между перезапусками `CyberPipe` и были доступны автономным командам `CyberPipe secrets set|list`, ключ шифрования **не использует эфемерную энтропию, живущую только в ОЗУ**.
+* Чтобы секреты (`secrets.vault` и зашифрованные колонки в PostgreSQL) надежно сохранялись между перезапусками `CyberPipe` и были доступны автономным командам `CyberPipe secrets set|list`, ключ шифрования **не использует эфемерную энтропию, живущую только в ОЗУ**.
 * `ISecretVaultPlatform` использует персистентное системное хранилище ключей ОС:
   * **Windows:** `ProtectedData.Protect(..., DataProtectionScope.CurrentUser)` с детерминированной привязкой к профилю установки (+ опциональный мастер-пароль пользователя через `Argon2id`).
   * **Linux / macOS:** `LibSecret` (`freedesktop Secret Service`) / `macOS Keychain` (или `AES-256-GCM` с ключом `Argon2id`).
@@ -217,13 +217,13 @@ public record BrainstemControlSignal(
 
 1. **Структура каталогов при установке:**
    * `C:\Program Files\CyberPipe\` (или защищенный системный каталог `/opt/cyberpipe`, `/Applications/CyberPipe.app`): содержит `CyberPipe`, `CyberPipe.UI.Desktop`, управляемые `.dll` демона и подкаталог `worker/` (`CyberPipe.Brainstem` + манифест `worker.manifest.json`). Права на запись (`Write/Modify`) есть только у администратора (`BUILTIN\Administrators` / `root`). Обычный пользователь и сам демон имеют только `Read & Execute`.
-   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe_master.db` (`SQLite WAL`, только настройки и реестр) и подкаталог `subsystems/` (`Quartz.NET.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`, `netrunner.db` — каждая со своим паролем в `SecretsVault`), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
+   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `единая база PostgreSQL` (`PostgreSQL`, только настройки и реестр) и подкаталог `subsystems/` (`Quartz.NET` (PostgreSQL), `собственная абстракция сообщений` (PostgreSQL), `knowledge` (PostgreSQL), `crm` (PostgreSQL), `finance` (PostgreSQL), `budget` (PostgreSQL), `health` (PostgreSQL), `netrunner` (PostgreSQL) — каждая со своим паролем в `SecretsVault`), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
 2. **Полная проверка целостности `worker/worker.manifest.json` перед запуском (`Full Worker Directory Integrity Check`):**
    * Чтобы исключить атаку подмены зависимых библиотек (`DLL Hijacking` через `whisper.dll` или управляемые `.dll`), при сборке релиза генерируется подписанный манифест `worker/worker.manifest.json`, содержащий **SHA-256 хеши `CyberPipe.Brainstem.exe` и всех `.dll` / `.so` / `.dylib` в каталоге `./worker/`**.
    * Перед созданием процесса `Brainstem` супервизор сверяет SHA-256 всех исполняемых и библиотечных файлов в `./worker/` против эталонного манифеста и удерживает дескриптор `FileShare.Read` на время работы воркера. При любом несовпадении запуск блокируется с кодом `ExitCode = 3`.
 3. **Предмиграционный бэкап БД и атомарное обновление (`Side-by-Side Update`):**
    * Обновление ставится в параллельную версионную директорию `app-{version}/`.
-   * Перед запуском проверки новой версии и применением миграций схемы (`SqliteMigrationRunner`) автоматически создается консистентная резервная копия базы `backups/cyberpipe.v{CurrentSchema}.bak` через `SqliteBackupService`.
+   * Перед запуском проверки новой версии и применением миграций схемы (`PostgreSQLMigrationRunner`) автоматически создается консистентная резервная копия базы `backups/cyberpipe.v{CurrentSchema}.bak` через `PostgreSQLBackupService`.
    * Затем новый бинарник запускается в режиме `CyberPipe doctor --verify-update`. Если самодиагностика, миграция или проверка связи с `Brainstem` завершается ошибкой, обновление и файл БД автоматически откатываются на предыдущую рабочую версию.
 
 ---
@@ -235,13 +235,13 @@ public record BrainstemControlSignal(
 1. **Статический анализ зависимостей (`ArchUnitNET` с защитой от пустых выборок):**
    * Загрузка всех 16 сборок решения + `Assert.NotEmpty(...)` перед проверками правил: `CyberPipe.UI` и `CyberPipe.Brainstem` не имеют ссылок на `CyberPipe.Core`, `CyberPipe.Skills`, `CyberPipe.Gateway`, `CyberPipe.Storage`, `CyberPipe.Security`; `CyberPipe.Skills.Host` не имеет ссылок на `System.Diagnostics.Process` и `CliWrap`.
 2. **Аудит состава папки публикации (`Publish Directory Layout Gate`):**
-   * Пост-билд скрипт проверяет содержимое `publish/worker/` и валидирует `worker.manifest.json`. Наличие в `publish/worker/` любой сборки демона (`CyberPipe.Core.*.dll`, `Microsoft.Data.Sqlite.dll`, `Telegram.Bot.dll`) немедленно валит сборку CI.
+   * Пост-билд скрипт проверяет содержимое `publish/worker/` и валидирует `worker.manifest.json`. Наличие в `publish/worker/` любой сборки демона (`CyberPipe.Core.*.dll`, `Microsoft.Data.PostgreSQL.dll`, `Telegram.Bot.dll`) немедленно валит сборку CI.
 3. **Интеграционный тест токена и привилегий (`Token & Sandbox Verification Test`):**
    * В CI реально запускается `CyberPipe.Brainstem`, который проверяет активный профиль изоляции (`AppContainer` или `RestrictedToken` с `RestrictedWorkerCustomSid` на Windows / `bwrap` на Linux) и отсутствие опасных привилегий.
 4. **Пентест-попытка пробить границу процесса и диска (`Negative Escape Tests`):**
    * Специальный тестовый обработчик внутри `Brainstem` в рамках интеграционного теста пытается:
      * Вызвать `OpenProcess(PROCESS_VM_READ, daemonPid)` $\rightarrow$ тест проходит **только если получен `ACCESS_DENIED (5)`** (благодаря `Process SACL NO_READ_UP`).
-     * Открыть файл базы `../data/cyberpipe_master.db`, `../data/subsystems/Quartz.NET.db`, `../data/subsystems/masstransit.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
+     * Открыть файл базы `../data/единая база PostgreSQL`, `../data/subsystems/Quartz.NET` (PostgreSQL), `../data/subsystems/собственная абстракция сообщений` (PostgreSQL) или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
      * Вызвать `Process.Start("cmd.exe")` внутри `Job Object` с `ActiveProcessLimit = 1` $\rightarrow$ тест проходит **только при блокировке создания процесса ядром ОС**.
 5. **Тест на `AccessViolation`, OOM и защиту от ложного `Poison-Pill` (`Crash & Cancellation Resilience Test`):**
    * Намеренный вызов нативного падения памяти (`AccessViolation`) и превышения лимита `512 МБ` внутри `Brainstem` подтверждает, что `CyberPipe` остается жив, инкрементирует `AttemptCount` в `InFlightOperations` и готов к следующему запросу менее чем через `200 мс`, тогда как штатная отмена задачи через `/stop` (`OperationCanceledException`) удаляет запись `InFlightOperations` без пометки `Poisoned`.
@@ -251,13 +251,13 @@ public record BrainstemControlSignal(
 ## 10. Матрица команд системного CLI (`CyberPipe <command>`)
 
 Команды CLI четко разделены по режиму выполнения:
-* **`Autonomous (Offline)`** — выполняется локально самим процессом CLI, **не требует** запущенного фонового демона (использует персистентный `SecretsVault` и локальную `SQLite WAL` с `BusyTimeout = 5000`).
+* **`Autonomous (Offline)`** — выполняется локально самим процессом CLI, **не требует** запущенного фонового демона (использует персистентный `SecretsVault` и локальную `PostgreSQL` с `BusyTimeout = 5000`).
 * **`Daemon-Required (IPC)`** — обращается по Named Pipe к работающему демону `CyberPipe`. Если демон остановлен, возвращает код выхода `ExitCode = 2 (DAEMON_UNAVAILABLE)`.
 * **`Hybrid`** — проверяет локальное окружение автономно и дополнительно опрашивает демон, если он активен.
 
 | Команда | Режим работы | Права | Спринт | Описание |
 | :--- | :--- | :--- | :---: | :--- |
-| `CyberPipe setup` / `onboard` | `Autonomous` | User | Спринт 1/2 | Интерактивный мастер инициализации БД `SQLite`, проверки железа, настройки моделей и `SecretsVault`. |
+| `CyberPipe setup` / `onboard` | `Autonomous` | User | Спринт 1/2 | Интерактивный мастер инициализации БД `PostgreSQL`, проверки железа, настройки моделей и `SecretsVault`. |
 | `CyberPipe doctor [--fix]` | `Hybrid` | User | Спринт 1 | Диагностика: `PRAGMA integrity_check` БД, проверка DACL `data/`, манифеста `worker.manifest.json` и изоляции `Brainstem`, AVX2/VRAM, тест GPU и аудио. |
 | `CyberPipe config get\|set\|validate` | `Hybrid` | User | Спринт 1 | Чтение и валидация конфига на диске; если демон запущен — отправка сигнала горячей перезагрузки. |
 | `CyberPipe completion <pwsh\|bash\|zsh>` | `Autonomous` | User | Спринт 5 | Генерация скрипта автодополнения для командной оболочки. |
@@ -274,10 +274,10 @@ public record BrainstemControlSignal(
 | `CyberPipe approvals list\|approve\|reject` | `Daemon-Required` | User | Спринт 4 | Подтверждение или отклонение ожидающих `HITL`-запросов безопасности и разблокировка пауз бюджета (`PausedByBudget`). |
 | `CyberPipe tasks list\|pause\|resume\|stop-all` | `Daemon-Required` | User | Спринт 1 | Управление активными задачами (`stop-all` активирует `PriorityKillSwitch`). |
 | `CyberPipe sandbox list\|explain\|kill <id>` | `Daemon-Required` | User | Спринт 4 | Список активных экземпляров `CyberPipe.Brainstem` (Пул 1 и Пул 2) и песочниц с возможностью принудительного завершения. |
-| `CyberPipe backup sqlite create\|verify\|restore` | `Hybrid` | User | Спринт 2 | Горячий бэкап базы `SQLite WAL` (через `SqliteBackupService` Backup API), проверка контрольной суммы и восстановление. |
+| `CyberPipe backup PostgreSQL create\|verify\|restore` | `Hybrid` | User | Спринт 2 | Горячий бэкап базы `PostgreSQL` (через `PostgreSQLBackupService` Backup API), проверка контрольной суммы и восстановление. |
 | `CyberPipe memory search\|add\|status` | `Hybrid` | User | Спринт 2 | Гибридный поиск (`FTS5 + In-Memory SIMD`) по `KnowledgeVault` с учетом `TrustSource`. |
 | `CyberPipe cron list\|add\|enable\|disable\|run` | `Daemon-Required` | User | Спринт 3 | Управление задачами планировщика `ProactiveScheduler`. |
-| `CyberPipe rabbitmq status\|check\|start` | `Hybrid` | User | Спринт 1 | Проверка доступности портов 5672/15672, пинг ноды, старт через Центр и валидация учетных данных в `SecretsVault`. |
+| `CyberPipe MessageBroker status\|check\|start` | `Hybrid` | User | Спринт 1 | Проверка доступности портов 5672/15672, пинг ноды, старт через Центр и валидация учетных данных в `SecretsVault`. |
 | `CyberPipe skills list\|check\|unquarantine` | `Daemon-Required` | User | Спринт 3 | Статус подключенных скиллов и ручной вывод скилла из карантина после сбоя. |
 | `CyberPipe tui [--local]` | `Daemon-Required` | User | Спринт 5 | Интерактивный терминальный интерфейс (TUI) с чатом, мониторингом бюджета и флагом локального режима `--local`. |
 
@@ -298,9 +298,11 @@ public record BrainstemControlSignal(
    * **Плюсы:** Исключает случайный вызов блокирующих запросов к БД или ИИ напрямую из UI-потока; позволяет перезапускать или закрывать окно GUI без влияния на фоновый демон; ускоряет компиляцию UI и позволяет тестировать верстку на мок-данных.
    * **Цена (Компромисс):** Любое новое действие в UI требует добавления DTO/метода в `CyberPipe.Contracts` вместо прямого вызова C#-сервиса.
 2. **Какие сборки доступны `CyberPipe.Brainstem` и почему он разделен на два пула процессов:**
-   * **Состав зависимостей `Brainstem`:** Ссылается только на `CyberPipe.Contracts` и пакеты двух изолируемых задач (`Whisper.net`, `UglyToad.PdfPig`, `DocumentFormat.OpenXml`). Сборки ядра оркестратора, `Telegram`, `SQLite` и `SecretsVault` в него не входят.
+   * **Состав зависимостей `Brainstem`:** Ссылается только на `CyberPipe.Contracts` и пакеты двух изолируемых задач (`Whisper.net`, `UglyToad.PdfPig`, `DocumentFormat.OpenXml`). Сборки ядра оркестратора, `Telegram`, `PostgreSQL` и `SecretsVault` в него не входят.
    * **Почему один бинарник `CyberPipe.Brainstem` с двумя пулами (`Stateful Voice STT Pool` и `SingleUse Document Parser Pool`):** Вместо распыления 5 разных `.exe` один верифицированный по `worker.manifest.json` бинарник запускается супервизором в разных экземплярах процессов с разными лимитами и профилями: голосовой воркер держит прогретую модель `Whisper.net` в памяти (`IdleTimeout = 45 мин`), а парсер внешних PDF/DOCX запускается в жестком `AppContainer` (`SingleUseProcess = true`, `512 МБ`) и уничтожается сразу после одного документа.
 3. **Почему демон регистрируется в интерактивной сессии пользователя (`Session >= 1`), а не как системная служба `Session 0`:**
    * Службы `Session 0` в Windows изолированы ядром от графического рабочего стола, буфера обмена и аудиоустройств пользователя (`WASAPI` / `Windows.Media.Ocr`). Запуск `CyberPipe` как фонового хоста интерактивной сессии (`LogonTrigger` / `systemd --user` / `LaunchAgent`) сохраняет 100% работоспособность голосового ассистента, записи созвонов, управления громкостью и OCR экрана без требования прав администратора.
+
+
 
 

@@ -1,6 +1,6 @@
-# 14. Устойчивость ядра `CyberPipe.exe` к сбоям, Контроль Буферов и Внутрипроцессная Изоляция (`Bulkhead`)
+﻿# 14. Устойчивость ядра `CyberPipe.exe` к сбоям, Контроль Буферов и Внутрипроцессная Изоляция (`Bulkhead`)
 
-Так как **`CyberPipe.exe`** (`src/Host/CyberPipe`) объединяет фоновые воркеры, маршрутизатор, локальный сервер IPC, `Telegram`-шлюз и доступ к `SQLite`, стандартные настройки .NET создают риски каскадного отказа:
+Так как **`CyberPipe.exe`** (`src/Host/CyberPipe`) объединяет фоновые воркеры, маршрутизатор, локальный сервер IPC, `Telegram`-шлюз и доступ к `PostgreSQL`, стандартные настройки .NET создают риски каскадного отказа:
 1. Необработанное исключение в любом `BackgroundService` по поведению .NET по умолчанию (`StopHost`) останавливает весь процесс хоста.
 2. Зависший или ресурсоемкий фоновый модуль может исчерпать пул потоков или общую очередь, заблокировав соседние подсистемы (*Noisy Neighbor*).
 3. Неограниченное чтение внешних файлов, потоков или IPC-сообщений ведет к `OutOfMemoryException`.
@@ -106,9 +106,9 @@ flowchart TD
 ## Уровень 4. Защита от «Отравленных сообщений» (`Poison-Pill Flight Recorder`)
 
 Для предотвращения циклов падения и перезапуска (`Crash-Loop`) на одном и том же проблемном входе без деградации задержки быстрых команд и без ложных блокировок при нажатии `/stop`:
-1. **Разделение контуров учета (`In-Memory Fast-Path` vs `SQLite InFlightOperations`):**
+1. **Разделение контуров учета (`In-Memory Fast-Path` vs `PostgreSQL InFlightOperations`):**
    * **Для быстрых команд `Tier 0 / Tier 1`:** чтобы не добавлять `2x fsync` (`INSERT + COMMIT` и `DELETE + COMMIT`) на горячем пути `< 5 мс`, отслеживание выполняется в оперативной памяти через `ConcurrentDictionary<string, InFlightEntry>` со скользящим окном TTL `5 минут`.
-   * **Для тяжелых и внешних задач (файлы, вызовы `CyberPipe.Brainstem`, `Tier 2 / Tier 3`):** перед запуском в таблицу `InFlightOperations` (`SQLite WAL`) синхронно записывается `ContentHash`, `HandlerName`, `State = Running` и `StartedAtUtc`.
+   * **Для тяжелых и внешних задач (файлы, вызовы `CyberPipe.Brainstem`, `Tier 2 / Tier 3`):** перед запуском в таблицу `InFlightOperations` (`PostgreSQL`) синхронно записывается `ContentHash`, `HandlerName`, `State = Running` и `StartedAtUtc`.
 2. **Защита от ложного карантина (`Self-DoS Prevention`) и критерии `Poisoned`:**
    * В блоке `finally` при штатном завершении, при отмене пользователем (`OperationCanceledException` от `/stop`) или при обычной управляемой ошибке валидации/сети (`HttpRequestException`, `TimeoutException`) запись со статусом `Running` **гарантированно удаляется** из `InFlightOperations` без инкремента счетчика сбоев — поэтому отмена задачи через `/stop` или временный сбой сети никогда не блокируют повторную отправку того же текста.
    * Счетчик фатальных падений `AttemptCount` инкрементируется **только в двух случаях**:
@@ -127,4 +127,5 @@ flowchart TD
 * Аутентификация Named Pipe по `PID` и `SessionNonce` — см. [раздел 4](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md#L96-L120).
 * Контракты протокола, таймауты и отмена задач — см. [раздел 5](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md#L121-L175).
 * Разделение на два пула воркеров (`Stateful Voice STT Pool` и `SingleUse Document Parser Pool`), ограничения `Windows Job Object` / `cgroups v2` и обязательные интеграционные проверки изоляции в CI — см. [разделы 6–9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md#L176-L255).
+
 

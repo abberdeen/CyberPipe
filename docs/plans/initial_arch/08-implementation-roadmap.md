@@ -1,4 +1,4 @@
-﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (SQLite/SQLCipher убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
+﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (PostgreSQL/шифрование на уровне PostgreSQL/диска убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
 
 # 08. План поэтапной реализации CyberPipe (От быстрого ядра к полному функционалу)
 
@@ -9,12 +9,12 @@
 ### Фаза 0: ADR, реестр БД и проверочные PoC (предусловие всего, AUD-11, раздел K.1)
 *Цель: закрыть фундаментные решения до написания кода спринтов 1–5. Старт Фазы 1 только после приемки Фазы 0.*
 
-- [ ] **ADR-001 — шина (`AUD-02`, `AUD-10`):** канонична `MassTransit`; MVP — `InMemory` по умолчанию, `SQLite WAL`
-  (`data/subsystems/masstransit.db`) опционально, `RabbitMQ` — enterprise-опция за отдельным ADR. Идемпотентность
+- [ ] **ADR-001 — шина (`AUD-02`, `AUD-10`):** канонична `собственная абстракция сообщений`; MVP — `транспорт (реализация не фиксируется)` по умолчанию, `PostgreSQL`
+  (`data/subsystems/собственная абстракция сообщений` (PostgreSQL)) опционально, `MessageBroker` — enterprise-опция за отдельным ADR. Идемпотентность
   потребителей (`MessageDeduplicationId`). Проверка: одно имя шины во всех документах + интеграционный тест доставки и повторов.
-- [ ] **ADR-002 — реестр БД (`AUD-03`):** канонично `data/cyberpipe_master.db` (только настройки и `SubsystemDatabaseRegistry`)
-  + `data/subsystems/*.db`. Проверка: тест создает все БД по реестру на чистой машине.
-- [ ] **PoC шифрования SQLite (`AUD-04`):** SQLCipher-провайдер; открытие верным ключом успешно, неверным — падает
+- [ ] **ADR-002 — реестр БД (`AUD-03`):** канонично `data/единая база PostgreSQL` (только настройки и `SubsystemDatabaseRegistry`)
+  + `таблицы единой PostgreSQL`. Проверка: тест создает все БД по реестру на чистой машине.
+- [ ] **PoC шифрования PostgreSQL (`AUD-04`):** шифрование на уровне PostgreSQL/диска-провайдер; открытие верным ключом успешно, неверным — падает
   с ошибкой. До PoC гарантия шифрования считается недоказанной.
 - [ ] **PoC изоляции Brainstem на Windows (`AUD-07`, `AUD-13`):** негативные тесты раздела G (чтение чужой БД,
   `OpenProcess` к демону, запуск запрещенного инструмента) завершаются отказом в доступе.
@@ -23,11 +23,11 @@
 - [ ] **Методика SLO (`AUD-06`):** локальные бюджеты vs сквозной best-effort путь через Telegram; эталонное железо и `p95/p99`.
 - **Критерий приемки (DoD Фазы 0):** ADR приняты, реестр и PoC-тесты зеленые. Без этого Фазы 1–5 не стартуют.
 
-### Фаза 1 (старт только после закрытия Фазы 0): Ядро Хоста, Базовый SQLite, Межпроцессная Изоляция, Периметр Telegram и Скиллы Хоста (Спринт 1)
-*Цель: Запустить ядро `CyberPipe`, базовый слой `CyberPipe.Storage.Sqlite`, изолированный воркер `CyberPipe.Brainstem`, верификацию изоляции ОС и безопасное управление медиа/звуком из Telegram за 0 токенов.*
+### Фаза 1 (старт только после закрытия Фазы 0): Ядро Хоста, Базовый PostgreSQL, Межпроцессная Изоляция, Периметр Telegram и Скиллы Хоста (Спринт 1)
+*Цель: Запустить ядро `CyberPipe`, базовый слой `CyberPipe.Storage.Postgres`, изолированный воркер `CyberPipe.Brainstem`, верификацию изоляции ОС и безопасное управление медиа/звуком из Telegram за 0 токенов.*
 
 - [ ] Инициализация Solution (`CyberPipe.slnx`) на .NET 10 с тремя точками входа (`CyberPipe`, `CyberPipe.UI.Desktop`, `./worker/CyberPipe.Brainstem`, см. [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)) и строгим ациклическим графом проектов (цепочка).
-- [ ] Разработка базового слоя **`CyberPipe.Storage.Sqlite`** (режим WAL + последовательный раннер миграций `SqliteMigrationRunner` на базе `PRAGMA user_version` с авто-бэкапом `SqliteBackupService` + асинхронный `Write-Behind`):
+- [ ] Разработка базового слоя **`CyberPipe.Storage.Postgres`** (режим WAL + последовательный раннер миграций `PostgreSQLMigrationRunner` на базе `PRAGMA user_version` с авто-бэкапом `PostgreSQLBackupService` + асинхронный `Write-Behind`):
   - Базовые таблицы Спринта 1: `InFlightOperations`, `FinanceLedger`, `Notes` и персистентный `SecretsVault` (`ISecretVaultPlatform`: `DPAPI` / `LibSecret` / `Keychain` + `AES-256-GCM` + `ZeroMemory`).
 - [ ] Реализация диспетчера запуска в `CyberPipe` (`DaemonHostMode` + `CliClientMode`) и защищенного транспорта Named Pipes / Unix Domain Sockets (верификация `PID`, `SessionNonce`, `PipeSecurity`).
 - [ ] Реализация внутрипроцессной и межпроцессной устойчивости (см. [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md) и [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)):
@@ -35,12 +35,12 @@
   - Разделение ресурсов на **Bulkhead-отсеки**, использование только `BoundedChannel`, потоковая квота `QuotaBoundedStream (16 МБ)` и журнал `InFlightOperations` для тяжелых/внешних входов с очисткой при `OperationCanceledException` (`/stop`).
   - Разработка `BrainstemProcessSupervisor` и `IBrainstemIsolationPlatform`: запуск `CyberPipe.Brainstem` с изоляцией файловой системы (`AppContainer` или `CreateRestrictedToken` с `SidsToRestrict` + явный `ACCESS_DENIED_ACE` в DACL папки `data\` в Windows; `bwrap` в Linux; `Seatbelt` в macOS), `Process SACL NO_READ_UP`, `Job Object` (`ActiveProcessLimit = 1`, лимит памяти и CPU, `KillOnJobClose`), изолированным `TEMP` и проверкой SHA-256 по `worker.manifest.json`.
 - [ ] Разработка базовых команд системного **CLI (`CyberPipe <command>`)** для ядра Спринта 1 (`daemon`, `status`, `doctor`, `config`, `secrets`, `tasks stop-all`, `setup`) с поддержкой строгого `--json` контракта и автозапуска в интерактивной сессии пользователя (`Session >= 1`).
-- [ ] Интеграция универсальной шины **`MassTransit`** (транспорты `InMemory` [по умолчанию], `SQLite WAL` [`data/subsystems/masstransit.db`, пароль в Vault], `RabbitMQ`), разработка **`RabbitMqSupervisionService`** и **`GlobalStateHub`**:
+- [ ] Интеграция универсальной шины **`собственная абстракция сообщений`** (транспорты `транспорт (реализация не фиксируется)` [по умолчанию], `PostgreSQL` [`data/subsystems/собственная абстракция сообщений` (PostgreSQL), пароль в Vault], `MessageBroker`), разработка **`MessageBrokerSupervisionService`** и **`GlobalStateHub`**:
   - Реализация фабрики провайдеров транспорта с возможностью переключения из UI;
-  - Проверка доступности портов 5672 (AMQP) и 15672 (Management UI) при выборе RabbitMQ;
-  - Автоматический запуск RabbitMQ через Центр Инфраструктуры (`ICenterInfrastructureSupervisor`) при отключенном брокере;
-  - Проверка наличия логина/пароля в `SecretsVault`. При отсутствии — автогенерация админа `cyberpipe_admin`, установка прав только для себя (`rabbitmqctl set_permissions`) и сохранение в `secrets.vault`;
-  - Запись истории проверок в таблицу `InfrastructureHealthRecords` (`data/subsystems/health.db`) и реактивная доставка статуса через `GlobalStateHub`.
+  - Проверка доступности портов 5672 (AMQP) и 15672 (Management UI) при выборе MessageBroker;
+  - Автоматический запуск MessageBroker через Центр Инфраструктуры (`ICenterInfrastructureSupervisor`) при отключенном брокере;
+  - Проверка наличия логина/пароля в `SecretsVault`. При отсутствии — автогенерация админа `cyberpipe_admin`, установка прав только для себя (`MessageBrokerctl set_permissions`) и сохранение в `secrets.vault`;
+  - Запись истории проверок в таблицу `InfrastructureHealthRecords` (`таблицы единой PostgreSQL`) и реактивная доставка статуса через `GlobalStateHub`.
 - [ ] Разработка `CyberPipe.Gateway.Telegram` (`TelegramAuthGuard`: Whitelist `UserId`, разделение `Owner`).
 - [ ] Разработка `CyberPipe.Security.Guards` (`HostAndMediaSafetyGuard`):
   - **Anti-Wipe блок:** полный запрет Raw Shell из чата и блокировка деструктивных путей/команд.
@@ -49,7 +49,7 @@
   - `MediaControlSkill`, `AudioVolumeSkill`, `SystemStatusSkill`.
   - `WorkspaceProfileSkill` (`/mode coding`, `/mode call`, `/focus`, `/lock`, `/sleep`).
   - Быстрый учет личных расходов и заметок за 0 токенов.
-- [ ] Запуск обязательных гейтов **`CyberPipe.Tests.Architecture`** (`ArchUnitNET`) и **`CyberPipe.Tests.Isolation`** (PoC проверки `UnauthorizedAccessException` при попытке чтения `data/cyberpipe_master.db` из `Brainstem`, `ACCESS_DENIED` при `OpenProcess` к демону и сохранности `SecretsVault` после перезапуска процесса).
+- [ ] Запуск обязательных гейтов **`CyberPipe.Tests.Architecture`** (`ArchUnitNET`) и **`CyberPipe.Tests.Isolation`** (PoC проверки `UnauthorizedAccessException` при попытке чтения `data/единая база PostgreSQL` из `Brainstem`, `ACCESS_DENIED` при `OpenProcess` к демону и сохранности `SecretsVault` после перезапуска процесса).
 - **Критерий приемки (DoD Спринта 1):** Все сборки компилируются без циклических ссылок; проходят тесты `Tests.Architecture` и `Tests.Isolation`; локальная обработка команд `Tier 0` выполняется за `< 1 мс` (0 токенов, без учета сети Telegram; методика — см. 15, разд. 2); `SecretsVault` успешно расшифровывает секреты после перезапуска `CyberPipe`.
 
 ---
@@ -57,7 +57,7 @@
 ### Фаза 2: Радикальная экономия токенов (Tier 1/2), Локальный Голос, Память «Второй мозг» и Контроллер Бюджета (Спринт 2)
 *Цель: Снизить расход токенов в 10–50 раз на естественном языке, добавить голосовой ввод за 0 токенов, векторную память и авто-паузу при росте расходов.*
 
-- [ ] Расширение `CyberPipe.Storage.Sqlite` (индекс `FTS5` + in-memory буфер векторов `Memory<float>` SIMD):
+- [ ] Расширение `CyberPipe.Storage.Postgres` (индекс `FTS5` + in-memory буфер векторов `Memory<float>` SIMD):
   - Таблицы `BudgetLedger`, `TaskCheckpoints`, `SemanticIntentCache` и ролевой `SemanticResponseCache` (с ключом `(QueryHash, UserRole, DataVersion, ExpiresAtUtc)` и `TTL = 24ч`, ключ включает `SHA-256` нормализованного запроса).
   - **`KnowledgeVault` («Второй мозг» с обязательным столбцом `TrustSource`) и `PersonalCrm`** (заметки, карточки клиентов, подписки, база решенных багов `/remember-fix`).
 - [ ] Интеграция локального голосового конвейера **`Whisper.net` (ONNX)** в выделенном прогретом пуле `CyberPipe.Brainstem` (`Stateful Voice STT Pool`) для расшифровки голосовых сообщений из Telegram за **0 облачных токенов**.
@@ -81,7 +81,7 @@
 ### Фаза 3: Все 16+ Прикладных Скиллов (Личное, Dev/DevOps, Бизнес), Планировщик, Песочницы и SecurityGuard (Спринт 3)
 *Цель: Реализовать полный каталог из 16+ прикладных скиллов в едином скоупе Релиза 1.0 (сначала один сквозной сценарий `Telegram → роутер → песочница → ответ`, расширение каталога — после рабочего ядра, см. K.3/K.4), проактивный планировщик и изолированные песочницы `Tier 3`.*
 
-- [ ] Разработка **`ProactiveScheduler`** на базе **`Quartz.NET`** (с отдельной зашифрованной паролем базой `Quartz.NET.db`, Read-Only Dashboard на `127.0.0.1` с одноразовым крипто-токеном и HttpOnly cookie + системные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
+- [ ] Разработка **`ProactiveScheduler`** на базе **`Quartz.NET`** (с отдельной зашифрованной паролем базой `Quartz.NET` (PostgreSQL), Read-Only Dashboard на `127.0.0.1` с одноразовым крипто-токеном и HttpOnly cookie + системные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
   - Утренний (09:00) и вечерний (20:00) исполнительные брифинги, умные напоминания с кнопкой `[✅ Выполнено]`, предупреждения о списании подписок за 3 дня, визуализация очередей в защищенном Quartz.NET Dashboard.
 - [ ] Разработка инженерных скиллов (`CyberPipe.Skills.Host.DevAndInfra`) и сервиса `DevToolProcessRunner` (`CyberPipe.Execution.Providers`):
   - **`GitRepoRadarSkill` (`/repos`, `/standup`) & `DiffReviewSkill`:** сканирование `%USERPROFILE%\source\repos` через `LibGit2Sharp` / `IDevToolProcessRunner`, сводка коммитов за 0 токенов, генератор Conventional Commits и пре-ревью диффов.
@@ -107,7 +107,7 @@
   - **Дашборд экономии и бюджета:** графики сэкономленных токенов (`Tier 0/1/Local` vs `RemoteCloud`), настройка лимитов в $ и токенах, кнопка *«Cloud Freeze (Только локально)»*.
   - **Хаб Помощника, Dev-Радар и Запись Встреч:** переключатели режимов (`/mode coding`, `/mode call`), статус локальных Git-репозиториев и серверов, управление записью созвона, быстрый поиск по «Второму мозгу» и CRM.
   - **Панель безопасности хоста:** настройка потолка громкости (день/ночь), управление белым списком Telegram ID, журнал заблокированных угроз.
-  - **Панель инфраструктуры и шины MassTransit:** селектор транспорта (`InMemory` / `SQLite masstransit.db` / `RabbitMQ`), статус подключения (`🟢/🟡/🔴`), пинг, кнопка `[🔄 Проверить подключение]`, кнопка `[🚀 Запустить через Центр]` (для RabbitMQ) и вывод диагностических ошибок запуска из `GlobalStateHub`.
+  - **Панель инфраструктуры и шины собственная абстракция сообщений:** селектор транспорта (`транспорт (реализация не фиксируется)` / `PostgreSQL собственная абстракция сообщений` (PostgreSQL) / `MessageBroker`), статус подключения (`🟢/🟡/🔴`), пинг, кнопка `[🔄 Проверить подключение]`, кнопка `[🚀 Запустить через Центр]` (для MessageBroker) и вывод диагностических ошибок запуска из `GlobalStateHub`.
   - **Живой монитор задач:** кнопка экстренного стопа `[🛑 STOP ALL]`, разблокировка задач на паузе и графики нагрузки CPU/RAM.
 - **Критерий приемки (DoD Спринта 4):** `CyberPipe.UI` зависит исключительно от `CyberPipe.Contracts`; закрытие или перезапуск GUI не влияет на работу демона `CyberPipe`; все экраны работают по IPC.
 
@@ -119,13 +119,15 @@
 - [ ] Полный прогон статических тестов `CyberPipe.Tests.Architecture` (`ArchUnitNET`) + CI-скрипт **`Publish Directory Layout Gate`** (проверка отсутствия сборок демона в `publish/worker/` и генерация/проверка `worker.manifest.json` для всех `.exe` и `.dll`).
 - [ ] Полный регрессионный прогон **`CyberPipe.Tests.Isolation`** на целевых ОС (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)):
   - Проверка изоляции `AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` (Windows), `bwrap` (Linux), `Seatbelt` (macOS).
-  - Негативные тесты попыток обхода (`OpenProcess` к демону $\rightarrow$ `ACCESS_DENIED`, чтение `../data/cyberpipe_master.db` и `secrets.vault` $\rightarrow$ `UnauthorizedAccessException`, попытка запуска дочернего процесса при `ActiveProcessLimit = 1`).
-  - Тесты восстановления после искусственного `AccessViolation` и превышения лимита памяти `Job Object` в `Brainstem`, а также проверка атомарного обновления и отката (`Side-by-Side Update` + авто-восстановление бэкапа SQLite `cyberpipe.v{N}.bak`).
+  - Негативные тесты попыток обхода (`OpenProcess` к демону $\rightarrow$ `ACCESS_DENIED`, чтение `../data/единая база PostgreSQL` и `secrets.vault` $\rightarrow$ `UnauthorizedAccessException`, попытка запуска дочернего процесса при `ActiveProcessLimit = 1`).
+  - Тесты восстановления после искусственного `AccessViolation` и превышения лимита памяти `Job Object` в `Brainstem`, а также проверка атомарного обновления и отката (`Side-by-Side Update` + авто-восстановление бэкапа PostgreSQL `cyberpipe.v{N}.bak`).
 - [ ] Пентест-набор `CyberPipe.Tests.SafetyAndBudget`:
   - Попытки промпт-инъекций из Telegram, `KnowledgeVault` и внешних документов (PDF/Web) на удаление файлов (`[System.IO.File]::Delete`, `rm -rf`, `Format-Volume`), эксфильтрацию секретов `[REDACTED:ID]`, установку громкости 100% и поиск 18+ контента (включая гомоглифы).
   - Проверка принудительного ограничения `ChatOptions.MaxOutputTokens`, срабатывания авто-паузы при зацикливании агента и замер времени локального срабатывания `/stop` (`< 50 мс`, сеть Telegram исключена).
 - [ ] Бенчмарки `BenchmarkDotNet` (`CyberPipe.Tests.Router`): проверка соответствия целевым SLO для `Tier 0 (< 1 мс)`, `Tier 1 ONNX (5–15 мс)`, in-memory SIMD поиска в `KnowledgeVault (< 1.5 мс)` и задержки IPC (`p95 < 25 мс`).
 - **Критерий приемки (DoD Спринта 5 / Релиз 1.0):** 100% прохождение всех 5 тестовых проектов (`Architecture`, `Isolation`, `SafetyAndBudget`, `Router`, `Sanitization`) и соответствие всем целевым SLO.
+
+
 
 
 

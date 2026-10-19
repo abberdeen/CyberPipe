@@ -1,6 +1,6 @@
 ﻿# 02. Диаграмма взаимодействия и защищенных потоков данных
 
-Архитектура **CyberPipe** построена вокруг **скорости отклика (< 1–15 мс для бытовых задач)**, **жесткой экономии токенов** и **непробиваемой защиты хоста** при управлении через Telegram и Avalonia UI. Вместо тяжеловесных внешних брокеров внутри демона используется сверхбыстрая шина на базе `MassTransit (транспорт InMemory)` и персистентный журнал состояний в `SQLite (WAL)`.
+Архитектура **CyberPipe** построена вокруг **скорости отклика (< 1–15 мс для бытовых задач)**, **жесткой экономии токенов** и **непробиваемой защиты хоста** при управлении через Telegram и Avalonia UI. Вместо тяжеловесных внешних брокеров внутри демона используется сверхбыстрая шина на базе `собственная абстракция сообщений (транспорт транспорт (реализация не фиксируется))` и персистентный журнал состояний в `PostgreSQL (WAL)`.
 
 ---
 
@@ -41,12 +41,12 @@ flowchart TD
         SandboxEngine["Pluggable Sandbox Engine (ISandboxProvider)<br/>• OS Sandbox (AppContainer / bwrap / Seatbelt) / Wasmtime / Docker<br/>• Out-of-Band Telemetry Pre-Processor (1GB -> 30KB)"]
     end
 
-    subgraph StorageAndState ["5. Хранилища, Шина MassTransit и GlobalStateHub"]
-        MasterDB[("Центральный Мастер SQLite (cyberpipe_master.db)<br/>• Базовые настройки приложения<br/>• Реестр SubsystemDatabaseRegistry")]
+    subgraph StorageAndState ["5. Хранилища, Шина собственная абстракция сообщений и GlobalStateHub"]
+        MasterDB[("Центральный Мастер PostgreSQL (единая база PostgreSQL)<br/>• Базовые настройки приложения<br/>• Реестр SubsystemDatabaseRegistry")]
         DbManager["ISubsystemDatabaseManager<br/>• Разрешение БД + Provisioning<br/>• Пароли в SecretsVault (DPAPI/Keychain)<br/>• Изолированный доступ к подсистемам"]
-        SubsystemDBs[("Изолированные БД подсистем (data/subsystems/*.db):<br/>• Quartz.NET.db: Планировщик Quartz.NET<br/>• masstransit.db: Только для MassTransit<br/>• knowledge.db: База знаний (FTS5 + SIMD)<br/>• crm.db: Личная CRM и контакты<br/>• finance.db: Финансы и транзакции<br/>• budget.db: Токены и чекпоинты задач<br/>• health.db: Аудит здоровья сервисов<br/>• netrunner.db: ETL-скрипты Netrunner")]
-        MassTransitBus["MassTransit Bus (Выбор транспорта в UI)<br/>• 1. InMemory (По умолчанию, 0$ и 0 зависимостей)<br/>• 2. SQLite WAL (masstransit.db, только для шины)<br/>• 3. RabbitMQ (AMQP 5672, старт через Центр, cyberpipe_admin)"]
-        StateHub["GlobalStateHub (Реактивный Синглтон)<br/>• Статус шины MassTransit (InMemory/SQLite/RabbitMQ)<br/>• Запись в health.db ➔ gRPC Стрим в Desktop UI"]
+        SubsystemDBs[("Изолированные БД подсистем (таблицы единой PostgreSQL):<br/>• Quartz.NET.db: Планировщик Quartz.NET<br/>• собственная абстракция сообщений.db: Только для собственная абстракция сообщений<br/>• knowledge.db: База знаний (FTS5 + SIMD)<br/>• crm.db: Личная CRM и контакты<br/>• finance.db: Финансы и транзакции<br/>• budget.db: Токены и чекпоинты задач<br/>• health.db: Аудит здоровья сервисов<br/>• netrunner.db: ETL-скрипты Netrunner")]
+        собственная абстракция сообщенийBus["собственная абстракция сообщений Bus (Выбор транспорта в UI)<br/>• 1. транспорт (реализация не фиксируется) (По умолчанию, 0$ и 0 зависимостей)<br/>• 2. PostgreSQL (собственная абстракция сообщений.db, только для шины)<br/>• 3. MessageBroker (AMQP 5672, старт через Центр, cyberpipe_admin)"]
+        StateHub["GlobalStateHub (Реактивный Синглтон)<br/>• Статус шины собственная абстракция сообщений (транспорт (реализация не фиксируется)/PostgreSQL/MessageBroker)<br/>• Запись в health.db ➔ gRPC Стрим в Desktop UI"]
         ResMonitor["ISystemResourceMonitor & IHardwareCapabilitiesProbe<br/>• CPU, Total/Free RAM, GPU VRAM, Активные контейнеры"]
         ModelAdvisor["IModelCompatibilityAdvisor<br/>• Сверяет железо ПК с 15 Local + Curated Cloud моделями"]
     end
@@ -98,8 +98,8 @@ flowchart TD
     DbManager <--> MasterDB
     DbManager <--> SubsystemDBs
 
-    %% MassTransit и GlobalStateHub
-    MassTransitBus <-->|Health Check & State| StateHub
+    %% собственная абстракция сообщений и GlobalStateHub
+    собственная абстракция сообщенийBus <-->|Health Check & State| StateHub
     StateHub <-->|Срез состояния и аудит| DbManager
     StateHub -.->|gRPC State Stream| UI
 ```
@@ -113,7 +113,7 @@ flowchart TD
 2. **`Tier 0 / Tier 1 Router` (1–10 мс, 0 токенов):** Мгновенно распознает интент (`Media.Play`, `Finance.AddExpense`, `Dev.GitRadar` или поиск во «Втором мозге») локально без обращения к облачному ИИ и без искажения локальных заметок санитайзером.
 3. **`Host & Media Safety Guard` (< 1 мс):**
    * Проверяет запрос по локальному **NSFW/18+ фильтру** и применяет **`VolumeClamp`** (макс. `60%` днем / `25%` ночью, включая принудительную проверку текущей системной громкости перед `Play`).
-4. **`Typed Host & Assistant Skill` (5–20 мс):** Вызывает нативный API плеера, записывает расход в `SQLite` или сканирует локальные Git-репозитории.
+4. **`Typed Host & Assistant Skill` (5–20 мс):** Вызывает нативный API плеера, записывает расход в `PostgreSQL` или сканирует локальные Git-репозитории.
 5. **Итог:** Задача решена за **~10–30 миллисекунд**, потрачено **0 токенов (0.00$)**.
 
 ---
@@ -121,13 +121,13 @@ flowchart TD
 #### Путь Б: Сложная инженерная или бизнес-задача (*«Запусти тесты, найди причину падения и предложи фикс»* или *«Проверь PDF договора на риски»*)
 1. Не попав в `Tier 0` и `Tier 1`, запрос проходит через **`TokenBudgetGovernor`**, который проверяет остаток дневного/минутного лимита, выставляет `ChatOptions.MaxOutputTokens` и выделяет квоту на задачу (`SoftTaskTokenLimit = 4 000 токенов`, `HardTaskTokenLimit = 12 000 токенов`, `MaxLlmTurnsPerTask = 3`).
 2. Перед отправкой в `RemoteCloud` промпт очищается выходным шлюзом **`CentralDataSanitizer`**. Если контекст содержит внешние данные (`UntrustedExternal`), **`SecurityGuard`** физически удаляет схемы хостовых скиллов из `ChatOptions.Tools` (`Hard Tool Stripping`). **`Tier 2 / Tier 3`** вызывает LLM, передавая только сжатый через `ToolOutputTruncator` вывод, топ-3 доверенных факта из `KnowledgeVault` и 2–3 нужных инструмента (**Dynamic Tool Pruning**).
-3. При достижении порога `SoftTaskTokenLimit (4 000 токенов)` или `3 шагов`, **`TokenBudgetGovernor` автоматически переводит задачу в состояние `TaskLifecycleState.PausedByBudget`**, сохраняет чекпоинт в SQLite и присылает в Telegram кнопки: `[▶️ Разрешить еще +5 000 токенов]` (добавляет `+5 000 токенов` и `+3 шага`), `[⚡ Выдать итог]` / `[🛑 Стоп]`.
+3. При достижении порога `SoftTaskTokenLimit (4 000 токенов)` или `3 шагов`, **`TokenBudgetGovernor` автоматически переводит задачу в состояние `TaskLifecycleState.PausedByBudget`**, сохраняет чекпоинт в PostgreSQL и присылает в Telegram кнопки: `[▶️ Разрешить еще +5 000 токенов]` (добавляет `+5 000 токенов` и `+3 шага`), `[⚡ Выдать итог]` / `[🛑 Стоп]`.
 4. Любой сгенерированный агентом скрипт выполняется только в реальной песочнице (`Wasmtime`, `Docker` или ОС-песочнице `AppContainer`/`bwrap`/`Seatbelt` с записью строго в `EphemeralWorkspace`) после проверки локальным AST-анализатором **`SecurityGuard`** (а запуск нативных утилит вне песочницы требует явного подтверждения владельца в Telegram/UI).
 
 ---
 
 #### Путь В: Проактивная работа и Ассистент созвонов (*Утренний брифинг, Контроль серверов, Запись встречи*)
-1. **`ProactiveScheduler` (Quartz.NET)** в 09:00 (или при падении рабочего контейнера / за 3 дня до списания подписки) собирает данные из локальной `SQLite` (задачи, CRM follow-ups, коммиты Git, статус серверов) за **0 токенов** и отправляет структурированную сводку в Telegram (а состояние очереди доступно в Read-Only Dashboard).
+1. **`ProactiveScheduler` (Quartz.NET)** в 09:00 (или при падении рабочего контейнера / за 3 дня до списания подписки) собирает данные из локальной `PostgreSQL` (задачи, CRM follow-ups, коммиты Git, статус серверов) за **0 токенов** и отправляет структурированную сводку в Telegram (а состояние очереди доступно в Read-Only Dashboard).
 2. Во время рабочего звонка скилл **`MeetingAssistantSkill`** записывает аудиопоток через `NAudio`, локально расшифровывает через `Whisper.net` (**0$**) и формирует список задач (**Action Items**) с кнопкой `[➕ Добавить в трекер]`.
 
 ---
@@ -138,5 +138,7 @@ flowchart TD
 это **локальные бюджеты обработки** на эталонном железе (4+ ядер CPU, SSD NVMe, прогретый процесс; см. `15`, разд. 2).
 Сетевая задержка Telegram (путь до серверов Telegram и обратно) в них **не входит** и нормируется отдельно как best-effort.
 Отчетность — процентилями `p95/p99` в `BenchmarkDotNet`, а не разовыми замерами.
+
+
 
 

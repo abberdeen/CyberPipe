@@ -1,6 +1,6 @@
 ﻿# 03. Технологический стек и библиотеки (.NET 10)
 
-Стек подобран по критериям **максимальной скорости отклика, минимального потребления памяти, простоты развертывания (Zero-Dependency Startup)** и **радикальной экономии токенов** в .NET 10. Из стека исключены тяжеловесные внешние сервисы (обязательный RabbitMQ, PostgreSQL), которые усложняли запуск и добавляли сетевые задержки.
+Стек подобран по критериям **максимальной скорости отклика, минимального потребления памяти, простоты развертывания (Zero-Dependency Startup)** и **радикальной экономии токенов** в .NET 10. Из стека исключены тяжеловесные внешние сервисы (обязательный MessageBroker, PostgreSQL), которые усложняли запуск и добавляли сетевые задержки.
 
 ---
 
@@ -8,15 +8,15 @@
 
 | Область | Рекомендуемая библиотека | Обоснование и решаемая задача |
 | :--- | :--- | :--- |
-| **Универсальная шина сообщений (Message Bus)** | `MassTransit` (`MassTransit`, `MassTransit.RabbitMQ`, `MassTransit.SqlTransport.Sqlite`) | Единая абстракция шины сообщений вместо `System.Threading.Channels`, позволяющая прозрачно менять транспорт. По умолчанию: **InMemory** (отключен внешний брокер, без посредников и персистентной памяти). Пользователь в UI выбирает провайдер: (1) **InMemory**, (2) **RabbitMQ** (с автозапуском через Центр и учетными данными в `SecretsVault`), (3) **Отдельный SQLite + WAL (`data/subsystems/masstransit.db`)**, защищенный паролем в `SecretsVault`, которым пользуется **только MassTransit и никто другой**. |
-| **Архитектура баз данных (Центральный Мастер + Изолированные БД подсистем)** | `Microsoft.Data.Sqlite` (WAL + `FTS5`) + `Dapper` + `ISubsystemDatabaseManager` | **Центральный Мастер SQLite (`cyberpipe_master.db`)** хранит только базовые настройки приложения и таблицу-реестр `SubsystemDatabaseRegistry`. **Каждая подсистема и сервис имеют свой отдельный SQLite-файл** в `data/subsystems/*.db` (`Quartz.NET.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) со своим паролем шифрования в `SecretsVault` (DPAPI/LibSecret/Keychain). Выделенный сервис `ISubsystemDatabaseManager` управляет lazy-созданием, реестром, генерацией паролей и выдачей защищенных `SqliteConnection`. |
+| **Универсальная шина сообщений (Message Bus)** | `собственная абстракция сообщений` (`собственная абстракция сообщений`, `собственная абстракция сообщений.MessageBroker`, `собственная абстракция сообщений.SqlTransport.PostgreSQL`) | Единая абстракция шины сообщений вместо `System.Threading.Channels`, позволяющая прозрачно менять транспорт. По умолчанию: **транспорт (реализация не фиксируется)** (отключен внешний брокер, без посредников и персистентной памяти). Пользователь в UI выбирает провайдер: (1) **транспорт (реализация не фиксируется)**, (2) **MessageBroker** (с автозапуском через Центр и учетными данными в `SecretsVault`), (3) **Отдельный PostgreSQL + WAL (`data/subsystems/собственная абстракция сообщений` (PostgreSQL))**, защищенный паролем в `SecretsVault`, которым пользуется **только собственная абстракция сообщений и никто другой**. |
+| **Архитектура баз данных (Центральный Мастер + Изолированные БД подсистем)** | `Microsoft.Data.PostgreSQL` (WAL + `FTS5`) + `Dapper` + `ISubsystemDatabaseManager` | **Центральный Мастер PostgreSQL (`единая база PostgreSQL`)** хранит только базовые настройки приложения и таблицу-реестр `SubsystemDatabaseRegistry`. **Каждая подсистема и сервис имеют свой отдельный PostgreSQL-файл** в `таблицы единой PostgreSQL` (`Quartz.NET` (PostgreSQL), `собственная абстракция сообщений` (PostgreSQL), `knowledge` (PostgreSQL), `crm` (PostgreSQL), `finance` (PostgreSQL), `budget` (PostgreSQL), `health` (PostgreSQL)) со своим паролем шифрования в `SecretsVault` (DPAPI/LibSecret/Keychain). Выделенный сервис `ISubsystemDatabaseManager` управляет lazy-созданием, реестром, генерацией паролей и выдачей защищенных `PostgreSQLConnection`. |
 | **Telegram-интеграция** | `Telegram.Bot` | Быстрый клиент Telegram API (Long Polling / Webhook), поддержка голосовых сообщений, файлов, Inline-кнопок бюджета (`[▶️ Продолжить]`, `[🛑 Стоп]`) и фильтрация по `UserId`. |
 | **Локальное распознавание речи (0$ Voice STT)** | `Whisper.net` (ONNX / GGML runtime в `CyberPipe.Brainstem`) | Локальная транскрибация голосовых сообщений из Telegram и записей рабочих созвонов на CPU/GPU внутри прогретого пула `CyberPipe.Brainstem` за **0 облачных токенов**. |
 | **Локальный Семантический Роутер (Tier 1)** | `Microsoft.ML.OnnxRuntime` + `System.Numerics.Tensors` | Запуск компактной мультиязычной модели эмбеддингов (`multilingual-e5-small` / `bge-micro`) внутри процесса `CyberPipe` на проверенном входе после `QuotaBoundedStream` за ~5–10 мс + аппаратное SIMD-вычисление косинусной близости (`TensorPrimitives`). **0 токенов на распознавание команд и поиск в памяти!** |
 | **Гибкий AI Пайплайн (`Local` и `RemoteCloud` для каждого Tier)** | `Microsoft.Extensions.AI` (`IChatClient`) + `OllamaSharp` (Local HTTP) + `OpenAI` / Cloud SDKs + `Microsoft.ML.Tokenizers` | Пользователь в UI сам назначает для `Tier 2` и `Tier 3` либо **локальную модель (`Local`, 0$)** через локальный HTTP-сервер **Ollama / LM Studio** (`http://localhost:11434`), либо **удаленную платную (`RemoteCloud`)**. Приложение четко знает тип хостинга (`ModelHostingType`), адаптируя бюджет (`TokenBudgetGovernor`) и контроль RAM (`ISystemResourceMonitor`). |
 | **Оценка железа ПК и Подбор моделей** | `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor` (Встроено в ядро) | Сервис `IHardwareCapabilitiesProbe` считывает RAM/VRAM/CPU хоста и передает в `IModelCompatibilityAdvisor`, который рассчитывает совместимость каждой из 15 локальных моделей (с учетом весов `Q4SizeGb` и `KV-Cache`) с ПК пользователя (`🟢 Оптимально`, `🟡 Совместимо`, `🔴 Мало RAM`). |
 | **Аудио Хоста, Медиа и Запись Созвонов** | `IAudioDeviceController`: `NAudio` (Windows WASAPI) / `PipeWire-PulseAudio` (Linux) / `CoreAudio` (macOS) | Кроссплатформенное управление громкостью с жестким потолком (`Volume Clamp` и проверкой перед `Play`), медиа-команды (`Play/Pause/Next`) и захват системного звука + микрофона для протоколирования встреч. |
-| **Проактивный планировщик и Фоновые задачи** | `Quartz.NET` (`Quartz.NET.Core`, `Quartz.NET.AspNetCore`, `Quartz.NET.Storage.SQLite`) | Промышленный планировщик фоновых и регулярных задач (утренние/вечерние брифинги, умные напоминания, подписки, мониторинг серверов). Работает на **отдельной зашифрованной паролем базе `Quartz.NET.db`** с локальным **Read-Only Dashboard** на `127.0.0.1`, защищенным одноразовым криптографическим токеном и `HttpOnly` cookie-сессией. |
+| **Проактивный планировщик и Фоновые задачи** | `Quartz.NET` (`Quartz.NET.Core`, `Quartz.NET.AspNetCore`, `Quartz.NET.Storage.PostgreSQL`) | Промышленный планировщик фоновых и регулярных задач (утренние/вечерние брифинги, умные напоминания, подписки, мониторинг серверов). Работает на **отдельной зашифрованной паролем базе `Quartz.NET` (PostgreSQL)** с локальным **Read-Only Dashboard** на `127.0.0.1`, защищенным одноразовым криптографическим токеном и `HttpOnly` cookie-сессией. |
 | **Интеграция с Git и Инструментами Разработки** | `LibGit2Sharp` + `IDevToolProcessRunner` (`CliWrap` в `Execution.Providers`) | Мгновенный локальный радар репозиториев (`/repos`, `/standup`) через `LibGit2Sharp` и строго типизированный запуск фиксированных утилит (`git`, `dotnet build/test`) через `IDevToolProcessRunner` с белым списком рабочих директорий. |
 | **Чтение документов, договоров и OCR** | `UglyToad.PdfPig` + `DocumentFormat.OpenXml` (в `Brainstem`) + `IScreenOcrProvider` (`Windows.Media.Ocr` / `Tesseract`) | Локальное извлечение текста из недоверенных PDF-договоров и DOCX в одноразовом изолированном процессе `Brainstem`, а также OCR скриншотов буфера обмена без отправки сырых бинарников в облако. |
 | **Кроссплатформенный UI (`CyberPipe.UI.Desktop`)** | `Avalonia` (11.x+) + `CommunityToolkit.Mvvm` | Нативный быстрый GUI (Desktop/Трей/Попап `Alt+Space`) для Windows, Linux и macOS без прожорливого Electron. Быстрый MVVM на Source Generators. |
@@ -30,9 +30,9 @@
 
 ---
 
-### Архитектура Quartz.NET, Отдельная Защищенная SQLite БД и Безопасный Read-Only Dashboard
+### Архитектура Quartz.NET, Отдельная Защищенная PostgreSQL БД и Безопасный Read-Only Dashboard
 
-Вместо примитивных in-memory таймеров фоновые и проактивные задачи управляются промышленным планировщиком **`Quartz.NET`** с хранением в **отдельной зашифрованной паролем базе данных SQLite**.
+Вместо примитивных in-memory таймеров фоновые и проактивные задачи управляются промышленным планировщиком **`Quartz.NET`** с хранением в **отдельной зашифрованной паролем базе данных PostgreSQL**.
 
 ```mermaid
 sequenceDiagram
@@ -58,10 +58,10 @@ sequenceDiagram
     Quartz.NET-->>Browser: Отрисовка Read-Only Quartz.NET Dashboard
 ```
 
-#### 1. Отдельная зашифрованная база данных SQLite (`data/subsystems/Quartz.NET.db`)
-* **Физическая изоляция:** задачи Quartz.NET хранятся в отдельном файле `%LOCALAPPDATA%\CyberPipe\data\subsystems\Quartz.NET.db` (на Linux/macOS: `~/.local/share/CyberPipe/data/subsystems/Quartz.NET.db`), полностью изолированном от центрального мастера `cyberpipe_master.db`.
-* **Защита паролем:** строка подключения Quartz.NET SQLite использует криптографический ключ/пароль (`Password=...` / шифрование страниц базы через SQLCipher-провайдер `SQLitePCLRaw.bundle_e_sqlcipher` или эквивалент — стоковый `Microsoft.Data.Sqlite` без него не шифрует; статус — гипотеза до PoC AUD-04), динамически генерируемый при первой инициализации (`CyberPipe setup`) и сохраняемый в платформенном сейфе `SecretsVault` (под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**).
-* **Права файловой системы:** на каталог и файл `Quartz.NET.db` распространяются те же строгие правила изоляции ядра ОС: запрет доступа для воркера `CyberPipe.Brainstem` (`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
+#### 1. Отдельная зашифрованная база данных PostgreSQL (`data/subsystems/Quartz.NET` (PostgreSQL))
+* **Физическая изоляция:** задачи Quartz.NET хранятся в отдельном файле `%LOCALAPPDATA%\CyberPipe\data\subsystems\Quartz.NET` (PostgreSQL) (на Linux/macOS: `~/.local/share/CyberPipe/data/subsystems/Quartz.NET` (PostgreSQL)), полностью изолированном от центрального мастера `единая база PostgreSQL`.
+* **Защита паролем:** строка подключения Quartz.NET PostgreSQL использует криптографический ключ/пароль (`Password=...` / шифрование страниц базы через шифрование на уровне PostgreSQL/диска-провайдер `Npgsql` или эквивалент — стоковый `Microsoft.Data.PostgreSQL` без него не шифрует; статус — гипотеза до PoC AUD-04), динамически генерируемый при первой инициализации (`CyberPipe setup`) и сохраняемый в платформенном сейфе `SecretsVault` (под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**).
+* **Права файловой системы:** на каталог и файл `Quartz.NET` (PostgreSQL) распространяются те же строгие правила изоляции ядра ОС: запрет доступа для воркера `CyberPipe.Brainstem` (`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
 
 #### 2. Режим Read-Only для веб-панели (Zero Mutation from Browser)
 Веб-интерфейс Quartz.NET используется исключительно для визуализации очередей, состояния задач и истории выполнений. Возможность модификации, постановки задач, ручного перезапуска или удаления джобов из веб-браузера **полностью отключена**:
@@ -209,62 +209,64 @@ Process.Start(new ProcessStartInfo
 
 ---
 
-### Архитектура MassTransit: Выбор Провайдера в UI, RabbitMQ с Супервизией, Отдельный SQLite WAL (`masstransit.db`) и GlobalStateHub
+### Архитектура собственная абстракция сообщений: Выбор Провайдера в UI, MessageBroker с Супервизией, Отдельный PostgreSQL (`собственная абстракция сообщений` (PostgreSQL)) и GlobalStateHub
 
-Для передачи сообщений между сервисами, воркерами и агентами вместо привязки к единственной библиотеке в проекте выбрана универсальная шина **`MassTransit`**. Это позволяет прозрачно заменять транспорт очередей без изменения бизнес-логики и кода потребителей (`IConsumer<T>`).
+Для передачи сообщений между сервисами, воркерами и агентами вместо привязки к единственной библиотеке в проекте выбрана универсальная шина **`собственная абстракция сообщений`**. Это позволяет прозрачно заменять транспорт очередей без изменения бизнес-логики и кода потребителей (`IConsumer<T>`).
 
 ```mermaid
 flowchart TD
-    UI["Avalonia Desktop UI<br/>(Выбор провайдера: InMemory / SQLite / RabbitMQ)"] -->|gRPC Named Pipe| Config["MassTransit Configuration Factory"]
+    UI["Avalonia Desktop UI<br/>(Выбор провайдера: транспорт (реализация не фиксируется) / PostgreSQL / MessageBroker)"] -->|gRPC Named Pipe| Config["собственная абстракция сообщений Configuration Factory"]
     
-    Config --> P1["1. InMemory Transport (По умолчанию)<br/>• Брокер отключен<br/>• Без персистентной памяти и посредника<br/>• Zero-Dependency Startup"]
-    Config --> P2["2. SQLite WAL Transport (masstransit.db)<br/>• Отдельная изолированная база данных<br/>• Никто другой ей не пользуется!<br/>• Защита паролем в SecretsVault"]
-    Config --> P3["3. RabbitMQ Transport (AMQP 5672)<br/>• Автозапуск через Центр при отключении<br/>• Авто-админ cyberpipe_admin (только для себя)<br/>• Учетные данные в SecretsVault"]
+    Config --> P1["1. транспорт (реализация не фиксируется) Transport (По умолчанию)<br/>• Брокер отключен<br/>• Без персистентной памяти и посредника<br/>• Zero-Dependency Startup"]
+    Config --> P2["2. PostgreSQL Transport (собственная абстракция сообщений.db)<br/>• Отдельная изолированная база данных<br/>• Никто другой ей не пользуется!<br/>• Защита паролем в SecretsVault"]
+    Config --> P3["3. MessageBroker Transport (AMQP 5672)<br/>• Автозапуск через Центр при отключении<br/>• Авто-админ cyberpipe_admin (только для себя)<br/>• Учетные данные в SecretsVault"]
 
     P1 & P2 & P3 --> Hub["GlobalStateHub (Реактивный Синглтон)"]
-    Hub -->|Запись в SQLite| DB[("data/subsystems/health.db<br/>InfrastructureHealthRecords")]
+    Hub -->|Запись в PostgreSQL| DB[("таблицы единой PostgreSQL<br/>InfrastructureHealthRecords")]
     Hub -->|gRPC State Stream| UI
 ```
 
 #### 1. Три режима транспорта (Управление пользователем через UI)
-1. **`InMemory` (По умолчанию — Out-of-the-Box):**
+1. **`транспорт (реализация не фиксируется)` (По умолчанию — Out-of-the-Box):**
    * Внешний брокер полностью отключен.
    * Работает без посредников и без персистентной памяти.
    * Обеспечивает мгновенный отклик и автономность на любом ПК с расходом 0 дополнительных ресурсов.
-2. **`SQLite WAL` (Отдельная изолированная база `data/subsystems/masstransit.db`):**
-   * Используется пакет `MassTransit.SqlTransport.Sqlite`.
-   * **Строгая изоляция:** для MassTransit выделен отдельный файл `%LOCALAPPDATA%\CyberPipe\data\masstransit.db` в режиме `WAL`. **Никакой другой сервис или компонент системы к этой базе не обращается**.
-   * **Защита паролем:** база шифруется стойким криптографическим ключом (`Password=...` на SQLCipher-провайдере — обязателен, см. выше), который генерируется при инициализации и сохраняется в системном сейфе `SecretsVault` (Windows DPAPI / Linux LibSecret / macOS Keychain).
+2. **`PostgreSQL` (Отдельная изолированная база `data/subsystems/собственная абстракция сообщений` (PostgreSQL)):**
+   * Используется пакет `собственная абстракция сообщений.SqlTransport.PostgreSQL`.
+   * **Строгая изоляция:** для собственная абстракция сообщений выделен отдельный файл `%LOCALAPPDATA%\CyberPipe\data\собственная абстракция сообщений` (PostgreSQL) в режиме `WAL`. **Никакой другой сервис или компонент системы к этой базе не обращается**.
+   * **Защита паролем:** база шифруется стойким криптографическим ключом (`Password=...` на шифрование на уровне PostgreSQL/диска-провайдере — обязателен, см. выше), который генерируется при инициализации и сохраняется в системном сейфе `SecretsVault` (Windows DPAPI / Linux LibSecret / macOS Keychain).
    * Идеально для надежной персистентной доставки и очередей без необходимости устанавливать или запускать сторонние службы.
-3. **`RabbitMQ` (Промышленный брокер через `MassTransit.RabbitMQ`):**
+3. **`MessageBroker` (Промышленный брокер через `собственная абстракция сообщений.MessageBroker`):**
    * Для распределенных или внешних интеграций.
    * **Супервизия через Центр:** при выборе провайдера или старте системы проверяются порты `5672` (AMQP) и `15672` (Management). Если брокер не запущен, запрос на старт направляется в платформенный Центр Инфраструктуры (`ICenterInfrastructureSupervisor`), который запускает отвязанный процесс (WMI / systemd) и проверяет переменную `ERLANG_HOME`.
-   * **Авто-генерация админа:** если в `SecretsVault` нет логина/пароля, генерируется 256-битный пароль, создается пользователь `cyberpipe_admin` с тегом `administrator` и правами **строго только для себя** (`rabbitmqctl set_permissions -p / cyberpipe_admin ".*" ".*" ".*"`). Учетные данные шифруются в `SecretsVault`.
+   * **Авто-генерация админа:** если в `SecretsVault` нет логина/пароля, генерируется 256-битный пароль, создается пользователь `cyberpipe_admin` с тегом `administrator` и правами **строго только для себя** (`MessageBrokerctl set_permissions -p / cyberpipe_admin ".*" ".*" ".*"`). Учетные данные шифруются в `SecretsVault`.
 
 #### 2. Динамическое переключение провайдера через UI (`CyberPipe.UI.Desktop`)
 * На экране настроек инфраструктуры пользователь видит радио-переключатель:
-  * `🔘 InMemory (Без брокера, легковесный режим)`
-  * `⚪ SQLite WAL (Автономная защищенная БД masstransit.db)`
-  * `⚪ RabbitMQ (Серверный брокер с автозапуском через Центр)`
+  * `🔘 транспорт (реализация не фиксируется) (Без брокера, легковесный режим)`
+  * `⚪ PostgreSQL (Автономная защищенная БД собственная абстракция сообщений.db)`
+  * `⚪ MessageBroker (Серверный брокер с автозапуском через Центр)`
 * При смене провайдера:
   1. UI отправляет gRPC-запрос `SwitchMessageBusProvider(providerType)`.
   2. Демон выполняет мягкую остановку предыдущей шины (`IBusControl.StopAsync`), инициализирует новый транспорт и запускает шину (`IBusControl.StartAsync`).
-  3. Результат проверки нового транспорта пишется в таблицу `InfrastructureHealthRecords` в `data/subsystems/health.db`.
+  3. Результат проверки нового транспорта пишется в таблицу `InfrastructureHealthRecords` в `таблицы единой PostgreSQL`.
   4. Обновленный статус транслируется через `GlobalStateHub` обратно в UI.
 
 #### 3. Диагностика и проверка подключения из UI:
-* **Индикатор:** `🟢 Шина: RabbitMQ (1.4 мс)` / `🟢 Шина: SQLite WAL (masstransit.db)` / `⚪ Шина: InMemory`.
-* **Кнопка `[🔄 Проверить подключение]`:** проверяет текущий выбранный транспорт (доступность БД `masstransit.db`, открытие сокетов RabbitMQ, чтение паролей из `SecretsVault`).
-* **Кнопка `[🚀 Запустить через Центр]`:** доступна при выборе RabbitMQ, если нода остановлена.
+* **Индикатор:** `🟢 Шина: MessageBroker (1.4 мс)` / `🟢 Шина: PostgreSQL (собственная абстракция сообщений.db)` / `⚪ Шина: транспорт (реализация не фиксируется)`.
+* **Кнопка `[🔄 Проверить подключение]`:** проверяет текущий выбранный транспорт (доступность БД `собственная абстракция сообщений` (PostgreSQL), открытие сокетов MessageBroker, чтение паролей из `SecretsVault`).
+* **Кнопка `[🚀 Запустить через Центр]`:** доступна при выборе MessageBroker, если нода остановлена.
 * **Лог ошибок:** при сбое подключения подробности выводятся в UI с кнопкой копирования диагностического отчета.
 
 ---
 
 ### Каноническое решение MVP (ADR-001, AUD-02/AUD-10)
 
-Каноническая шина MVP — **`MassTransit`**. Транспорт по умолчанию — **`InMemory`** (нулевые внешние зависимости).
-`SQLite WAL` (`data/subsystems/masstransit.db`) — опциональный персистентный режим, `RabbitMQ` — только enterprise-опция
+Каноническая шина MVP — **`собственная абстракция сообщений`**. Транспорт по умолчанию — **`транспорт (реализация не фиксируется)`** (нулевые внешние зависимости).
+`PostgreSQL` (`data/subsystems/собственная абстракция сообщений` (PostgreSQL)) — опциональный персистентный режим, `MessageBroker` — только enterprise-опция
 за отдельным ADR. Упоминания `System.Threading.Channels` как шины межсервисных сообщений недействительны.
-Доставка: `InMemory` теряет сообщения при рестарте; `SQLite`/`RabbitMQ` дают повторы — потребители обязаны быть
+Доставка: `транспорт (реализация не фиксируется)` теряет сообщения при рестарте; `PostgreSQL`/`MessageBroker` дают повторы — потребители обязаны быть
 идемпотентными (дедупликация по `MessageDeduplicationId`).
+
+
 

@@ -8,8 +8,8 @@
 ---
 
 ### 1. Удаление лишней сложности (проектная цель; требует подтверждения бенчмарком)
-* **Было:** Обязательный внешний брокер `RabbitMQ + MassTransit`, СУБД `PostgreSQL + pgvector` и тяжелое сквозное перешифрование каждого сообщения внутри одного процесса (`Envelope Encryption DEK/KEK`). Из-за этого простой запрос проходил десятки сетевых сериализаций, а без поднятых контейнеров система не могла запуститься.
-* **Спроектировано:** Сверхбыстрая внутрипроцессная шина на базе **`MassTransit (транспорт InMemory)`** (задержка `< 0.05 мс`) + локальная база **`SQLite в режиме WAL`** с асинхронной записью. Приложение запускается за `< 1 секунду` без единого внешнего контейнера. Шифрование (`DPAPI` / `AES-256-GCM`) оставлено там, где оно реально нужно: для хранения ключей/секретов на диске и чувствительных столбцов БД.
+* **Было:** Обязательный внешний брокер `MessageBroker + собственная абстракция сообщений`, СУБД `PostgreSQL + pgvector` и тяжелое сквозное перешифрование каждого сообщения внутри одного процесса (`Envelope Encryption DEK/KEK`). Из-за этого простой запрос проходил десятки сетевых сериализаций, а без поднятых контейнеров система не могла запуститься.
+* **Спроектировано:** Сверхбыстрая внутрипроцессная шина на базе **`собственная абстракция сообщений (транспорт транспорт (реализация не фиксируется))`** (задержка `< 0.05 мс`) + локальная база **`PostgreSQL в режиме WAL`** с асинхронной записью. Приложение запускается за `< 1 секунду` без единого внешнего контейнера. Шифрование (`DPAPI` / `AES-256-GCM`) оставлено там, где оно реально нужно: для хранения ключей/секретов на диске и чувствительных столбцов БД.
 
 ---
 
@@ -39,7 +39,7 @@
 
 ### 5. Механизмы Паузы, Остановки и Контроля Расходов (`TokenBudgetGovernor`)
 * **Предварительный подсчет, `MaxOutputTokens` и 3 уровня лимитов:** Токены оцениваются локально (`Microsoft.ML.Tokenizers` с коэффициентом `1.2x` для кириллицы в не-OpenAI моделях) *до* вызова API и точно списываются по `UsageDetails`, а на каждом шаге принудительно выставляется `ChatOptions.MaxOutputTokens` против взрыва стоимости reasoning-моделей. Действуют лимиты: на одну задачу (`SoftTaskTokenLimit = 4 000`, `HardTaskTokenLimit = 12 000`, `MaxLlmTurnsPerTask = 3`), на скорость сжигания в минуту (`MaxTokensPerMinute = 15 000`) и дневной потолок в долларах (`DailyBudgetUsdCap`).
-* **Автоматическая Пауза (`TaskLifecycleState.PausedByBudget`):** При достижении `4 000 токенов` или `3 шагов` LLM задача **автоматически ставится на паузу** (состояние сохраняется в SQLite), а в Telegram приходят кнопки: `[▶️ Разрешить еще +5 000 токенов]` (добавляет `+5 000 токенов` и `+3 шага`), `[⚡ Выдать что есть]`, `[🛑 Стоп]`.
+* **Автоматическая Пауза (`TaskLifecycleState.PausedByBudget`):** При достижении `4 000 токенов` или `3 шагов` LLM задача **автоматически ставится на паузу** (состояние сохраняется в PostgreSQL), а в Telegram приходят кнопки: `[▶️ Разрешить еще +5 000 токенов]` (добавляет `+5 000 токенов` и `+3 шага`), `[⚡ Выдать что есть]`, `[🛑 Стоп]`.
 * **Мгновенный Стоп-Кран (`Priority Kill-Switch`):** Команды `/stop` и `/pause` в Telegram (и кнопка в UI) идут по приоритетному каналу в обход очереди и за `< 50 мс` вызывают `CancellationTokenSource.Cancel()`, мгновенно обрывая HTTP-стрим LLM и останавливая дочерние процессы.
 
 ---
@@ -47,7 +47,7 @@
 ### 6. Расширение до полноценного Личного, Инженерного и Бизнес-Помощника (`12-assistant-capabilities-and-skills.md`)
 * **Системные возможности ядра:**
   * Локальное распознавание голоса (`Whisper.net` ONNX в прогретом пуле `Brainstem`) перед роутером — **0 облачных токенов** на голосовые сообщения из Telegram и записи встреч.
-  * Долговременная гибридная память **`KnowledgeVault` (`SQLite FTS5 + In-Memory SIMD TensorPrimitives`)** со столбцом `TrustSource` для заметок, контактов, финансов и базы решенных ошибок.
+  * Долговременная гибридная память **`KnowledgeVault` (`PostgreSQL (полнотекстовый поиск) + In-Memory SIMD TensorPrimitives`)** со столбцом `TrustSource` для заметок, контактов, финансов и базы решенных ошибок.
   * Проактивный планировщик **`ProactiveScheduler` (`Cronos`)** для утренних/вечерние брифингов, контроля подписок и мониторинга серверов.
 * **Личные дела:** инбокс «Второго мозга» с авто-тегами, умные напоминания с кнопкой подтверждения `[✅ Выполнено]`, учет расходов и радар подписок, рабочие профили (`/mode coding`, `/mode call`, `/focus`).
 * **Программирование и DevOps:** локальный радар Git-репозиториев (`/repos`, `/standup` за 0 токенов через `LibGit2Sharp`), фоновый тест-раннер через `IDevToolProcessRunner` с умной выжимкой ошибок (`ToolOutputTruncator`), пре-ревью диффов и мониторинг инфраструктуры/Docker/SSL.
@@ -62,7 +62,7 @@
 
 ### 8. Внутрипроцессная устойчивость `CyberPipe` к сбоям и контроль буферов (`14-fault-isolation-and-resilience.md`)
 * **Контроль старта и воркеров (`SafeBoot` + `IsolatedWorkerBase`):** Включен `BackgroundServiceExceptionBehavior.Ignore`, запрещен блокирующий I/O в конструкторах DI. Все фоновые воркеры наследуются от `CyberPipe.Security.Telemetry.Resilience.IsolatedWorkerBase` (без циклических ссылок между проектами) с автоматическим переводом сбойного модуля в **Карантин** после 3 последовательных ошибок.
-* **Отсеки (`Bulkhead Lanes`), квоты потоков и защита от `Poison-Pill`:** Раздельные пулы семафоров и очередей изолируют подсистемы друг от друга. Запрещены `UnboundedChannel`, введены квоты `QuotaBoundedStream (16 МБ)`, лимит кадра gRPC `4 МБ` и журнал `InFlightOperations` в SQLite для тяжелых и внешних задач (с корректной очисткой при `OperationCanceledException`).
+* **Отсеки (`Bulkhead Lanes`), квоты потоков и защита от `Poison-Pill`:** Раздельные пулы семафоров и очередей изолируют подсистемы друг от друга. Запрещены `UnboundedChannel`, введены квоты `QuotaBoundedStream (16 МБ)`, лимит кадра gRPC `4 МБ` и журнал `InFlightOperations` в PostgreSQL для тяжелых и внешних задач (с корректной очисткой при `OperationCanceledException`).
 
 ---
 
@@ -70,33 +70,33 @@
 * **Три точки входа и кроссплатформенная модель изоляции ОС (`IBrainstemIsolationPlatform`):** Основной хост/CLI (`CyberPipe`), десктопный клиент (`CyberPipe.UI.Desktop`) и изолированный воркер (`./worker/CyberPipe.Brainstem`) для `Whisper.net` и парсеров `PdfPig`/`OpenXml` (в раздельных пулах: прогретый `Stateful Voice STT Pool` и одноразовый `SingleUse Document Parser Pool`). На Windows защита файловой системы `data\` от `Brainstem` обеспечивается через **`AppContainer`** (Профиль А) или **`CreateRestrictedToken` с `SidsToRestrict` + явный `ACCESS_DENIED_ACE` в DACL папки `data\`** (Профиль Б) и `Process SACL NO_READ_UP` + `Windows Job Object`; на Linux — через `Bubblewrap (bwrap)` + `cgroups v2`; на macOS — через `Seatbelt (sandbox-exec)`. Спроектирована проверка всех `.exe`/`.dll` по `worker.manifest.json` и тесты `CyberPipe.Tests.Isolation` с первого спринта.
 * **Системный CLI и TUI (`System.CommandLine` + `Spectre.Console`):** Матрица команд с разделением на `Autonomous (Offline)`, `Daemon-Required (IPC)` и `Hybrid`, регистрация демона в интерактивной пользовательской сессии (`Session >= 1`), коды возврата (`ExitCode 0..4`) и строгий контракт `--json`.
 
-### 10. Переход на `Quartz.NET`, отдельная защищенная паролем SQLite БД и безопасный Read-Only Dashboard
-* **Замена Cronos на `Quartz.NET`:** Фоновые и проактивные задачи переведены на промышленный планировщик `Quartz.NET` (`Quartz.NET.Core`, `Quartz.NET.AspNetCore`, `Quartz.NET.Storage.SQLite`).
-* **Отдельная защищенная паролем база данных (`Quartz.NET.db`):** Для изоляции задач от центрального мастера `cyberpipe_master.db` создается отдельный файл `%LOCALAPPDATA%\CyberPipe\data\subsystems\Quartz.NET.db`, защищенный паролем/шифрованием страниц (ключ генерируется и хранится в системном сейфе `SecretsVault` под DPAPI/LibSecret/Keychain) и защищенный от воркера `Brainstem` на уровне файловой системы ОС (`ACCESS_DENIED_ACE` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
+### 10. Переход на `Quartz.NET`, отдельная защищенная паролем PostgreSQL БД и безопасный Read-Only Dashboard
+* **Замена Cronos на `Quartz.NET`:** Фоновые и проактивные задачи переведены на промышленный планировщик `Quartz.NET` (`Quartz.NET.Core`, `Quartz.NET.AspNetCore`, `Quartz.NET.Storage.PostgreSQL`).
+* **Отдельная защищенная паролем база данных (`Quartz.NET` (PostgreSQL)):** Для изоляции задач от центрального мастера `единая база PostgreSQL` создается отдельный файл `%LOCALAPPDATA%\CyberPipe\data\subsystems\Quartz.NET` (PostgreSQL), защищенный паролем/шифрованием страниц (ключ генерируется и хранится в системном сейфе `SecretsVault` под DPAPI/LibSecret/Keychain) и защищенный от воркера `Brainstem` на уровне файловой системы ОС (`ACCESS_DENIED_ACE` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
 * **Безопасная архитектура Quartz.NET Dashboard:**
   * Веб-панель слушает строго `127.0.0.1` (привязка к `0.0.0.0` запрещена) в режиме **только для чтения (`IsReadOnlyFunc = _ => true`)**.
   * **Handshake с одноразовым токеном:** При нажатии кнопки в Desktop UI генерируется криптографически случайный одноразовый секрет (OTT, 256 бит, TTL 30 сек). На сервере хранится только его SHA-256 хеш.
   * **Однократное сжигание секрета:** При переходе браузера на `/dashboard-login` локальный endpoint проверяет Loopback, валидирует хеш, немедленно удаляет OTT из памяти (сжигание) и устанавливает сессионную cookie `CyberPipe.Dashboard` с флагами `HttpOnly` и `SameSite=Strict`.
   * `DashboardAuthorizationFilter` валидирует сессию в `DashboardSessionManager`, предотвращая несанкционированный доступ извне или повторное использование URL.
 
-### 11. Переход на `MassTransit`, Выбор Провайдера в UI, Отдельная SQLite БД (`masstransit.db`) и RabbitMQ
-* **Универсальная шина `MassTransit` вместо Channels:** Для шины межсервисных сообщений спроектирован `MassTransit` (`MassTransit`, `MassTransit.RabbitMQ`, `MassTransit.SqlTransport.Sqlite`), исключающий привязку к конкретному брокеру.
+### 11. Переход на `собственная абстракция сообщений`, Выбор Провайдера в UI, Отдельная PostgreSQL БД (`собственная абстракция сообщений` (PostgreSQL)) и MessageBroker
+* **Универсальная шина `собственная абстракция сообщений` вместо Channels:** Для шины межсервисных сообщений спроектирован `собственная абстракция сообщений` (`собственная абстракция сообщений`, `собственная абстракция сообщений.MessageBroker`, `собственная абстракция сообщений.SqlTransport.PostgreSQL`), исключающий привязку к конкретному брокеру.
 * **Три переключаемых транспорта:**
-  1. **`InMemory` (По умолчанию):** внешний брокер отключен, работает без посредников и персистентной памяти (zero-dependency).
-  2. **`SQLite WAL` (`data/subsystems/masstransit.db`):** отдельная изолированная база данных в режиме WAL, используемая **только MassTransit и никем другим**, защищенная паролем в `SecretsVault`.
-  3. **`RabbitMQ`:** внешний брокер AMQP 5672 с супервизией и автозапуском через Центр, автогенерацией `cyberpipe_admin` (права строго для себя) и сохранением паролей в `SecretsVault`.
-* **Управление провайдером через UI:** На панели инфраструктуры Avalonia Desktop UI пользователь выбирает активный транспорт (`InMemory` / `SQLite WAL` / `RabbitMQ`), проверяет подключение кнопкой `[🔄 Проверить подключение]`, запускает ноду через `[🚀 Запустить через Центр]` и видит живой статус из `GlobalStateHub`.
-* **Персистентность в SQLite и GlobalStateHub:** Статусы и ошибки всех проверок сохраняются в `InfrastructureHealthRecords` в `data/subsystems/health.db`.
+  1. **`транспорт (реализация не фиксируется)` (По умолчанию):** внешний брокер отключен, работает без посредников и персистентной памяти (zero-dependency).
+  2. **`PostgreSQL` (`data/subsystems/собственная абстракция сообщений` (PostgreSQL)):** отдельная изолированная база данных в режиме WAL, используемая **только собственная абстракция сообщений и никем другим**, защищенная паролем в `SecretsVault`.
+  3. **`MessageBroker`:** внешний брокер AMQP 5672 с супервизией и автозапуском через Центр, автогенерацией `cyberpipe_admin` (права строго для себя) и сохранением паролей в `SecretsVault`.
+* **Управление провайдером через UI:** На панели инфраструктуры Avalonia Desktop UI пользователь выбирает активный транспорт (`транспорт (реализация не фиксируется)` / `PostgreSQL` / `MessageBroker`), проверяет подключение кнопкой `[🔄 Проверить подключение]`, запускает ноду через `[🚀 Запустить через Центр]` и видит живой статус из `GlobalStateHub`.
+* **Персистентность в PostgreSQL и GlobalStateHub:** Статусы и ошибки всех проверок сохраняются в `InfrastructureHealthRecords` в `таблицы единой PostgreSQL`.
 
 ---
 
-### 12. Архитектура баз данных: Центральный Мастер SQLite + Изолированные БД подсистем (`ISubsystemDatabaseManager`)
-* **Центральный Мастер SQLite (`cyberpipe_master.db`):**
+### 12. Архитектура баз данных: Центральный Мастер PostgreSQL + Изолированные БД подсистем (`ISubsystemDatabaseManager`)
+* **Центральный Мастер PostgreSQL (`единая база PostgreSQL`):**
   - Хранит **исключительно общие базовые настройки приложения** (глобальные конфигурации, базовый профиль, флаг выбранного транспорта шины).
   - Содержит таблицу-каталог `SubsystemDatabaseRegistry` (пары: `SubsystemKey` + `DatabasePath` + `SecretVaultKeyRef` + статус шифрования и миграций).
   - В центральной базе **нет и никогда не сохраняются** бизнес-данные подсистем.
-* **Изолированные БД для каждой подсистемы (`data/subsystems/*.db`):**
-  - Каждая подсистема/сервис имеет собственный файл SQLite в режиме `WAL`: `Quartz.NET.db` (планировщик), `masstransit.db` (только для MassTransit), `knowledge.db` (память «Второй мозг», FTS5, SIMD векторы), `crm.db` (личная CRM и контакты), `finance.db` (учет финансов), `budget.db` (токены, квоты, чекпоинты задач), `health.db` (аудит инфраструктуры).
+* **Изолированные БД для каждой подсистемы (`таблицы единой PostgreSQL`):**
+  - Каждая подсистема/сервис имеет собственный файл PostgreSQL в режиме `WAL`: `Quartz.NET` (PostgreSQL) (планировщик), `собственная абстракция сообщений` (PostgreSQL) (только для собственная абстракция сообщений), `knowledge` (PostgreSQL) (память «Второй мозг», FTS5, SIMD векторы), `crm` (PostgreSQL) (личная CRM и контакты), `finance` (PostgreSQL) (учет финансов), `budget` (PostgreSQL) (токены, квоты, чекпоинты задач), `health` (PostgreSQL) (аудит инфраструктуры).
 * **Раздельные доступы и индивидуальные пароли:**
   - Каждая база данных защищена собственным уникальным криптографическим паролем (`Password=...`).
   - Все пароли генерируются криптографическим CSP-генератором (`RandomNumberGenerator.GetBytes(32)`) и персистентно хранятся в платформенном сейфе `SecretsVault` (Windows DPAPI / Linux LibSecret / macOS Keychain) под уникальными ключами `db:secret:{SubsystemKey}`.
@@ -105,9 +105,9 @@
     1. Lazy-обнаружение и авто-создание баз данных при первом обращении (`ProvisionSubsystemDatabaseAsync`).
     2. Генерацию и сохранение паролей в `SecretsVault`.
     3. Регистрацию записей в мастер-таблице `SubsystemDatabaseRegistry`.
-    4. Предоставление защищенного экземпляра `SqliteConnection` (`GetConnectionAsync(subsystemKey)`).
+    4. Предоставление защищенного экземпляра `PostgreSQLConnection` (`GetConnectionAsync(subsystemKey)`).
     5. Автоматическое применение миграций схемы конкретной подсистемы (`MigrateSubsystemDatabaseAsync`).
-  - Прямой междоменный доступ (когда сервис лезет напрямую в чужой `.db` файл) категорически запрещен архитектурными контрактами.
+  - Прямой междоменный доступ (когда сервис лезет напрямую в чужой `` (PostgreSQL) файл) категорически запрещен архитектурными контрактами.
 
 ---
 
@@ -124,30 +124,32 @@
 * **Каскадный движок `Netrunner Цепочка Engine` (цепочка):**
   - Поддержка последовательных, условных и параллельных цепочек из 8 типов узлов (`TriggerNode`, `SkillNode`, `NetrunnerScriptNode`, `ConditionNode` / `SwitchNode`, `ParallelFanOutNode` + `JoinNode`, `LlmProcessNode`, `HitlApprovalNode`, `DeliveryNode`) и **4 типов ветвлений** (`If/Else & Switch`, параллельный `FanOut/Join`, ветки решения человека `approved/rejected/timeout` и ветка перехвата ошибок `onError`).
   - Поддержка умного ожидания обновления параметров и отложенных ретраев без удержания ОЗУ (`DeferRetry` из скрипта и декларативный `retryPolicy.untilExpression` на узле).
-* **Глобальное правило поведения при аварийном сбое (`Pipeline:CrashRecoveryPolicy` в `cyberpipe_master.db`):**
-  - В общих базовых настройках приложения (`AppGlobalSettings` в центральной БД `cyberpipe_master.db`, управляемой через главный экран Settings в UI) добавлен переключатель поведения пайплайнов после отключения света или падения процесса:
+* **Глобальное правило поведения при аварийном сбое (`Pipeline:CrashRecoveryPolicy` в `единая база PostgreSQL`):**
+  - В общих базовых настройках приложения (`AppGlobalSettings` в центральной БД `единая база PostgreSQL`, управляемой через главный экран Settings в UI) добавлен переключатель поведения пайплайнов после отключения света или падения процесса:
     1. **`ResumeFromCheckpoint` (Продолжать с места падения):** автоматически продолжает пайплайн с прерванного шага, сохраняя все уже пройденные шаги.
     2. **`StopAndMarkCancelledByCrash` (Остановить и оставить как есть):** не перезапускает прерванный пайплайн, оставляет все выполненные шаги и их артефакты нетронутыми и присваивает запуску и прерванному шагу специальный статус **`CancelledByCrash`** (*«Отменен из-за аварийного сбоя»*).
-* **Изолированная база `data/subsystems/netrunner.db`:** Хранит таблицы `NetrunnerPackages`, `NetrunnerWorkflowDefinitions`, `NetrunnerWorkflowRuns` и `NetrunnerStepRuns` с пошаговыми чекпоинтами для идемпотентного продолжения после перезагрузки ПК или ожидания `HITL`.
+* **Изолированная база `таблицы единой PostgreSQL`:** Хранит таблицы `NetrunnerPackages`, `NetrunnerWorkflowDefinitions`, `NetrunnerWorkflowRuns` и `NetrunnerStepRuns` с пошаговыми чекпоинтами для идемпотентного продолжения после перезагрузки ПК или ожидания `HITL`.
 
 ---
 
 ### Сводка затронутых файлов документации:
 * [`01-principles.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/01-principles.md) — Принципы простоты, кроссплатформенных контрактов ОС, 4-Tier роутера, защиты хоста, Quartz.NET, мастер-каталога БД и контроллера бюджета.
-* [`02-architecture-diagram.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md) — Схема с Fast-Path, выходным `CentralDataSanitizer`, CLI/TUI клиентом, `Quartz.NET`, `Netrunner ETL Engine`, `ISubsystemDatabaseManager` (`cyberpipe_master.db` + `data/subsystems/*.db`).
-* [`03-tech-stack-libraries.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md) — Стек с `MassTransit`, `ISubsystemDatabaseManager`, `OllamaSharp` (Local HTTP), `IBrainstemIsolationPlatform`, `QuotaBoundedStream`, `Whisper.net`, `LibGit2Sharp` и `Quartz.NET` с защищенным Read-Only Dashboard.
+* [`02-architecture-diagram.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md) — Схема с Fast-Path, выходным `CentralDataSanitizer`, CLI/TUI клиентом, `Quartz.NET`, `Netrunner ETL Engine`, `ISubsystemDatabaseManager` (`единая база PostgreSQL` + `таблицы единой PostgreSQL`).
+* [`03-tech-stack-libraries.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md) — Стек с `собственная абстракция сообщений`, `ISubsystemDatabaseManager`, `OllamaSharp` (Local HTTP), `IBrainstemIsolationPlatform`, `QuotaBoundedStream`, `Whisper.net`, `LibGit2Sharp` и `Quartz.NET` с защищенным Read-Only Dashboard.
 * [`04-agent-mesh-proposals.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md) — Детальное проектирование 4-Tier роутера, ролевого кэша, `MaxOutputTokens`, авто-паузы `PausedByBudget` и `/stop`.
 * [`05-security-agent.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md) — Правила защиты от вайпа ПК, `Volume Clamp` (с проверкой перед `Play`), NSFW-фильтр, `Hard Tool Stripping` для `UntrustedExternal` и `Fail-Closed` OSINT.
 * [`06-solution-structure.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md) — Ациклический граф проектов (цепочка) с базовым слоем `CyberPipe.Contracts`, `CyberPipe.Security.Telemetry` и `CyberPipe.Skills.Netrunner`.
-* [`07-ui-isolation-and-arch-tests.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md) — Конфигуратор моделей по Tiers в UI, панель шины MassTransit, планировщик задач, конструктор каскадов Netrunner и тесты `ArchUnitNET`.
-* [`08-implementation-roadmap.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md) — Сбалансированный план спринтов с `Storage.Sqlite` и `Tests.Isolation` в Спринте 1 и критериями приемки (DoD).
-* [`09-data-protection-and-state-hub.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md) — Выходной `Sanitizer`, персистентный `SecretsVault`, центральный мастер `cyberpipe_master.db` + изолированные БД подсистем (`ISubsystemDatabaseManager`), `GlobalStateHub`.
+* [`07-ui-isolation-and-arch-tests.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md) — Конфигуратор моделей по Tiers в UI, панель шины собственная абстракция сообщений, планировщик задач, конструктор каскадов Netrunner и тесты `ArchUnitNET`.
+* [`08-implementation-roadmap.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md) — Сбалансированный план спринтов с `Storage.PostgreSQL` и `Tests.Isolation` в Спринте 1 и критериями приемки (DoD).
+* [`09-data-protection-and-state-hub.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md) — Выходной `Sanitizer`, персистентный `SecretsVault`, центральный мастер `единая база PostgreSQL` + изолированные БД подсистем (`ISubsystemDatabaseManager`), `GlobalStateHub`.
 * [`10-sandbox-telemetry-and-heuristics.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/10-sandbox-telemetry-and-heuristics.md) — Инспекция железа `IHardwareCapabilitiesProbe`, защита ПК от тормозов (`Resource Circuit Breaker`) и обрезка логов (`ToolOutputTruncator`).
 * [`12-assistant-capabilities-and-skills.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/12-assistant-capabilities-and-skills.md) — Полный каталог из 16+ системных и прикладных скиллов для личных дел, программирования, бизнеса и автоматизации Netrunner.
 * [`13-model-advisor-and-tier-configuration.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md) — Архитектура `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor` (с учетом `KV-Cache`), таблица 15 локальных и 8 облачных моделей.
 * [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md) — Внутрипроцессные контуры устойчивости `CyberPipe` (`SafeBoot`, `IsolatedWorkerBase`, `Bulkhead Lanes`, `QuotaBoundedStream`, `InFlightOperations`).
 * [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md) — Единая спецификация исполняемых файлов, кроссплатформенной изоляции `Brainstem`, раздельных пулов воркеров, защиты IPC, `worker.manifest.json`, тестов изоляции в CI и матрицы команд CLI / TUI.
-* [`16-netrunner-etl-and-workflow-engine.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md) — Спецификация ассистента Netrunner: стандарт пакетов скриптов (`netrunner.manifest.json` + 6 обязательных файлов), каскадный движок `цепочка Trigger → Skill → Script → Delivery`, узлы `LlmProcessNode` и `HitlApprovalNode`, схема БД `netrunner.db`.
+* [`16-netrunner-etl-and-workflow-engine.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md) — Спецификация ассистента Netrunner: стандарт пакетов скриптов (`netrunner.manifest.json` + 6 обязательных файлов), каскадный движок `цепочка Trigger → Skill → Script → Delivery`, узлы `LlmProcessNode` и `HitlApprovalNode`, схема БД `netrunner` (PostgreSQL).
+
+
 
 
 

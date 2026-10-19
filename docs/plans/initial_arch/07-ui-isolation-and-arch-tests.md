@@ -25,15 +25,15 @@
    * Встроенный помощник (`IModelCompatibilityAdvisor`) получает параметры ПК от `IHardwareCapabilitiesProbe` и подсвечивает каждую из **15 Curated локальных моделей** индикатором совместимости: `🟢 Оптимально для вашего ПК`, `🟡 Совместимо (нагрузка на CPU/RAM)`, `🔴 Мало памяти (риск фризов)`.
    * Для облачного режима доступен **Curated-список платных моделей** (отдельно быстрые/дешевые для `Tier 2` и флагманские для `Tier 3`).
 
-6. **Управление Шиной Сообщений MassTransit и Монитор Инфраструктуры (`Message Bus & Infrastructure Monitor`):**
+6. **Управление Шиной Сообщений собственная абстракция сообщений и Монитор Инфраструктуры (`Message Bus & Infrastructure Monitor`):**
    * **Селектор провайдера транспорта:** интерактивный переключатель активного бэкенда шины сообщений:
-     * `🔘 InMemory (По умолчанию)` — автономный легковесный режим без внешних брокеров и персистентной памяти.
-     * `⚪ SQLite WAL (masstransit.db)` — персистентные очереди в отдельной зашифрованной паролем базе данных, используемой только MassTransit.
-     * `⚪ RabbitMQ` — серверный AMQP-брокер с автозапуском через Центр и автоматической генерацией `cyberpipe_admin`.
-   * **Живой статус-бейдж:** отображает состояние текущего транспорта (`🟢 Подключен`, `🟡 Запуск через Центр...`, `⚪ InMemory`, `🔴 Ошибка`), пинг в миллисекундах и счетчики сообщений. Данные поступают реактивно через `GlobalStateHub`.
+     * `🔘 транспорт (реализация не фиксируется) (По умолчанию)` — автономный легковесный режим без внешних брокеров и персистентной памяти.
+     * `⚪ PostgreSQL (собственная абстракция сообщений.db)` — персистентные очереди в отдельной зашифрованной паролем базе данных, используемой только собственная абстракция сообщений.
+     * `⚪ MessageBroker` — серверный AMQP-брокер с автозапуском через Центр и автоматической генерацией `cyberpipe_admin`.
+   * **Живой статус-бейдж:** отображает состояние текущего транспорта (`🟢 Подключен`, `🟡 Запуск через Центр...`, `⚪ транспорт (реализация не фиксируется)`, `🔴 Ошибка`), пинг в миллисекундах и счетчики сообщений. Данные поступают реактивно через `GlobalStateHub`.
    * **Кнопка `[🔄 Проверить подключение]`:** отправляет gRPC-команду к демону для немедленной проверки текущего транспорта и валидации паролей в `SecretsVault`.
-   * **Кнопка `[🚀 Запустить через Центр]`:** при выборе RabbitMQ и отключенном брокере запрашивает старт через платформенный центр супервизии (`ICenterInfrastructureSupervisor`).
-   * **Диагностический лог ошибок:** подробное описание сбоя из таблицы `InfrastructureHealthRecords` в `data/subsystems/health.db`.
+   * **Кнопка `[🚀 Запустить через Центр]`:** при выборе MessageBroker и отключенном брокере запрашивает старт через платформенный центр супервизии (`ICenterInfrastructureSupervisor`).
+   * **Диагностический лог ошибок:** подробное описание сбоя из таблицы `InfrastructureHealthRecords` в `таблицы единой PostgreSQL`.
 
 7. **Планировщик Пользовательских Задач и Автоматизаций (`Task Scheduler & Automations Panel`):**
    * **Список пользовательских задач и расписаний:** таблица активных и отложенных задач (`UserScheduledTasks`) с указанием расписания (Cron / Интервал / Точное время), типа действия, даты следующего запуска и тумблером мгновенного включения/отключения (`IsEnabled`).
@@ -52,7 +52,7 @@
    * **Инспектор стандартизированных пакетов (`Package Manifest Inspector`):** просмотр всех 6 обязательных файлов пакета (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `skill-hack.*`, `tests/sample.fixture.json`), входных/выходных файловых контрактов и статуса SHA-256 верификации.
    * **Очередь подтверждений `Human-in-the-Loop (HITL)`:** список приостановленных каскадов со статусом `WaitingForHumanApproval`, превью промежуточных JSON-данных и сгенерированных файлов с кнопками `[✅ Одобрить и продолжить]`, `[✏️ Изменить данные]`, `[🛑 Отклонить]`.
    * **Дашборд экономии токенов:** визуальный счетчик сохраненных средств и токенов (например, *«Сэкономлено: 480 000 токенов ($4.80) на 160 автоматических ETL-запусках»*).
-   * **Кнопка `[⚡ Синтезировать пакет и каскад через ИИ]`:** диалог с агентом `Tier 3`, который генерирует все 6 файлов пакета, прогоняет самотест `sample.fixture.json` в песочнице и сохраняет готовый пакет и цепочка в `data/subsystems/netrunner.db`.
+   * **Кнопка `[⚡ Синтезировать пакет и каскад через ИИ]`:** диалог с агентом `Tier 3`, который генерирует все 6 файлов пакета, прогоняет самотест `sample.fixture.json` в песочнице и сохраняет готовый пакет и цепочка в `таблицы единой PostgreSQL`.
 
 ---
 
@@ -79,7 +79,7 @@ public class ArchitectureIntegrityTests
                 typeof(CyberPipe.Security.Guards.HostAndMediaSafetyGuard).Assembly,
                 typeof(CyberPipe.Security.Budget.TokenBudgetGovernor).Assembly,
                 typeof(CyberPipe.Security.Sanitization.CentralDataSanitizer).Assembly,
-                typeof(CyberPipe.Storage.Sqlite.SqliteConnectionFactory).Assembly,
+                typeof(CyberPipe.Storage.Postgres.PostgreSQLConnectionFactory).Assembly,
                 typeof(CyberPipe.Router.TieredIntentRouter).Assembly,
                 typeof(CyberPipe.Skills.Host.MediaControlSkill).Assembly,
                 typeof(CyberPipe.Core.Orchestration.OrchestratorEngine).Assembly,
@@ -215,5 +215,7 @@ public class ArchitectureIntegrityTests
 ```
 
 > **Примечание:** Статических тестов `ArchUnitNET` недостаточно для проверки фактической изоляции на уровне ОС. Проверки состава папки публикации (`Publish Directory Layout Gate`), изоляции `AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` (Windows) / `bwrap` (Linux) / `Seatbelt` (macOS), `Job Object` и IPC вынесены в интеграционный набор `CyberPipe.Tests.Isolation` (см. [`15-cli-and-execution-modes.md`, раздел 9](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)).
+
+
 
 
