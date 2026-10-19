@@ -134,6 +134,18 @@ public sealed class ContractsBoundaryTests
         "HitlExpiredException",
         "HitlInvalidEditedPayloadException",
         "HitlNotFoundException",
+        "SkillResultStatus",
+        "HostSkillResult",
+        "IHostSkill",
+        "IHostMediaController",
+        "DiskSpaceInfoDto",
+        "SystemStatusDto",
+        "ISystemStatusProvider",
+        "TimerRecord",
+        "ITimerService",
+        "AlarmRecord",
+        "IAlarmService",
+        "IHostSkillRegistry",
     ];
 
     [Fact]
