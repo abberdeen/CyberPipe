@@ -48,7 +48,7 @@
 | TASK-021 | Управление Service из Desktop (Start/Stop/Restart) | TASK-002, TASK-020 | Done |
 | TASK-022 | Супервизор Brainstem-воркера | TASK-002, TASK-020, TASK-023 | Done |
 | TASK-023 | Sandbox: Restricted Token + Job Object + Deny-ACL | TASK-002 | Done |
-| TASK-030 | Tier 0: regex-роутер | TASK-002 | Ready |
+| TASK-030 | Tier 0: regex-роутер | TASK-002 | Done |
 | TASK-031 | Tier 1: семантический роутер на ONNX-эмбеддингах | TASK-002, TASK-012 | Ready |
 | TASK-032 | Tier 2/3: LLM-роутер (лёгкая и тяжёлая модели) | TASK-002, TASK-033 | Planned |
 | TASK-033 | TokenBudgetGovernor | TASK-002, TASK-011 | Ready |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 12 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023 |
+| Done | 13 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030 |
 | In Progress | 0 | — |
-| Ready | 18 | TASK-030, TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Ready | 17 | TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
 | Planned | 13 | TASK-032, TASK-041, TASK-043–TASK-046, TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 12 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host целиком). `Ready` у 18 разблокированных задач без незавершённых зависимостей.
+`Done` у 13 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host целиком, TASK-030). `Ready` у 17 разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

@@ -97,6 +97,8 @@ public sealed record CyberPipeOptions
             errors.Add("Router:SemanticCacheTtlMinutes must be positive.");
         if (Router.SemanticCacheMaxEntries <= 0)
             errors.Add("Router:SemanticCacheMaxEntries must be positive.");
+        if (Router.RegexMatchTimeoutMs <= 0)
+            errors.Add("Router:RegexMatchTimeoutMs must be positive.");
 
         if (string.IsNullOrWhiteSpace(Models.EmbeddingModelId))
             errors.Add("Models:EmbeddingModelId must not be empty.");
@@ -234,6 +236,12 @@ public sealed record RouterOptions
 
     /// <summary>Максимум записей семантического кэша.</summary>
     public int SemanticCacheMaxEntries { get; init; } = 1000;
+
+    /// <summary>Тайм-аут сопоставления регулярного выражения Tier 0 по умолчанию в миллисекундах.</summary>
+    public int RegexMatchTimeoutMs { get; init; } = 200;
+
+    /// <summary>Пользовательские правила для Tier 0 regex-роутера (TASK-030).</summary>
+    public IReadOnlyList<RegexRuleDefinition> RegexRules { get; init; } = [];
 }
 
 /// <summary>

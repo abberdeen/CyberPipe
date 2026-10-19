@@ -72,4 +72,4 @@ dotnet test --filter "FullyQualifiedName~Tier0"
 
 ## Статус
 
-Planned
+Done

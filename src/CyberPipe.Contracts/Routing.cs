@@ -99,6 +99,39 @@ public interface IRouterTier
 }
 
 /// <summary>
+/// Определение правила сопоставления по регулярному выражению для Tier 0 (TASK-030).
+/// </summary>
+public sealed record RegexRuleDefinition
+{
+    /// <summary>Имя правила для идентификации и диагностики.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Шаблон регулярного выражения.</summary>
+    public required string Pattern { get; init; }
+
+    /// <summary>Намерение (intent), присваиваемое при совпадении.</summary>
+    public required string Intent { get; init; }
+
+    /// <summary>Приоритет правила (чем выше, тем раньше сопоставляется).</summary>
+    public int Priority { get; init; } = 100;
+
+    /// <summary>Флаг игнорирования регистра символов.</summary>
+    public bool IgnoreCase { get; init; } = true;
+
+    /// <summary>Тайм-аут сопоставления в миллисекундах для защиты от катастрофического бэктрекинга.</summary>
+    public int TimeoutMs { get; init; } = 200;
+}
+
+/// <summary>
+/// Поставщик правил для Tier 0 regex-роутера (TASK-030).
+/// </summary>
+public interface IRegexRuleProvider
+{
+    /// <summary>Возвращает список правил сопоставления.</summary>
+    IReadOnlyList<RegexRuleDefinition> GetRules();
+}
+
+/// <summary>
 /// Класс модели для вызова через провайдера моделей. Потребитель: TASK-032.
 /// </summary>
 public enum ChatModelClass

@@ -62,6 +62,8 @@ public sealed class ContractsBoundaryTests
         "IBrainstemSupervisor",
         "BrainstemStateChanged",
         "BrainstemRestartExhausted",
+        "RegexRuleDefinition",
+        "IRegexRuleProvider",
     ];
 
     [Fact]
