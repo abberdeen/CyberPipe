@@ -103,3 +103,51 @@ dotnet test tests/CyberPipe.Data.Tests --filter "Category=Integration"
 ```
 
 Без `CYBERPIPE_TEST_POSTGRES` интеграционные тесты пропускаются с явным сообщением.
+
+## Схема и миграции (TASK-011)
+
+- Миграции лежат в `Migrations/NNNN_<slug>.sql` с парными `NNNN_<slug>.down.sql` у обратимых
+  миграций (обратимость объявляется заголовком `-- reversible: true`) и встраиваются в сборку
+  как ресурсы. История — `app.schema_migrations(version, applied_at, checksum)`, контрольная
+  сумма — SHA-256 нормализованного SQL вверх.
+- `ISchemaMigrator.MigrateAsync` применяет миграции по порядку, каждую в отдельной транзакции,
+  под advisory lock PostgreSQL (`SchemaMigrator.AdvisoryLockKey`): конкурентный запуск ждёт,
+  а не падает дублями. Изменённый файл уже применённой миграции — `SchemaChecksumMismatchException`
+  с номером версии. `ValidateAsync` — режим ValidateOnly: только возвращает расхождения.
+  `RollbackLastAsync` откатывает последнюю обратимую миграцию, не трогая строки таблиц более
+  ранних миграций. Мигратор применим при старте Service после bootstrap TASK-010 через
+  `IPostgresConnectionFactory`; составной корень подключит его в TASK-090.
+- Схемы: `app` (таблицы приложения) и `quartz` — создана пустой и зарезервирована под таблицы
+  Quartz.NET из TASK-045; кварцевых таблиц здесь нет (выбран вариант «пустая схема в TASK-011»).
+- Таблицы: `embeddings` (вектор без фиксированной размерности: размерность задаёт колонка
+  `dimension` из конфигурации модели TASK-012; ANN-индекса здесь нет), `semantic_cache`,
+  `chains`/`chain_runs`/`chain_checkpoints` (только структура под TASK-044), `approvals`,
+  `token_budget_ledger`, `kv_settings`, `audit_log`. Seed — только технический в `kv_settings`
+  (`schema.version`, `schema.quartz_reserved`), без секретов и пользовательских данных.
+- Миграции только аддитивные для выпущенных версий; переименование/удаление — expand-contract
+  новой миграцией.
+
+## Хранилище эмбеддингов (TASK-012)
+
+- `IEmbeddingStore` / `PgVectorEmbeddingStore` поверх `app.embeddings`: `UpsertAsync`,
+  `UpsertManyAsync` (одна транзакция, идемпотентно по `(namespace, source_ref, model_id)`),
+  `SearchAsync`, `DeleteAsync`, `DeleteByOwnerScopeAsync` (все записи namespace), `CountAsync`.
+  Пространства имён: `router`, `semantic-cache`, `knowledge`, `safety` (`EmbeddingNamespaces`);
+  допустимо любое непустое имя — изоляция обеспечивается фильтром по namespace.
+- Поиск: косинусное расстояние pgvector (`<=>`) преобразуется в Score-сходство `[-1, 1]`
+  (`CosineScore.FromDistance`) внутри реализации; сортировка по убыванию Score, фильтр
+  `MinScore` (пустой результат вместо «хоть какого-нибудь»), `TopK`, необязательный `ModelId`.
+  Запрос дополнительно фильтруется по `dimension`, чтобы разноразмерные модели не давали
+  ошибку pgvector о несовпадении размерностей.
+- Размерность не зашита в код: `EmbeddingStoreOptions.ModelDimensions` (ModelId → размерность
+  из конфигурации модели) имеет приоритет, иначе ожидаемая размерность — поле `Dimension`
+  записи (0 = длина вектора). Несовпадение — `EmbeddingDimensionMismatchException(expected,
+  actual, modelId)` без обрезки/паддинга; пустой вектор и `TopK <= 0` — `ArgumentException`
+  до обращения к БД (`EmbeddingValidation`). Нормализация векторов — ответственность
+  вызывающего; хранилище хранит вектор как есть.
+- Стратегия поиска — конфигурацией без смены контракта: `Exact` (по умолчанию, точный поиск)
+  или `ApproximateHnsw`. ANN-выбор зафиксирован как HNSW, но отдельной миграции под индекс
+  нет: колонка вектора не имеет фиксированной размерности, единый HNSW-индекс по
+  разноразмерным векторам не строится. При `ApproximateHnsw` выставляется `hnsw.ef_search`;
+  без индекса PostgreSQL даёт тот же точный порядок, поэтому контракт и результаты не зависят
+  от наличия индекса. Индекс появится новой миграцией после фиксации размерности модели.

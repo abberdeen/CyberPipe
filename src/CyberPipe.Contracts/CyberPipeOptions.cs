@@ -145,7 +145,7 @@ public sealed record DatabaseOptions
     /// <summary>Ключ секрета с паролем в ISecretStore, не сам пароль.</summary>
     public string PasswordSecretKey { get; init; } = SecretKeys.DatabasePassword;
 
-    /// <summary>Максимальный размер пула соединений Npgsql (TASK-010).</summary>
+    /// <summary>Максимальный размер пула соединений с PostgreSQL (TASK-010).</summary>
     public int MaxPoolSize { get; init; } = 100;
 
     /// <summary>Тайм-аут команды PostgreSQL в секундах (TASK-010).</summary>
