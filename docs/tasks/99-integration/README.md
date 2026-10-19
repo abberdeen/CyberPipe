@@ -24,10 +24,10 @@
 |---|---|---|---|
 | TASK-090 | [TASK-090-composition-root-di.md](TASK-090-composition-root-di.md) | Композиционный корень: DI-регистрации и порядок запуска Service/Desktop/CLI/Brainstem | Done |
 | TASK-091 | [TASK-091-e2e-telegram-scenario.md](TASK-091-e2e-telegram-scenario.md) | Сквозной сценарий Telegram: сообщение Owner → маршрутизация → HITL → ответ | Done |
-| TASK-092 | [TASK-092-e2e-chain-scenario.md](TASK-092-e2e-chain-scenario.md) | Сквозной сценарий цепочки на всех четырёх триггерах с чекпоинтами и рестартом | Ready |
-| TASK-093 | [TASK-093-full-build-release-gates.md](TASK-093-full-build-release-gates.md) | Полная сборка, публикация и ворота выпуска с манифестом артефактов | Planned |
+| TASK-092 | [TASK-092-e2e-chain-scenario.md](TASK-092-e2e-chain-scenario.md) | Сквозной сценарий цепочки на всех четырёх триггерах с чекпоинтами и рестартом | Done |
+| TASK-093 | [TASK-093-full-build-release-gates.md](TASK-093-full-build-release-gates.md) | Полная сборка, публикация и ворота выпуска с манифестом артефактов | Ready |
 
-Статусы по правилу глобального индекса: `Ready` — все зависимости выполнены, можно брать в работу (TASK-091, TASK-092); `Planned` — есть невыполненные зависимости (TASK-093 ждёт TASK-091/TASK-092).
+Статусы по правилу глобального индекса: `Ready` — все зависимости выполнены, можно брать в работу (TASK-093: TASK-090, TASK-091, TASK-092 закрыты); `Planned` — есть невыполненные зависимости (сейчас таких нет).
 
 ## Порядок и зависимости
 
