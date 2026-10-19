@@ -127,6 +127,42 @@ dotnet test tests/CyberPipe.Data.Tests --filter "Category=Integration"
 - Миграции только аддитивные для выпущенных версий; переименование/удаление — expand-contract
   новой миграцией.
 
+## Репозитории и доступ к данным (TASK-013)
+
+- Типизированные репозитории по агрегатам TASK-011: `IChainRepository` (app.chains,
+  определение — `ChainDefinitionDto` целиком в `definition_json`), `IChainRunRepository`
+  (app.chain_runs), `ICheckpointRepository` (app.chain_checkpoints, DTO — `ChainCheckpointDto`),
+  `IApprovalRepository` (app.approvals), `ITokenBudgetRepository` (app.token_budget_ledger,
+  включая `AddUsageAsync(TokenUsageDto)` и дневной итог), `IKeyValueSettingsRepository`
+  (app.kv_settings), `IAuditLogRepository` (app.audit_log). Набор собирается
+  `RepositorySet.Create(factory, ...)`; векторные операции не дублируются, а делегируются
+  `IEmbeddingStore` (TASK-012) через `RepositorySet.Embeddings` / `IUnitOfWork.Embeddings`.
+  В публичных контрактах типов Npgsql нет; весь SQL сосредоточен в этом проекте.
+- Семантика отсутствия и идемпотентности зафиксирована в XML-документации методов:
+  `Get` отсутствующей записи — `null`, повторный `Delete` — `false`, без исключений;
+  повторный `Add` цепочек/одобрений/бюджета/настроек с тем же ключом возвращает существующую
+  запись (AlreadyExists), запуск — по уникальному `(chain_id, idempotency_key)`, чекпоинт —
+  upsert по `(run_id, step)`.
+- Транзакции: `IUnitOfWorkFactory.CreateAsync` → `IUnitOfWork.BeginAsync/CommitAsync/
+  RollbackAsync`; репозитории `IUnitOfWork.*` привязаны к одному соединению/транзакции,
+  вне unit-of-work каждый репозиторий работает на собственном соединении фабрики TASK-010.
+  Выход из `await using` без коммита, исключение и отмена токена при коммите откатывают
+  все записи целиком. Счётчики коммитов/откатов и медленных запросов — `UnitOfWorkMetrics`
+  (`IUnitOfWorkMetrics`) для диагностики Service.
+- Безопасность и конкуренция: только параметризованные запросы Npgsql (пользовательский
+  ввод никогда не конкатенируется в SQL), сортировка пагинации — обязательна и только из
+  белого списка полей репозитория (`PagedQuery.SortBy`, по умолчанию `created_at`, плюс
+  детерминированный tie-breaker), обновление одобрений/чекпоинтов/запусков/бюджета/настроек —
+  оптимистично по `updated_at` как row_version: устаревшая версия даёт
+  `OptimisticConcurrencyException(aggregate, id)`. Медленные запросы логируются Warning
+  только именем операции и длительностью (порог — `RepositoryOptions.SlowQueryThreshold`);
+  значения параметров, в том числе секреты, в логи не попадают. JSON jsonb-полей — через
+  `RepositoryJson` с явными опциями `System.Text.Json`.
+- Тесты: unit маппинга/валидации без Docker, integration (`Category=Integration`,
+  Testcontainers-стиль на `CYBERPIPE_TEST_POSTGRES`) — CRUD каждого репозитория, пагинация,
+  откат двух репозиториев, оптимистичная конкуренция, идемпотентность, отсутствие секретов
+  в логе медленных запросов.
+
 ## Хранилище эмбеддингов (TASK-012)
 
 - `IEmbeddingStore` / `PgVectorEmbeddingStore` поверх `app.embeddings`: `UpsertAsync`,
