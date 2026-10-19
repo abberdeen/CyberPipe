@@ -25,9 +25,9 @@
 | TASK-090 | [TASK-090-composition-root-di.md](TASK-090-composition-root-di.md) | Композиционный корень: DI-регистрации и порядок запуска Service/Desktop/CLI/Brainstem | Done |
 | TASK-091 | [TASK-091-e2e-telegram-scenario.md](TASK-091-e2e-telegram-scenario.md) | Сквозной сценарий Telegram: сообщение Owner → маршрутизация → HITL → ответ | Done |
 | TASK-092 | [TASK-092-e2e-chain-scenario.md](TASK-092-e2e-chain-scenario.md) | Сквозной сценарий цепочки на всех четырёх триггерах с чекпоинтами и рестартом | Done |
-| TASK-093 | [TASK-093-full-build-release-gates.md](TASK-093-full-build-release-gates.md) | Полная сборка, публикация и ворота выпуска с манифестом артефактов | Ready |
+| TASK-093 | [TASK-093-full-build-release-gates.md](TASK-093-full-build-release-gates.md) | Полная сборка, публикация и ворота выпуска с манифестом артефактов | In Progress |
 
-Статусы по правилу глобального индекса: `Ready` — все зависимости выполнены, можно брать в работу (TASK-093: TASK-090, TASK-091, TASK-092 закрыты); `Planned` — есть невыполненные зависимости (сейчас таких нет).
+Статусы по правилу глобального индекса: `In Progress` — TASK-093 в работе (автоматика G1–G6 зелёная, выпуск ждёт чинки CLI service-control и ручного чек-листа); `Ready`/`Planned` свободных задач сейчас нет.
 
 ## Порядок и зависимости
 

@@ -56,11 +56,28 @@ internal sealed class PostgresChainExecutionRepository(
 
     public async Task<RunId?> FindRunByIdempotencyKeyAsync(ChainId chainId, string idempotencyKey, CancellationToken cancellationToken = default)
     {
-        PagedResult<ChainRunRecord> page = await runs.ListAsync(BigPage, chainId, cancellationToken)
-            .ConfigureAwait(false);
-        ChainRunRecord? found = page.Items.FirstOrDefault(
-            r => string.Equals(r.IdempotencyKey, idempotencyKey, StringComparison.Ordinal));
-        return found?.Id;
+        // Пагинация до конца: общая тестовая БД накапливает сотни прогонов,
+        // однопроходный лимит 200 прятал свежие строки (TASK-093).
+        int offset = 0;
+        while (true)
+        {
+            PagedResult<ChainRunRecord> page = await runs.ListAsync(
+                    new PagedQuery { Offset = offset, Limit = 200, SortBy = "created_at", Descending = false },
+                    chainId, cancellationToken).ConfigureAwait(false);
+            ChainRunRecord? found = page.Items.FirstOrDefault(
+                r => string.Equals(r.IdempotencyKey, idempotencyKey, StringComparison.Ordinal));
+            if (found is not null)
+            {
+                return found.Id;
+            }
+
+            if (page.Items.Count < 200)
+            {
+                return null;
+            }
+
+            offset += 200;
+        }
     }
 
     public async Task<ChainRunState> CreateRunAsync(RunId runId, ChainId chainId, TriggerEvent trigger, CancellationToken cancellationToken = default)
@@ -118,9 +135,22 @@ internal sealed class PostgresChainExecutionRepository(
 
     public async Task<IReadOnlyList<RunId>> ListUnfinishedRunsAsync(CancellationToken cancellationToken = default)
     {
-        PagedResult<ChainRunRecord> page = await runs.ListAsync(BigPage, null, cancellationToken)
-            .ConfigureAwait(false);
-        return page.Items.Where(r => UnfinishedStatuses.Contains(r.Status)).Select(r => r.Id).ToArray();
+        // Пагинация до конца: см. FindRunByIdempotencyKeyAsync (TASK-093).
+        var result = new List<RunId>();
+        int offset = 0;
+        while (true)
+        {
+            PagedResult<ChainRunRecord> page = await runs.ListAsync(
+                    new PagedQuery { Offset = offset, Limit = 200, SortBy = "created_at", Descending = false },
+                    null, cancellationToken).ConfigureAwait(false);
+            result.AddRange(page.Items.Where(r => UnfinishedStatuses.Contains(r.Status)).Select(r => r.Id));
+            if (page.Items.Count < 200)
+            {
+                return result;
+            }
+
+            offset += 200;
+        }
     }
 
     private TriggerEvent GetTrigger(ChainRunRecord record)

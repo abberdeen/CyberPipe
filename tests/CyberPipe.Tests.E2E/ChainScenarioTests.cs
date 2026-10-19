@@ -149,9 +149,17 @@ public sealed class ChainScenarioTests
     {
         await using var host = await ChainE2EHost.CreateAsync();
         var chainId = new ChainId(Guid.NewGuid());
+        // Однократное срабатывание ~5с спустя: ежесекундный cron давал
+        // законные двойные тики через границу секунды (два прогона до
+        // первого assert'а), что роняло строгий счёт skill=1 (TASK-093).
+        // Компоненты — в ЛОКАЛЬНОМ времени: Quartz по умолчанию
+        // интерпретирует cron в часовом поясе планировщика, не в UTC.
+        DateTimeOffset fireAt = DateTimeOffset.Now.AddSeconds(5);
+        string oneShotCron =
+            $"{fireAt.Second} {fireAt.Minute} {fireAt.Hour} * * ?";
         await host.RegisterAsync(host.BuildDefinition(
             chainId,
-            new ChainTriggerDto { Kind = ChainTriggerKind.Cron, CronExpression = "0/1 * * * * ?" },
+            new ChainTriggerDto { Kind = ChainTriggerKind.Cron, CronExpression = oneShotCron },
             "test.chain.skill-a",
             "e2e-cron"));
 
@@ -169,6 +177,11 @@ public sealed class ChainScenarioTests
             (await host.Definitions.GetByIdAsync(chainId))!);
 
         await WaitForDeliveriesAsync(host, 1, TimeSpan.FromSeconds(15));
+
+        // Детерминизм: расписание каждую секунду, поэтому сразу снимаем
+        // цепочку с Quartz — иначе второй тик до assert'ов даст skill=2
+        // (каждый тик при этом корректно исполняет цепочку ровно по разу).
+        await manager.UnregisterCronChainAsync(chainId);
 
         Assert.True(host.Delivery.Invocations >= 1, "Cron never fired the chain.");
         Assert.Equal(1, host.Skills.GetCallCount("test.chain.skill-a"));

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     CyberPipe release gates G1-G6 (TASK-093).
 .DESCRIPTION
@@ -92,6 +92,8 @@ catch {
 Write-Host "CyberPipe release $Version (commit $Commit$(if ($Dirty) { ', dirty tree' } else { '' }))" -ForegroundColor Green
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+$script:logsDir = Join-Path $OutputDir "logs"
+New-Item -ItemType Directory -Force -Path $script:logsDir | Out-Null
 $script:artifacts = @()
 $script:measured = [ordered]@{}
 $script:findings = @()
@@ -103,20 +105,42 @@ function Assert-LastExit([string]$What) {
     }
 }
 
+# Runs a native command with the error stream contained (the script runs with
+# $ErrorActionPreference=Stop, which would otherwise abort on the first
+# stderr line and swallow the evidence). Full output goes to a per-gate log
+# file; success returns a short summary, failure throws with the tail.
+function Invoke-Native([string]$GateId, [string]$What, [scriptblock]$Cmd) {
+    $logPath = Join-Path $script:logsDir "$GateId.log"
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = @(& $Cmd 2>&1 | ForEach-Object { "$_" })
+    }
+    finally {
+        $ErrorActionPreference = $prev
+    }
+    $out | Set-Content -Path $logPath -Encoding UTF8
+    if ($LASTEXITCODE -ne 0) {
+        $tail = ($out | Select-Object -Last 12) -join "`n"
+        throw "$What failed with exit code $LASTEXITCODE (log: logs/$GateId.log).`n$tail"
+    }
+    return $out
+}
+
 try {
-# G1: full clean Release build. Warnings are errors (Directory.Build.props).
+# G1: full clean Release build (--no-incremental: content files such as model
+# catalogs must be recopied from src on every release, never carried stale
+# from a previous build). Warnings are errors (Directory.Build.props).
 Invoke-Gate "G1-build" {
-    dotnet build CyberPipe.slnx -c $Configuration --nologo -v q
-    Assert-LastExit "dotnet build"
-    "slnx $Configuration, 0 warnings/errors"
+    Invoke-Native "g1-build" "dotnet build" { dotnet build CyberPipe.slnx -c $Configuration --no-incremental --nologo -v q }
+    "slnx $Configuration, 0 warnings/errors (log: logs/g1-build.log)"
 }
 
 # G2: every test level in the solution (unit, data, architecture, e2e incl.
 # TASK-091/092). E2E provisions its own test PostgreSQL when missing.
 Invoke-Gate "G2-tests" {
-    dotnet test CyberPipe.slnx -c $Configuration --no-build --nologo
-    Assert-LastExit "dotnet test"
-    "slnx $Configuration, all levels green"
+    Invoke-Native "g2-tests" "dotnet test" { dotnet test CyberPipe.slnx -c $Configuration --no-build --nologo }
+    "slnx $Configuration, all levels green (log: logs/g2-tests.log)"
 }
 
 # G3: architecture bans. Forbidden tokens in sources (the guard's own denylist
@@ -178,8 +202,7 @@ Invoke-Gate "G4-data" {
     if ($local -ne 15 -or $cloud -ne 8) {
         throw "Catalog counts are $local/$cloud, expected 15/8."
     }
-    dotnet test tests/CyberPipe.Tests.Unit -c $Configuration --no-build --nologo --filter "FullyQualifiedName~ModelCatalog"
-    Assert-LastExit "ModelCatalog tests"
+    Invoke-Native "g4-catalog-tests" "ModelCatalog tests" { dotnet test tests/CyberPipe.Tests.Unit -c $Configuration --no-build --nologo --filter "FullyQualifiedName~ModelCatalog" }
     $strayManifests = @(Get-ChildItem -Path . -Filter "netrunner.manifest.json" -Recurse -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch "[\\/]tests[\\/]" -and $_.FullName -notmatch "[\\/](bin|obj)[\\/]" } |
         Select-Object -ExpandProperty FullName)
@@ -203,8 +226,7 @@ if (-not $SkipPublish) {
         foreach ($entry in $publishMatrix) {
             $name = [IO.Path]::GetFileNameWithoutExtension($entry.Project)
             $target = Join-Path $OutputDir "$name-$($entry.Rid)"
-            dotnet publish $entry.Project -c $Configuration -r $entry.Rid --self-contained false -o $target --nologo -v q
-            Assert-LastExit "publish $name $($entry.Rid)"
+            Invoke-Native "g5-publish-$name-$($entry.Rid)" "publish $name $($entry.Rid)" { dotnet publish $entry.Project -c $Configuration -r $entry.Rid --self-contained false -o $target --nologo -v q }
             $targetFull = [IO.Path]::GetFullPath($target)
             $outFull = [IO.Path]::GetFullPath($OutputDir)
             Get-ChildItem -Path $target -File -Recurse | ForEach-Object {
@@ -287,7 +309,8 @@ public static class SmokeCreds {
     [DllImport("advapi32.dll", EntryPoint = "CredFree")]
     private static extern void CredFree(IntPtr p);
     public static bool Exists(string target) {
-        if (!CredRead(target, 1, 0, out IntPtr p)) return false;
+        IntPtr p;
+        if (!CredRead(target, 1, 0, out p)) return false;
         CredFree(p); return true;
     }
     public static void WriteUtf8(string target, string user, string secret) {
@@ -314,16 +337,13 @@ public static class SmokeCreds {
             try {
                 $svcExe = Join-Path $OutputDir "CyberPipe.Service-win-x64/CyberPipe.Service.exe"
                 $cliExe = Join-Path $OutputDir "CyberPipe.Cli-win-x64/CyberPipe.Cli.exe"
-                & $svcExe --validate-config
-                Assert-LastExit "published validate-config"
+                Invoke-Native "g6-validate-config" "published validate-config" { & $svcExe --validate-config }
 
                 $env:CYBERPIPE_Database__Host = $SmokeDbHost
                 $env:CYBERPIPE_Database__Port = "$SmokeDbPort"
                 $env:CYBERPIPE_Database__Database = $SmokeDbName
                 $env:CYBERPIPE_Database__Username = $SmokeDbUser
-                $smokeDir = Join-Path $OutputDir "smoke"
-                New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
-                $svcLog = Join-Path $smokeDir "service-console.log"
+                $svcLog = Join-Path $script:logsDir "g6-service-console.log"
                 Remove-Item $svcLog -ErrorAction SilentlyContinue
                 $svc = Start-Process -FilePath $svcExe -ArgumentList "--console" `
                     -WorkingDirectory (Split-Path $svcExe) `
@@ -344,19 +364,27 @@ public static class SmokeCreds {
                     }
                     $script:measured["serviceStartupMs"] = $sw2.ElapsedMilliseconds
                     if (-not $healthy) {
-                        throw "Service did not reach healthy startup within ${SmokeTimeoutSec}s (see smoke/service-console.log)."
+                        throw "Service did not reach healthy startup within ${SmokeTimeoutSec}s (see logs/g6-service-console.log)."
                     }
 
                     $dsw = [Diagnostics.Stopwatch]::StartNew()
-                    & $cliExe diagnostics | Out-String | ForEach-Object {
-                        if ($_ -notmatch "Diagnostics report") { throw "CLI diagnostics failed." }
-                    }
+                    $diagOut = Invoke-Native "g6-cli-diagnostics" "CLI diagnostics" { & $cliExe diagnostics }
+                    if (($diagOut -join "`n") -notmatch "Diagnostics report") { throw "CLI diagnostics failed." }
                     $script:measured["cliDiagnosticsMs"] = $dsw.ElapsedMilliseconds
 
                     # Known gap (TASK-062 wiring, product scope): CliContext never
                     # gets IServiceControl, so `service status` cannot reach the
                     # live pipe. Captured as evidence, tracked as a finding.
-                    $statusOut = (& $cliExe service status 2>&1 | Out-String)
+                    # NOTE: the probe is expected to fail; contain the error
+                    # stream or $ErrorActionPreference=Stop aborts the gate.
+                    $prevEap = $ErrorActionPreference
+                    $ErrorActionPreference = "Continue"
+                    try {
+                        $statusOut = (& $cliExe service status 2>&1 | Out-String)
+                    }
+                    finally {
+                        $ErrorActionPreference = $prevEap
+                    }
                     $script:findings += [ordered]@{
                         id     = "F-CLI-SERVICE-CONTROL"
                         text   = "CLI `service status` reports disconnected against a healthy service; CliContext.ServiceControl is never assigned (src/CyberPipe.Cli/Program.cs). Product fix belongs to the CLI area task, not the release script."
@@ -432,6 +460,14 @@ $manifestPath = Join-Path $OutputDir "release-manifest.json"
 $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
 Write-Host ""
 Write-Host "Release manifest: $manifestPath" -ForegroundColor Green
+
+$blocked = @($manifest.manualChecklist | Where-Object { $_.status -eq "blocked" })
+$notRun = @($manifest.manualChecklist | Where-Object { $_.status -eq "not-run" })
+if ($blocked.Count -gt 0) {
+    Write-Host "BLOCKED manual items ($($blocked.Count)):" -ForegroundColor Red
+    $blocked | ForEach-Object { Write-Host "  - $($_.item)" -ForegroundColor Red }
+}
+Write-Host "Manual checklist: $($notRun.Count) not-run (by design — human acceptance)."
 
 if ($script:failedGate) {
     exit 1
