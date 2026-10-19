@@ -1,3 +1,5 @@
+﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (SQLite/SQLCipher убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
+
 # 12. Каталог функций и системных возможностей: Личный, Инженерный и Бизнес-Помощник
 
 Архитектура **CyberPipe** (`4-Tier Intent Router` + `SQLite WAL` + `Zero-Trust Guards`) позволяет превратить оркестратор из простого исполнителя команд в **незаменимого ежедневного ассистента («Второй мозг + Шеф-инженер + Бизнес-операционист»)**.
@@ -15,7 +17,7 @@
 
 ### 1.2. Проактивный движок расписаний, системные и пользовательские задачи (`ProactiveScheduler & UserAutomations`)
 * **Задача:** Помощник не просто ждет команд, а сам вовремя предупреждает, собирает сводки, реагирует на события ОС, Git и инфраструктуры, а также исполняет **произвольные пользовательские расписания и сценарии автоматизации**.
-* **Реализация:** Промышленный планировщик на базе **`Hangfire`** с хранением задач в **отдельной зашифрованной паролем базе `data/subsystems/hangfire.db`**, локальным защищенным **Read-Only Dashboard** на `127.0.0.1` (авторизация по одноразовому токену + HttpOnly cookie) и разделением задач на два класса:
+* **Реализация:** Промышленный планировщик на базе **`Quartz.NET`** с хранением задач в **отдельной зашифрованной паролем базе `data/subsystems/Quartz.NET.db`**, локальным защищенным **Read-Only Dashboard** на `127.0.0.1` (авторизация по одноразовому токену + HttpOnly cookie) и разделением задач на два класса:
 
 #### А. Системные встроенные задачи (System Built-in Tasks):
 1. **По расписанию (Cron/Recurring):** утренний исполнительный брифинг (`09:00`, `0 9 * * *`), вечернее подведение итогов (`20:00`, `0 20 * * *`), контроль оплаты подписок (за 3 дня до списания), регулярный аудит инфраструктуры (`InfraHealthWatchdog`).
@@ -44,7 +46,7 @@
 * **`LlmPromptAction` (ИИ-исследование / Агентный промпт):** запуск анализа с помощью ИИ (например: *«Каждое утро в 08:30 сделай выжимку трендов по теме X»*). Строго лимитируется `TokenBudgetGovernor` по мягкому/жесткому бюджету токенов и списывается с дневной квоты.
 * **`DevToolAction` (Фоновая разработка):** автоматический запуск `dotnet test` или линтера в разрешенном каталоге репозитория через `IDevToolProcessRunner` с отправкой только выжимки ошибок при падении.
 
-#### Таблица пользовательских задач в БД (`UserScheduledTasks` в `hangfire.db`):
+#### Таблица пользовательских задач в БД (`UserScheduledTasks` в `Quartz.NET.db`):
 ```sql
 CREATE TABLE IF NOT EXISTS UserScheduledTasks (
     Id TEXT PRIMARY KEY,                 -- GUID задачи
@@ -179,12 +181,12 @@ CREATE INDEX IF NOT EXISTS idx_user_tasks_enabled ON UserScheduledTasks(IsEnable
 
 ---
 
-## 5. Специализированный ETL-Ассистент Netrunner и Движок Каскадных Задач (`Mini-n8n DAG + HITL`)
+## 5. Специализированный ETL-Ассистент Netrunner и Движок Каскадных Задач (`цепочка Trigger → Skill → Script → Delivery + HITL`)
 
 > [!IMPORTANT]
 > Полная спецификация движка каскадных задач, Human-in-the-Loop, таблиц БД и стандарта пакетов описана в документе [**`16-netrunner-etl-and-workflow-engine.md`**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md) и оформлена в виде проектного скилла [`.agents/skills/netrunner-script-package/SKILL.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/.agents/skills/netrunner-script-package/SKILL.md).
 
-В приложении выделен отдельный автономный раздел и ассистент — **Netrunner**. Его ключевая миссия: **радикальное сокращение расхода токенов за счет превращения повторяющихся запросов к ИИ в стандартизированные ETL-пакеты и надежные каскадные графы задач (Mini-n8n DAG)**.
+В приложении выделен отдельный автономный раздел и ассистент — **Netrunner**. Его ключевая миссия: **радикальное сокращение расхода токенов за счет превращения повторяющихся запросов к ИИ в стандартизированные ETL-пакеты и надежные каскадные графы задач (цепочка Trigger → Skill → Script → Delivery)**.
 
 ```
   [Триггер: Cron / Голос / Событие]
@@ -214,10 +216,10 @@ CREATE INDEX IF NOT EXISTS idx_user_tasks_enabled ON UserScheduledTasks(IsEnable
 2. **`SKILL.md`** — паспорт скилла и список фраз-триггеров (индексируется локальным роутером `Tier 1` ONNX для мгновенного вызова за 0 токенов).
 3. **`schema.input.json`** — JSON Schema (Draft 2020-12) входных аргументов (проверяется до старта скрипта).
 4. **`schema.output.json`** — JSON Schema (Draft 2020-12) выходных данных (проверяется после завершения скрипта и гарантирует совместимость со следующим узлом графа).
-5. **`main.csx` / `main.py` / `main.js`** — точка входа детерминированного ETL-скрипта.
+5. **`skill-hack.csx` / `skill-hack.py` / `skill-hack.js`** — точка входа детерминированного ETL-скрипта.
 6. **`tests/sample.fixture.json`** — эталонный тест (`sampleInput` ➔ `expectedOutput`), который обязательно прогоняется в песочнице перед сохранением скрипта в базу.
 
-### 5.2. Каскадные и зависимые задачи (Mini-n8n DAG) с ИИ и Human-in-the-Loop:
+### 5.2. Каскадные и зависимые задачи (цепочка Trigger → Skill → Script → Delivery) с ИИ и Human-in-the-Loop:
 * **Последовательные и параллельные узлы:** Узлы `SkillNode`, `NetrunnerScriptNode`, `ConditionNode`, `ParallelFanOutNode`, `JoinNode`, `LlmProcessNode`, `HitlApprovalNode`, `DeliveryNode` объединяются в направленный ациклический граф (`NetrunnerWorkflowDefinition`).
 * **Точечный ИИ внутри каскада (`LlmProcessNode`):** ИИ может стоять между двумя детерминированными скриптами, получая уже очищенный от мусора JSON и возвращая типизированный `Structured Output` под контролем `TokenBudgetGovernor`.
 * **Human-in-the-Loop (`HitlApprovalNode`):** Для задач, требующих подтверждения владельца, выполнение графа атомарно сохраняется в `data/subsystems/netrunner.db` (`Status = WaitingForHumanApproval`), освобождая потоки CPU/RAM, и возобновляется ровно с того же шага после нажатия кнопки `[✅ Одобрить]` в Telegram или Desktop UI (даже после перезагрузки ПК).
@@ -240,3 +242,6 @@ CREATE INDEX IF NOT EXISTS idx_user_tasks_enabled ON UserScheduledTasks(IsEnable
 | **Бизнес** | Утренний/Вечерний Брифинг и Личная CRM | `Tier 0` / `Tier 2` | **0 – 200 токенов** | Локальная агрегация из `SQLite` |
 | **Бизнес** | Запись звонков (`IAudioDeviceController`) + Протокол | `Tier 1` + `Tier 2/3` | **Транскрибация: 0$** | `Whisper.net` в `Brainstem` + Egress `Sanitizer` |
 | **Бизнес** | Проверка договоров (PDF/DOCX) и Генератор КП | `Tier 2` / `Tier 3` | **Под контролем лимитов** | `SingleUse Brainstem` + `UntrustedExternal` (`Hard Tool Stripping`) |
+
+
+

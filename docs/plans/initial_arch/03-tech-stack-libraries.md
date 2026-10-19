@@ -1,4 +1,4 @@
-# 03. Технологический стек и библиотеки (.NET 10)
+﻿# 03. Технологический стек и библиотеки (.NET 10)
 
 Стек подобран по критериям **максимальной скорости отклика, минимального потребления памяти, простоты развертывания (Zero-Dependency Startup)** и **радикальной экономии токенов** в .NET 10. Из стека исключены тяжеловесные внешние сервисы (обязательный RabbitMQ, PostgreSQL), которые усложняли запуск и добавляли сетевые задержки.
 
@@ -9,14 +9,14 @@
 | Область | Рекомендуемая библиотека | Обоснование и решаемая задача |
 | :--- | :--- | :--- |
 | **Универсальная шина сообщений (Message Bus)** | `MassTransit` (`MassTransit`, `MassTransit.RabbitMQ`, `MassTransit.SqlTransport.Sqlite`) | Единая абстракция шины сообщений вместо `System.Threading.Channels`, позволяющая прозрачно менять транспорт. По умолчанию: **InMemory** (отключен внешний брокер, без посредников и персистентной памяти). Пользователь в UI выбирает провайдер: (1) **InMemory**, (2) **RabbitMQ** (с автозапуском через Центр и учетными данными в `SecretsVault`), (3) **Отдельный SQLite + WAL (`data/subsystems/masstransit.db`)**, защищенный паролем в `SecretsVault`, которым пользуется **только MassTransit и никто другой**. |
-| **Архитектура баз данных (Центральный Мастер + Изолированные БД подсистем)** | `Microsoft.Data.Sqlite` (WAL + `FTS5`) + `Dapper` + `ISubsystemDatabaseManager` | **Центральный Мастер SQLite (`cyberpipe_master.db`)** хранит только базовые настройки приложения и таблицу-реестр `SubsystemDatabaseRegistry`. **Каждая подсистема и сервис имеют свой отдельный SQLite-файл** в `data/subsystems/*.db` (`hangfire.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) со своим паролем шифрования в `SecretsVault` (DPAPI/LibSecret/Keychain). Выделенный сервис `ISubsystemDatabaseManager` управляет lazy-созданием, реестром, генерацией паролей и выдачей защищенных `SqliteConnection`. |
+| **Архитектура баз данных (Центральный Мастер + Изолированные БД подсистем)** | `Microsoft.Data.Sqlite` (WAL + `FTS5`) + `Dapper` + `ISubsystemDatabaseManager` | **Центральный Мастер SQLite (`cyberpipe_master.db`)** хранит только базовые настройки приложения и таблицу-реестр `SubsystemDatabaseRegistry`. **Каждая подсистема и сервис имеют свой отдельный SQLite-файл** в `data/subsystems/*.db` (`Quartz.NET.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) со своим паролем шифрования в `SecretsVault` (DPAPI/LibSecret/Keychain). Выделенный сервис `ISubsystemDatabaseManager` управляет lazy-созданием, реестром, генерацией паролей и выдачей защищенных `SqliteConnection`. |
 | **Telegram-интеграция** | `Telegram.Bot` | Быстрый клиент Telegram API (Long Polling / Webhook), поддержка голосовых сообщений, файлов, Inline-кнопок бюджета (`[▶️ Продолжить]`, `[🛑 Стоп]`) и фильтрация по `UserId`. |
 | **Локальное распознавание речи (0$ Voice STT)** | `Whisper.net` (ONNX / GGML runtime в `CyberPipe.Brainstem`) | Локальная транскрибация голосовых сообщений из Telegram и записей рабочих созвонов на CPU/GPU внутри прогретого пула `CyberPipe.Brainstem` за **0 облачных токенов**. |
 | **Локальный Семантический Роутер (Tier 1)** | `Microsoft.ML.OnnxRuntime` + `System.Numerics.Tensors` | Запуск компактной мультиязычной модели эмбеддингов (`multilingual-e5-small` / `bge-micro`) внутри процесса `CyberPipe` на проверенном входе после `QuotaBoundedStream` за ~5–10 мс + аппаратное SIMD-вычисление косинусной близости (`TensorPrimitives`). **0 токенов на распознавание команд и поиск в памяти!** |
 | **Гибкий AI Пайплайн (`Local` и `RemoteCloud` для каждого Tier)** | `Microsoft.Extensions.AI` (`IChatClient`) + `OllamaSharp` (Local HTTP) + `OpenAI` / Cloud SDKs + `Microsoft.ML.Tokenizers` | Пользователь в UI сам назначает для `Tier 2` и `Tier 3` либо **локальную модель (`Local`, 0$)** через локальный HTTP-сервер **Ollama / LM Studio** (`http://localhost:11434`), либо **удаленную платную (`RemoteCloud`)**. Приложение четко знает тип хостинга (`ModelHostingType`), адаптируя бюджет (`TokenBudgetGovernor`) и контроль RAM (`ISystemResourceMonitor`). |
 | **Оценка железа ПК и Подбор моделей** | `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor` (Встроено в ядро) | Сервис `IHardwareCapabilitiesProbe` считывает RAM/VRAM/CPU хоста и передает в `IModelCompatibilityAdvisor`, который рассчитывает совместимость каждой из 15 локальных моделей (с учетом весов `Q4SizeGb` и `KV-Cache`) с ПК пользователя (`🟢 Оптимально`, `🟡 Совместимо`, `🔴 Мало RAM`). |
 | **Аудио Хоста, Медиа и Запись Созвонов** | `IAudioDeviceController`: `NAudio` (Windows WASAPI) / `PipeWire-PulseAudio` (Linux) / `CoreAudio` (macOS) | Кроссплатформенное управление громкостью с жестким потолком (`Volume Clamp` и проверкой перед `Play`), медиа-команды (`Play/Pause/Next`) и захват системного звука + микрофона для протоколирования встреч. |
-| **Проактивный планировщик и Фоновые задачи** | `Hangfire` (`Hangfire.Core`, `Hangfire.AspNetCore`, `Hangfire.Storage.SQLite`) | Промышленный планировщик фоновых и регулярных задач (утренние/вечерние брифинги, умные напоминания, подписки, мониторинг серверов). Работает на **отдельной зашифрованной паролем базе `hangfire.db`** с локальным **Read-Only Dashboard** на `127.0.0.1`, защищенным одноразовым криптографическим токеном и `HttpOnly` cookie-сессией. |
+| **Проактивный планировщик и Фоновые задачи** | `Quartz.NET` (`Quartz.NET.Core`, `Quartz.NET.AspNetCore`, `Quartz.NET.Storage.SQLite`) | Промышленный планировщик фоновых и регулярных задач (утренние/вечерние брифинги, умные напоминания, подписки, мониторинг серверов). Работает на **отдельной зашифрованной паролем базе `Quartz.NET.db`** с локальным **Read-Only Dashboard** на `127.0.0.1`, защищенным одноразовым криптографическим токеном и `HttpOnly` cookie-сессией. |
 | **Интеграция с Git и Инструментами Разработки** | `LibGit2Sharp` + `IDevToolProcessRunner` (`CliWrap` в `Execution.Providers`) | Мгновенный локальный радар репозиториев (`/repos`, `/standup`) через `LibGit2Sharp` и строго типизированный запуск фиксированных утилит (`git`, `dotnet build/test`) через `IDevToolProcessRunner` с белым списком рабочих директорий. |
 | **Чтение документов, договоров и OCR** | `UglyToad.PdfPig` + `DocumentFormat.OpenXml` (в `Brainstem`) + `IScreenOcrProvider` (`Windows.Media.Ocr` / `Tesseract`) | Локальное извлечение текста из недоверенных PDF-договоров и DOCX в одноразовом изолированном процессе `Brainstem`, а также OCR скриншотов буфера обмена без отправки сырых бинарников в облако. |
 | **Кроссплатформенный UI (`CyberPipe.UI.Desktop`)** | `Avalonia` (11.x+) + `CommunityToolkit.Mvvm` | Нативный быстрый GUI (Desktop/Трей/Попап `Alt+Space`) для Windows, Linux и macOS без прожорливого Electron. Быстрый MVVM на Source Generators. |
@@ -30,9 +30,9 @@
 
 ---
 
-### Архитектура Hangfire, Отдельная Защищенная SQLite БД и Безопасный Read-Only Dashboard
+### Архитектура Quartz.NET, Отдельная Защищенная SQLite БД и Безопасный Read-Only Dashboard
 
-Вместо примитивных in-memory таймеров фоновые и проактивные задачи управляются промышленным планировщиком **`Hangfire`** с хранением в **отдельной зашифрованной паролем базе данных SQLite**.
+Вместо примитивных in-memory таймеров фоновые и проактивные задачи управляются промышленным планировщиком **`Quartz.NET`** с хранением в **отдельной зашифрованной паролем базе данных SQLite**.
 
 ```mermaid
 sequenceDiagram
@@ -42,7 +42,7 @@ sequenceDiagram
     participant Kestrel as Локальный ASP.NET Core (127.0.0.1:5080)
     participant Auth as DashboardSessionManager
     participant Browser as Браузер пользователя
-    participant Hangfire as Hangfire Dashboard (Read-Only)
+    participant Quartz.NET as Quartz.NET Dashboard (Read-Only)
 
     User->>Desktop: Нажатие кнопки «Открыть Dashboard»
     Desktop->>Auth: Запрос создания одноразового секрета (One-Time Token)
@@ -51,22 +51,22 @@ sequenceDiagram
     Browser->>Kestrel: GET /dashboard-login?token={OTT} (проверка Loopback 127.0.0.1)
     Kestrel->>Auth: Валидация и ОДНОКРАТНОЕ сжигание OTT
     Auth-->>Kestrel: OTT подтвержден, создана сессия пользователя
-    Kestrel-->>Browser: Set-Cookie: CyberPipe.Dashboard={SessionSecret}; HttpOnly; SameSite=Strict; Path=/hangfire + Redirect 302 /hangfire
-    Browser->>Hangfire: GET /hangfire (с Cookie)
-    Hangfire->>Auth: DashboardAuthorizationFilter: проверка Loopback + Cookie
-    Auth-->>Hangfire: Авторизовано (IsReadOnly = true)
-    Hangfire-->>Browser: Отрисовка Read-Only Hangfire Dashboard
+    Kestrel-->>Browser: Set-Cookie: CyberPipe.Dashboard={SessionSecret}; HttpOnly; SameSite=Strict; Path=/Quartz.NET + Redirect 302 /Quartz.NET
+    Browser->>Quartz.NET: GET /Quartz.NET (с Cookie)
+    Quartz.NET->>Auth: DashboardAuthorizationFilter: проверка Loopback + Cookie
+    Auth-->>Quartz.NET: Авторизовано (IsReadOnly = true)
+    Quartz.NET-->>Browser: Отрисовка Read-Only Quartz.NET Dashboard
 ```
 
-#### 1. Отдельная зашифрованная база данных SQLite (`data/subsystems/hangfire.db`)
-* **Физическая изоляция:** задачи Hangfire хранятся в отдельном файле `%LOCALAPPDATA%\CyberPipe\data\subsystems\hangfire.db` (на Linux/macOS: `~/.local/share/CyberPipe/data/subsystems/hangfire.db`), полностью изолированном от центрального мастера `cyberpipe_master.db`.
-* **Защита паролем:** строка подключения Hangfire SQLite использует криптографический ключ/пароль (`Password=...` / шифрование страниц базы через SQLCipher-провайдер `SQLitePCLRaw.bundle_e_sqlcipher` или эквивалент — стоковый `Microsoft.Data.Sqlite` без него не шифрует; статус — гипотеза до PoC AUD-04), динамически генерируемый при первой инициализации (`CyberPipe setup`) и сохраняемый в платформенном сейфе `SecretsVault` (под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**).
-* **Права файловой системы:** на каталог и файл `hangfire.db` распространяются те же строгие правила изоляции ядра ОС: запрет доступа для воркера `CyberPipe.Brainstem` (`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
+#### 1. Отдельная зашифрованная база данных SQLite (`data/subsystems/Quartz.NET.db`)
+* **Физическая изоляция:** задачи Quartz.NET хранятся в отдельном файле `%LOCALAPPDATA%\CyberPipe\data\subsystems\Quartz.NET.db` (на Linux/macOS: `~/.local/share/CyberPipe/data/subsystems/Quartz.NET.db`), полностью изолированном от центрального мастера `cyberpipe_master.db`.
+* **Защита паролем:** строка подключения Quartz.NET SQLite использует криптографический ключ/пароль (`Password=...` / шифрование страниц базы через SQLCipher-провайдер `SQLitePCLRaw.bundle_e_sqlcipher` или эквивалент — стоковый `Microsoft.Data.Sqlite` без него не шифрует; статус — гипотеза до PoC AUD-04), динамически генерируемый при первой инициализации (`CyberPipe setup`) и сохраняемый в платформенном сейфе `SecretsVault` (под защитой **Windows DPAPI** / **Linux LibSecret** / **macOS Keychain**).
+* **Права файловой системы:** на каталог и файл `Quartz.NET.db` распространяются те же строгие правила изоляции ядра ОС: запрет доступа для воркера `CyberPipe.Brainstem` (`ACCESS_DENIED_ACE` для `RestrictedWorkerCustomSid` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
 
 #### 2. Режим Read-Only для веб-панели (Zero Mutation from Browser)
-Веб-интерфейс Hangfire используется исключительно для визуализации очередей, состояния задач и истории выполнений. Возможность модификации, постановки задач, ручного перезапуска или удаления джобов из веб-браузера **полностью отключена**:
+Веб-интерфейс Quartz.NET используется исключительно для визуализации очередей, состояния задач и истории выполнений. Возможность модификации, постановки задач, ручного перезапуска или удаления джобов из веб-браузера **полностью отключена**:
 ```csharp
-app.UseHangfireDashboard("/hangfire", new DashboardOptions
+app.UseQuartz.NETDashboard("/Quartz.NET", new DashboardOptions
 {
     Authorization = new[] { new DashboardAuthorizationFilter() },
     IsReadOnlyFunc = _ => true, // Полный запрет мутаций из браузера!
@@ -76,7 +76,7 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 
 #### 3. Сервис авторизации и валидации сессий (`IDashboardAuthorizationFilter`)
 ```csharp
-using Hangfire.Dashboard;
+using Quartz.NET.Dashboard;
 using System.Net;
 
 public sealed class DashboardAuthorizationFilter : IDashboardAuthorizationFilter
@@ -178,11 +178,11 @@ app.MapGet("/dashboard-login", (HttpContext context, string? token) =>
         HttpOnly = true,
         Secure = false, // Локальный HTTP loopback
         SameSite = SameSiteMode.Strict,
-        Path = "/hangfire",
+        Path = "/Quartz.NET",
         Expires = DateTimeOffset.UtcNow.AddHours(4)
     });
 
-    return Results.Redirect("/hangfire");
+    return Results.Redirect("/Quartz.NET");
 });
 ```
 
@@ -199,11 +199,11 @@ Process.Start(new ProcessStartInfo
 });
 ```
 
-#### 6. Чек-лист безопасности авторизации Hangfire Dashboard:
+#### 6. Чек-лист безопасности авторизации Quartz.NET Dashboard:
 1. **Привязка строго к `127.0.0.1`:** Сервер слушает только интерфейс обратной петли (Loopback), привязка к `0.0.0.0` категорически запрещена.
 2. **Криптографический одноразовый токен (One-Time Token, OTT):** 256 бит случайности из `RandomNumberGenerator`. Сервер сохраняет только SHA-256 хеш токена.
 3. **Немедленное сжигание токена:** Секрет удаляется из памяти сразу при первом обращении (`TryRemove`). Повторный переход по ссылке из истории браузера возвращает 401.
-4. **Безопасные параметры Cookie:** `HttpOnly = true`, `SameSite = SameSiteMode.Strict`, `Path = "/hangfire"`.
+4. **Безопасные параметры Cookie:** `HttpOnly = true`, `SameSite = SameSiteMode.Strict`, `Path = "/Quartz.NET"`.
 5. **Read-Only безопасность:** Dashboard не позволяет триггерить или удалять задачи через веб.
 6. **Defense-in-Depth:** Проверка Loopback IP сочетается с проверкой валидности сессии в памяти.
 
@@ -267,3 +267,4 @@ flowchart TD
 за отдельным ADR. Упоминания `System.Threading.Channels` как шины межсервисных сообщений недействительны.
 Доставка: `InMemory` теряет сообщения при рестарте; `SQLite`/`RabbitMQ` дают повторы — потребители обязаны быть
 идемпотентными (дедупликация по `MessageDeduplicationId`).
+

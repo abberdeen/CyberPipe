@@ -1,19 +1,21 @@
-# 16. Ассистент Netrunner: Движок Каскадных Задач (Mini-n8n DAG), HITL и Стандарт Пакетов Скриптов
+﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (SQLite/SQLCipher убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
+
+# 16. Ассистент Netrunner: Движок Каскадных Задач (цепочка Trigger → Skill → Script → Delivery), HITL и Стандарт Пакетов Скриптов
 
 **Netrunner** — это выделенный автономный ассистент и подсистема внутри **CyberPipe**, объединяющая:
 1. **Стандартизированную базу детерминированных ETL-скриптов** (написанных пользователем или один раз синтезированных ИИ `Tier 3`), которые выполняют парсинг, очистку, фильтрацию и трансформацию данных за **0 облачных токенов**.
-2. **Надежный движок каскадных и зависимых задач (`Netrunner DAG Workflow Engine` — «Mini-n8n»)** с поддержкой ветвлений, параллельного исполнения, точечных ИИ-узлов (`LlmStep`) и обязательного подтверждения человеком (`Human-in-the-Loop / HITL`).
+2. **Надежный движок каскадных и зависимых задач (`Netrunner Цепочка Engine` — «цепочка»)** с поддержкой ветвлений, параллельного исполнения, точечных ИИ-узлов (`LlmStep`) и обязательного подтверждения человеком (`Human-in-the-Loop / HITL`).
 
 ---
 
-## 1. Архитектура Каскадного Конвейера (Mini-n8n DAG Workflow)
+## 1. Архитектура Каскадного Конвейера (цепочка Trigger → Skill → Script → Delivery Workflow)
 
-Вместо разрозненных одиночных скриптов Netrunner позволяет строить **ориентированные ациклические графы задач (DAG)**, где данные (типизированный JSON и файловые артефакты) передаются по цепочке между детерминированными скиллами, ETL-скриптами, ИИ-агентами и точками ручного подтверждения:
+Вместо разрозненных одиночных скриптов Netrunner позволяет строить **ориентированные ациклические графы задач (цепочка)**, где данные (типизированный JSON и файловые артефакты) передаются по цепочке между детерминированными скиллами, ETL-скриптами, ИИ-агентами и точками ручного подтверждения:
 
 ```mermaid
 flowchart LR
     subgraph Triggers ["1. Триггеры запуска"]
-        T1["⏰ Cron (Hangfire)"]
+        T1["⏰ Cron (Quartz.NET)"]
         T2["💬 Команда / Голос"]
         T3["⚡ Событие / Watchdog"]
     end
@@ -75,7 +77,7 @@ data/netrunner-packages/<slug>/<version>/
 ├── SKILL.md                      # 2. [ОБЯЗАТЕЛЬНЫЙ] Паспорт скилла для роутера Tier 1, ИИ-агентов и человека
 ├── schema.input.json             # 3. [ОБЯЗАТЕЛЬНЫЙ] JSON Schema (Draft 2020-12) входных параметров и входных файлов
 ├── schema.output.json            # 4. [ОБЯЗАТЕЛЬНЫЙ] JSON Schema (Draft 2020-12) выходных данных и выходных файлов
-├── main.csx | main.py | main.js  # 5. [ОБЯЗАТЕЛЬНЫЙ] Точка входа детерминированного ETL-скрипта
+├── skill-hack.csx | skill-hack.py | skill-hack.js  # 5. [ОБЯЗАТЕЛЬНЫЙ] Точка входа детерминированного ETL-скрипта
 └── tests/
     └── sample.fixture.json       # 6. [ОБЯЗАТЕЛЬНЫЙ] Набор эталонных пар (Input ➔ ExpectedOutput) для авто-проверки
 ```
@@ -101,7 +103,7 @@ data/netrunner-packages/<slug>/<version>/
   },
   "runtime": {
     "engine": "CSharpRoslyn",
-    "entrypoint": "main.csx",
+    "entrypoint": "skill-hack.csx",
     "timeoutMs": 15000,
     "maxMemoryMb": 64,
     "deterministic": true
@@ -143,7 +145,7 @@ data/netrunner-packages/<slug>/<version>/
   },
   "integrity": {
     "filesSha256": {
-      "main.csx": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "skill-hack.csx": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "schema.input.json": "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4",
       "schema.output.json": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
       "SKILL.md": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
@@ -229,7 +231,7 @@ data/netrunner-packages/<slug>/<version>/
    * При регистрации пакета локальный роутер `Tier 1` (`multilingual-e5-small` ONNX) индексирует фразы-триггеры из `SKILL.md`. Благодаря этому, когда пользователь пишет в чат *«какой сегодня курс валют и дельта?»*, роутер `Tier 1` за `< 10 мс` и **0 токенов** сразу запускает готовый пакет Netrunner, не обращаясь к LLM!
 2. **`tests/sample.fixture.json` — Обязательный самотест (`Dry-Run Gate`):**
    * Содержит эталонный вход (`sampleInput`, тестовый входной файл) и ожидаемый выход (`expectedOutput` или проверочные инварианты).
-   * Когда агент `Tier 3` синтезирует новый скрипт для пользователя, скрипт **не может быть сохранен в базу**, пока автоматический раннер не прогонит `main.*` на `sample.fixture.json` и не получит `PASS` по `schema.output.json`.
+   * Когда агент `Tier 3` синтезирует новый скрипт для пользователя, скрипт **не может быть сохранен в базу**, пока автоматический раннер не прогонит `skill-hack.*` на `sample.fixture.json` и не получит `PASS` по `schema.output.json`.
 
 ---
 
@@ -254,7 +256,7 @@ data/netrunner-packages/<slug>/<version>/
 
 | Тип узла (`NodeType`) | Назначение в каскаде | Расход токенов |
 | :--- | :--- | :---: |
-| **`TriggerNode`** | Точка старта: `Cron` (через Hangfire), `TelegramCommand`, `SystemEvent` (завершение билда, файл в папке), `Manual`. | **0 токенов** |
+| **`TriggerNode`** | Точка старта: `Cron` (через Quartz.NET), `TelegramCommand`, `SystemEvent` (завершение билда, файл в папке), `Manual`. | **0 токенов** |
 | **`SkillNode`** | Вызов встроенного C#-скилла (`HttpSafeFetcher`, `GitRepoRadar`, `ScreenOcr`, `DatabaseExport`, `AudioCapture`). | **0 токенов** |
 | **`NetrunnerScriptNode`** | Запуск стандартизированного пакета `<slug>@<version>`. Выполняет детерминированный ETL (парсинг, фильтрация, расчеты, генерация файлов). | **0 токенов** |
 | **`ConditionNode` / `SwitchNode`** | Детерминированная маршрутизация по `JSONPath`-выражениям (`$.hasSignificantChange == true`, `$.items.length > 0`). | **0 токенов** |
@@ -407,7 +409,7 @@ flowchart TD
      }
      ```
    * Процесс скрипта **мгновенно завершается и освобождает ОЗУ**.
-   * Оркестратор переводит шаг в статус `WaitingForConditionRetry` в `netrunner.db` и через `Hangfire` / `MassTransit` планирует повторный запуск этого же шага ровно через `300 сек`.
+   * Оркестратор переводит шаг в статус `WaitingForConditionRetry` в `netrunner.db` и через `Quartz.NET` / `MassTransit` планирует повторный запуск этого же шага ровно через `300 сек`.
 2. **Декларативный `pollUntil` в настройках узла (`Node-Level Conditional Retry` — без изменения кода скрипта):**
    * Любому узлу (`SkillNode` или `NetrunnerScriptNode`) в JSON графа можно задать блок `retryPolicy` не только на технические ошибки, но и **на ожидание нужного значения выходного параметра (`untilExpression`)**:
      ```json
@@ -454,13 +456,13 @@ CREATE TABLE IF NOT EXISTS NetrunnerPackages (
     PRIMARY KEY (Slug, Version)
 );
 
--- 2. Определения каскадных графов (DAG Workflows)
+-- 2. Определения каскадных графов (Цепочкаs)
 CREATE TABLE IF NOT EXISTS NetrunnerWorkflowDefinitions (
     WorkflowId TEXT PRIMARY KEY,
     Name TEXT NOT NULL,
     Description TEXT,
     Version INTEGER NOT NULL DEFAULT 1,
-    DagDefinitionJson TEXT NOT NULL,       -- Узлы (nodes), связи (edges), триггеры
+    цепочкаDefinitionJson TEXT NOT NULL,       -- Узлы (nodes), связи (edges), триггеры
     IsEnabled INTEGER NOT NULL DEFAULT 1,
     CreatedAtUtc TEXT NOT NULL,
     UpdatedAtUtc TEXT NOT NULL
@@ -527,7 +529,7 @@ public enum PipelineCrashRecoveryPolicy
 Если во время работы пайплайна внезапно отключили электричество, ОС перезагрузилась или процесс аварийно завершился, при следующем старте срабатывает **4-уровневый механизм**:
 
 1. **Защита от повреждения БД на диске (`SQLite WAL + synchronous=NORMAL/FULL`):**
-   * И центральная база `cyberpipe_master.db`, и база оркестратора `data/subsystems/netrunner.db`, и база шины `masstransit.db`, и база планировщика `hangfire.db` работают в режиме **Write-Ahead Logging (`PRAGMA journal_mode=WAL`)**. Даже при мгновенном обесточивании ПК во время записи транзакция либо атомарно зафиксирована, либо чисто откатывается при открытии файла без повреждения БД (`database disk image is malformed` исключен).
+   * И центральная база `cyberpipe_master.db`, и база оркестратора `data/subsystems/netrunner.db`, и база шины `masstransit.db`, и база планировщика `Quartz.NET.db` работают в режиме **Write-Ahead Logging (`PRAGMA journal_mode=WAL`)**. Даже при мгновенном обесточивании ПК во время записи транзакция либо атомарно зафиксирована, либо чисто откатывается при открытии файла без повреждения БД (`database disk image is malformed` исключен).
 2. **Пошаговый чекпоинт после каждого оператора (`Step-Level Checkpointing`):**
    * Перед стартом каждого узла в `NetrunnerStepRuns` записывается статус `Running`.
    * Как только узел (`SkillNode`, `NetrunnerScriptNode`, `LlmProcessNode`) завершился, его выходной JSON и SHA-256 всех созданных в `data/netrunner-artifacts/{RunId}/{NodeId}/out/` файлов **атомарно коммитятся в `NetrunnerStepRuns` (`Status = 'Completed'`)** и обновляют `WorkflowStateSnapshotJson` до запуска следующего шага.
@@ -544,7 +546,7 @@ public enum PipelineCrashRecoveryPolicy
        2. Если свет отключили прямо во время выполнения чистых ETL-скриптов (`Step.Status == 'Running'`, режим `Idempotent`), временная выходная папка прерванного шага №15 очищается от недописанных файлов, **шаг №15 автоматически перезапускается** с готовыми входными данными от шага №14, и пайплайн идет дальше до конца (шаги 15 $\to$ 20).
        3. Если прерванный шаг имел внешние побочные эффекты (`NonIdempotentExternalAction`), он переводится в `InterruptedNeedsConfirmation` и запрашивает подтверждение у владельца, чтобы не выполнить внешнюю отправку дважды.
 4. **Догоняющий запуск пропущенных расписаний (`Missed Cron Catch-Up`):**
-   * Если компьютер был выключен с 08:30 до 10:15, а каскад должен был стартовать по Cron в `09:00`, при включении ПК `Hangfire` + `Scheduler` видят пропущенное окно и поступают согласно настройке `misfirePolicy` каскада:
+   * Если компьютер был выключен с 08:30 до 10:15, а каскад должен был стартовать по Cron в `09:00`, при включении ПК `Quartz.NET` + `Scheduler` видят пропущенное окно и поступают согласно настройке `misfirePolicy` каскада:
      * `FireOnceNow` *(по умолчанию для ежедневных отчетов)* — сразу запускает пропущенный утренний пайплайн один раз при включении ПК.
      * `SkipIfLateByMinutes` — пропускает запуск, если информация актуальна только строго в 09:00.
      * `AskUser` — спрашивает в Telegram: *«Утренний каскад в 09:00 был пропущен (ПК был выключен). Запустить сейчас?»*.
@@ -554,7 +556,7 @@ public enum PipelineCrashRecoveryPolicy
    * Когда граф останавливается на узле `HitlApprovalNode` (ожидание подтверждения владельца) или `PausedByBudget`, он **не держит открытых потоков в ОЗУ**.
    * Как только пользователь нажимает `[✅ Одобрить]` в Telegram или Desktop UI (даже спустя 2 часа или после перезагрузки ПК), `NetrunnerWorkflowEngine` загружает `WorkflowStateSnapshotJson` и файлы из `data/netrunner-artifacts/{RunId}/` и запускает **только следующий узел после `HitlApprovalNode`**, не выполняя заново предыдущие шаги!
 2. **Контроль целостности пакетов (`Tamper Protection`):**
-   * Перед каждым запуском `NetrunnerScriptNode` движок сверяет SHA-256 файлов `main.*`, `schema.input.json` и `schema.output.json` на диске с хешами в `NetrunnerPackages.ManifestSha256`. Если файл был изменен в обход валидатора — выполнение мгновенно блокируется.
+   * Перед каждым запуском `NetrunnerScriptNode` движок сверяет SHA-256 файлов `skill-hack.*`, `schema.input.json` и `schema.output.json` на диске с хешами в `NetrunnerPackages.ManifestSha256`. Если файл был изменен в обход валидатора — выполнение мгновенно блокируется.
 3. **Изоляция файлового обмена между узлами (`Run Artifact Workspace`):**
    * Каждому запуску графа выделяется временная изолированная рабочая директория `data/netrunner-artifacts/{RunId}/`.
    * Узел `A` может записать выходной файл только в свою подпапку `{RunId}/{NodeA}/out/`.
@@ -567,7 +569,7 @@ public enum PipelineCrashRecoveryPolicy
 Когда пользователь просит автоматизировать новую рутинную задачу (*«Каждый вечер собирай список новых релизов в трех моих GitHub-репозиториях, фильтруй только критические фиксы и присылай таблицу»*):
 
 1. **Этап 1 — Синтез пакета (`Tier 3 NetrunnerSynthesizerAgent`):**
-   * Агент генерирует все 6 обязательных файлов пакета (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `main.csx`, `tests/sample.fixture.json`) во временной песочнице.
+   * Агент генерирует все 6 обязательных файлов пакета (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `skill-hack.csx`, `tests/sample.fixture.json`) во временной песочнице.
 2. **Этап 2 — Автоматический конвейер верификации (`NetrunnerPackageValidator`):**
    * Проверяет наличие всех обязательных файлов и корректность JSON Schema.
    * Проверяет AST-дерево скрипта через `SecurityGuard` (отсутствие запрещенных вызовов `Process.Start`, рефлексии, обращения к системным папкам).
@@ -597,4 +599,7 @@ public enum PipelineCrashRecoveryPolicy
 > [!TIP]
 > **Главное правило масштабирования каскада:**
 > Детерминированные узлы (`SkillNode`, `NetrunnerScriptNode`, `ConditionNode`, `DeliveryNode`) **не расходуют лимит шагов ИИ** (`SoftLlmNodesPerWorkflowRun`). Вы можете построить граф из **50 детерминированных ETL-шагов подряд** и включить всего **1 узел `LlmProcessNode`** в самом конце — такой каскад пройдет без единой бюджетной паузы с минимальным расходом токенов!
+
+
+
 

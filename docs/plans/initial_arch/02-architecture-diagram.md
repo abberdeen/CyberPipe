@@ -1,4 +1,4 @@
-# 02. Диаграмма взаимодействия и защищенных потоков данных
+﻿# 02. Диаграмма взаимодействия и защищенных потоков данных
 
 Архитектура **CyberPipe** построена вокруг **скорости отклика (< 1–15 мс для бытовых задач)**, **жесткой экономии токенов** и **непробиваемой защиты хоста** при управлении через Telegram и Avalonia UI. Вместо тяжеловесных внешних брокеров внутри демона используется сверхбыстрая шина на базе `MassTransit (транспорт InMemory)` и персистентный журнал состояний в `SQLite (WAL)`.
 
@@ -12,11 +12,11 @@ flowchart TD
         TG["Telegram Bot Client<br/>(Текст, Голосовые, Документы, Кнопки Паузы/Стоп)"]
         UI["CyberPipe.UI.Desktop.exe (Avalonia UI)<br/>(gRPC Named Pipes, Панель управления, Графики)"]
         CLI["CyberPipe.exe CLI & TUI<br/>(status, doctor, models scan, infer, tui, --json)"]
-        Cron["Proactive Scheduler (Hangfire + Watchdogs)<br/>(Утренний брифинг, Git/Infra/SSL пингер, Подписки)<br/>+ Read-Only Dashboard на 127.0.0.1"]
+        Cron["Proactive Scheduler (Quartz.NET + Watchdogs)<br/>(Утренний брифинг, Git/Infra/SSL пингер, Подписки)<br/>+ Read-Only Dashboard на 127.0.0.1"]
     end
 
     subgraph Perimeter ["1. Периметр, Локальный Голос и Стоп-Кран (< 0.5 ms)"]
-        AuthGuard["Telegram & IPC Auth Guard<br/>• Whitelist UserId / ChatId (Owner vs Guest)<br/>• Верификация PID/Nonce для IPC<br/>• Отсев чужих за 0.1 мс (0 токенов)"]
+        AuthGuard["Telegram & IPC Auth Guard<br/>• Whitelist UserId / ChatId (Owner)<br/>• Верификация PID/Nonce для IPC<br/>• Отсев чужих за 0.1 мс (0 токенов)"]
         KillSwitch["Priority Kill-Switch (/stop, /pause)<br/>• Мгновенный CancellationToken.Cancel()<br/>• Остановка стрима LLM и процессов"]
         VoiceSTT["Local Voice-to-Text (Whisper.net в Brainstem)<br/>• Расшифровка голосовых и звонков за 0 токенов"]
     end
@@ -44,7 +44,7 @@ flowchart TD
     subgraph StorageAndState ["5. Хранилища, Шина MassTransit и GlobalStateHub"]
         MasterDB[("Центральный Мастер SQLite (cyberpipe_master.db)<br/>• Базовые настройки приложения<br/>• Реестр SubsystemDatabaseRegistry")]
         DbManager["ISubsystemDatabaseManager<br/>• Разрешение БД + Provisioning<br/>• Пароли в SecretsVault (DPAPI/Keychain)<br/>• Изолированный доступ к подсистемам"]
-        SubsystemDBs[("Изолированные БД подсистем (data/subsystems/*.db):<br/>• hangfire.db: Планировщик Hangfire<br/>• masstransit.db: Только для MassTransit<br/>• knowledge.db: База знаний (FTS5 + SIMD)<br/>• crm.db: Личная CRM и контакты<br/>• finance.db: Финансы и транзакции<br/>• budget.db: Токены и чекпоинты задач<br/>• health.db: Аудит здоровья сервисов<br/>• netrunner.db: ETL-скрипты Netrunner")]
+        SubsystemDBs[("Изолированные БД подсистем (data/subsystems/*.db):<br/>• Quartz.NET.db: Планировщик Quartz.NET<br/>• masstransit.db: Только для MassTransit<br/>• knowledge.db: База знаний (FTS5 + SIMD)<br/>• crm.db: Личная CRM и контакты<br/>• finance.db: Финансы и транзакции<br/>• budget.db: Токены и чекпоинты задач<br/>• health.db: Аудит здоровья сервисов<br/>• netrunner.db: ETL-скрипты Netrunner")]
         MassTransitBus["MassTransit Bus (Выбор транспорта в UI)<br/>• 1. InMemory (По умолчанию, 0$ и 0 зависимостей)<br/>• 2. SQLite WAL (masstransit.db, только для шины)<br/>• 3. RabbitMQ (AMQP 5672, старт через Центр, cyberpipe_admin)"]
         StateHub["GlobalStateHub (Реактивный Синглтон)<br/>• Статус шины MassTransit (InMemory/SQLite/RabbitMQ)<br/>• Запись в health.db ➔ gRPC Стрим в Desktop UI"]
         ResMonitor["ISystemResourceMonitor & IHardwareCapabilitiesProbe<br/>• CPU, Total/Free RAM, GPU VRAM, Активные контейнеры"]
@@ -127,7 +127,7 @@ flowchart TD
 ---
 
 #### Путь В: Проактивная работа и Ассистент созвонов (*Утренний брифинг, Контроль серверов, Запись встречи*)
-1. **`ProactiveScheduler` (Hangfire)** в 09:00 (или при падении рабочего контейнера / за 3 дня до списания подписки) собирает данные из локальной `SQLite` (задачи, CRM follow-ups, коммиты Git, статус серверов) за **0 токенов** и отправляет структурированную сводку в Telegram (а состояние очереди доступно в Read-Only Dashboard).
+1. **`ProactiveScheduler` (Quartz.NET)** в 09:00 (или при падении рабочего контейнера / за 3 дня до списания подписки) собирает данные из локальной `SQLite` (задачи, CRM follow-ups, коммиты Git, статус серверов) за **0 токенов** и отправляет структурированную сводку в Telegram (а состояние очереди доступно в Read-Only Dashboard).
 2. Во время рабочего звонка скилл **`MeetingAssistantSkill`** записывает аудиопоток через `NAudio`, локально расшифровывает через `Whisper.net` (**0$**) и формирует список задач (**Action Items**) с кнопкой `[➕ Добавить в трекер]`.
 
 ---
@@ -138,3 +138,5 @@ flowchart TD
 это **локальные бюджеты обработки** на эталонном железе (4+ ядер CPU, SSD NVMe, прогретый процесс; см. `15`, разд. 2).
 Сетевая задержка Telegram (путь до серверов Telegram и обратно) в них **не входит** и нормируется отдельно как best-effort.
 Отчетность — процентилями `p95/p99` в `BenchmarkDotNet`, а не разовыми замерами.
+
+

@@ -1,4 +1,4 @@
-# 11. Лог архитектурных изменений (Changelog ревизии плана)
+﻿# 11. Лог архитектурных изменений (Changelog ревизии плана)
 > [!NOTE]
 > **Статус записей (AUD-01, AUD-15):** ниже — **спроектированные** решения, а не реализованные. Кода пока нет
 > (`CyberPipe.slnx` пуст); ни одна запись не утверждает наличие несуществующего кода.
@@ -30,7 +30,7 @@
 
 ### 4. Железная защита ПК при управлении из Telegram (`HostAndMediaSafetyGuard`)
 Чтобы через Telegram нельзя было вайпнуть систему или включить порно на полную громкость:
-* **Жесткий периметр (`TelegramAuthGuard`):** Белый список числовых `TelegramUserId` с ролями `Owner` (владелец) и `Guest` (гость/семья). Чужие сообщения отбрасываются за `0.1 мс` (0 токенов).
+* **Жесткий периметр (`TelegramAuthGuard`):** Белый список числовых `TelegramUserId` с ролями `Owner` (владелец) и `Guest (удалён решением Q18: только Owner)` (гость/семья). Чужие сообщения отбрасываются за `0.1 мс` (0 токенов).
 * **Анти-Вайп (`Anti-Wipe & No Raw Shell`):** Команды из чата никогда не попадают в `cmd` / `powershell` / `bash` хоста — они могут вызывать только закрытый список безопасных C#-скиллов (`MediaControlSkill`, `AudioVolumeSkill`). Сгенерированные в `Tier 3` скрипты выполняются только в реальных песочницах (`Wasmtime`, `Docker`, `AppContainer`/`bwrap`/`Seatbelt`), а нативные утилиты вне песочниц требуют подтверждения владельца (`RequiresApproval`).
 * **Ограничитель громкости (`Volume Clamp` + `EnsureSafeVolumeBeforePlayback`):** Программный потолок громкости (`Math.Clamp`: максимум `60%` днем и `25%` ночью с `23:00` до `08:00`, запрет резкого скачка `> +20%` и принудительное снижение текущей системной громкости перед стартом `Play`, если ранее она была выкручена вручную выше лимита).
 * **Анти-18+ / NSFW фильтр и Белый список плееров:** Музыка включается только через доверенные аудио-источники (`Spotify`, `Яндекс.Музыка`, локальная папка) с флагом семейного режима в API, DNS `1.1.1.3` и нормализацией гомоглифов/стоп-слов 18+.
@@ -70,10 +70,10 @@
 * **Три точки входа и кроссплатформенная модель изоляции ОС (`IBrainstemIsolationPlatform`):** Основной хост/CLI (`CyberPipe`), десктопный клиент (`CyberPipe.UI.Desktop`) и изолированный воркер (`./worker/CyberPipe.Brainstem`) для `Whisper.net` и парсеров `PdfPig`/`OpenXml` (в раздельных пулах: прогретый `Stateful Voice STT Pool` и одноразовый `SingleUse Document Parser Pool`). На Windows защита файловой системы `data\` от `Brainstem` обеспечивается через **`AppContainer`** (Профиль А) или **`CreateRestrictedToken` с `SidsToRestrict` + явный `ACCESS_DENIED_ACE` в DACL папки `data\`** (Профиль Б) и `Process SACL NO_READ_UP` + `Windows Job Object`; на Linux — через `Bubblewrap (bwrap)` + `cgroups v2`; на macOS — через `Seatbelt (sandbox-exec)`. Спроектирована проверка всех `.exe`/`.dll` по `worker.manifest.json` и тесты `CyberPipe.Tests.Isolation` с первого спринта.
 * **Системный CLI и TUI (`System.CommandLine` + `Spectre.Console`):** Матрица команд с разделением на `Autonomous (Offline)`, `Daemon-Required (IPC)` и `Hybrid`, регистрация демона в интерактивной пользовательской сессии (`Session >= 1`), коды возврата (`ExitCode 0..4`) и строгий контракт `--json`.
 
-### 10. Переход на `Hangfire`, отдельная защищенная паролем SQLite БД и безопасный Read-Only Dashboard
-* **Замена Cronos на `Hangfire`:** Фоновые и проактивные задачи переведены на промышленный планировщик `Hangfire` (`Hangfire.Core`, `Hangfire.AspNetCore`, `Hangfire.Storage.SQLite`).
-* **Отдельная защищенная паролем база данных (`hangfire.db`):** Для изоляции задач от центрального мастера `cyberpipe_master.db` создается отдельный файл `%LOCALAPPDATA%\CyberPipe\data\subsystems\hangfire.db`, защищенный паролем/шифрованием страниц (ключ генерируется и хранится в системном сейфе `SecretsVault` под DPAPI/LibSecret/Keychain) и защищенный от воркера `Brainstem` на уровне файловой системы ОС (`ACCESS_DENIED_ACE` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
-* **Безопасная архитектура Hangfire Dashboard:**
+### 10. Переход на `Quartz.NET`, отдельная защищенная паролем SQLite БД и безопасный Read-Only Dashboard
+* **Замена Cronos на `Quartz.NET`:** Фоновые и проактивные задачи переведены на промышленный планировщик `Quartz.NET` (`Quartz.NET.Core`, `Quartz.NET.AspNetCore`, `Quartz.NET.Storage.SQLite`).
+* **Отдельная защищенная паролем база данных (`Quartz.NET.db`):** Для изоляции задач от центрального мастера `cyberpipe_master.db` создается отдельный файл `%LOCALAPPDATA%\CyberPipe\data\subsystems\Quartz.NET.db`, защищенный паролем/шифрованием страниц (ключ генерируется и хранится в системном сейфе `SecretsVault` под DPAPI/LibSecret/Keychain) и защищенный от воркера `Brainstem` на уровне файловой системы ОС (`ACCESS_DENIED_ACE` на Windows, `bwrap` unmount на Linux, `Seatbelt` deny на macOS).
+* **Безопасная архитектура Quartz.NET Dashboard:**
   * Веб-панель слушает строго `127.0.0.1` (привязка к `0.0.0.0` запрещена) в режиме **только для чтения (`IsReadOnlyFunc = _ => true`)**.
   * **Handshake с одноразовым токеном:** При нажатии кнопки в Desktop UI генерируется криптографически случайный одноразовый секрет (OTT, 256 бит, TTL 30 сек). На сервере хранится только его SHA-256 хеш.
   * **Однократное сжигание секрета:** При переходе браузера на `/dashboard-login` локальный endpoint проверяет Loopback, валидирует хеш, немедленно удаляет OTT из памяти (сжигание) и устанавливает сессионную cookie `CyberPipe.Dashboard` с флагами `HttpOnly` и `SameSite=Strict`.
@@ -96,7 +96,7 @@
   - Содержит таблицу-каталог `SubsystemDatabaseRegistry` (пары: `SubsystemKey` + `DatabasePath` + `SecretVaultKeyRef` + статус шифрования и миграций).
   - В центральной базе **нет и никогда не сохраняются** бизнес-данные подсистем.
 * **Изолированные БД для каждой подсистемы (`data/subsystems/*.db`):**
-  - Каждая подсистема/сервис имеет собственный файл SQLite в режиме `WAL`: `hangfire.db` (планировщик), `masstransit.db` (только для MassTransit), `knowledge.db` (память «Второй мозг», FTS5, SIMD векторы), `crm.db` (личная CRM и контакты), `finance.db` (учет финансов), `budget.db` (токены, квоты, чекпоинты задач), `health.db` (аудит инфраструктуры).
+  - Каждая подсистема/сервис имеет собственный файл SQLite в режиме `WAL`: `Quartz.NET.db` (планировщик), `masstransit.db` (только для MassTransit), `knowledge.db` (память «Второй мозг», FTS5, SIMD векторы), `crm.db` (личная CRM и контакты), `finance.db` (учет финансов), `budget.db` (токены, квоты, чекпоинты задач), `health.db` (аудит инфраструктуры).
 * **Раздельные доступы и индивидуальные пароли:**
   - Каждая база данных защищена собственным уникальным криптографическим паролем (`Password=...`).
   - Все пароли генерируются криптографическим CSP-генератором (`RandomNumberGenerator.GetBytes(32)`) и персистентно хранятся в платформенном сейфе `SecretsVault` (Windows DPAPI / Linux LibSecret / macOS Keychain) под уникальными ключами `db:secret:{SubsystemKey}`.
@@ -111,17 +111,17 @@
 
 ---
 
-### 13. Ассистент Netrunner: Движок Каскадных Задач (Mini-n8n DAG), HITL и Стандарт Пакетов (`16-netrunner-etl-and-workflow-engine.md`)
-* **Концепция Netrunner:** Выделен отдельный автономный ассистент и раздел приложения для **радикальной экономии токенов и построения каскадных пайплайнов (`Mini-n8n`)**. Вместо ежедневного скармливания нейросети тысяч токенов на рутинные запросы (курсы валют, парсинг страниц, выгрузка API), ИИ привлекается один раз для синтеза детерминированного ETL-пакета (или пользователь пишет его вручную).
+### 13. Ассистент Netrunner: Движок Каскадных Задач (цепочка Trigger → Skill → Script → Delivery), HITL и Стандарт Пакетов (`16-netrunner-etl-and-workflow-engine.md`)
+* **Концепция Netrunner:** Выделен отдельный автономный ассистент и раздел приложения для **радикальной экономии токенов и построения каскадных пайплайнов (`цепочка`)**. Вместо ежедневного скармливания нейросети тысяч токенов на рутинные запросы (курсы валют, парсинг страниц, выгрузка API), ИИ привлекается один раз для синтеза детерминированного ETL-пакета (или пользователь пишет его вручную).
 * **Стандартизированный формат пакета скрипта (6 обязательных файлов + проектный Skill):**
   - Введен жесткий контракт пакета `data/netrunner-packages/<slug>/<version>/`, проверяемый `INetrunnerPackageValidator` и задокументированный в [`.agents/skills/netrunner-script-package/SKILL.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/.agents/skills/netrunner-script-package/SKILL.md):
     1. `netrunner.manifest.json` (аналог `package.json`: описывает входные/выходные форматы, файловые контракты `inputFiles`/`outputFiles`, права песочницы и SHA-256 хеши всех файлов).
     2. `SKILL.md` (семантический паспорт и фразы-триггеры для роутера `Tier 1`).
     3. `schema.input.json` (JSON Schema Draft 2020-12 для валидации входа до старта).
     4. `schema.output.json` (JSON Schema Draft 2020-12 для валидации выхода и проверки совместимости соседних узлов графа).
-    5. `main.csx` / `main.py` / `main.js` (точка входа детерминированного скрипта).
+    5. `skill-hack.csx` / `skill-hack.py` / `skill-hack.js` (точка входа детерминированного скрипта).
     6. `tests/sample.fixture.json` (обязательный эталонный самотест `Dry-Run` перед сохранением в базу).
-* **Каскадный движок `Netrunner DAG Workflow Engine` (Mini-n8n):**
+* **Каскадный движок `Netrunner Цепочка Engine` (цепочка):**
   - Поддержка последовательных, условных и параллельных цепочек из 8 типов узлов (`TriggerNode`, `SkillNode`, `NetrunnerScriptNode`, `ConditionNode` / `SwitchNode`, `ParallelFanOutNode` + `JoinNode`, `LlmProcessNode`, `HitlApprovalNode`, `DeliveryNode`) и **4 типов ветвлений** (`If/Else & Switch`, параллельный `FanOut/Join`, ветки решения человека `approved/rejected/timeout` и ветка перехвата ошибок `onError`).
   - Поддержка умного ожидания обновления параметров и отложенных ретраев без удержания ОЗУ (`DeferRetry` из скрипта и декларативный `retryPolicy.untilExpression` на узле).
 * **Глобальное правило поведения при аварийном сбое (`Pipeline:CrashRecoveryPolicy` в `cyberpipe_master.db`):**
@@ -133,12 +133,12 @@
 ---
 
 ### Сводка затронутых файлов документации:
-* [`01-principles.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/01-principles.md) — Принципы простоты, кроссплатформенных контрактов ОС, 4-Tier роутера, защиты хоста, Hangfire, мастер-каталога БД и контроллера бюджета.
-* [`02-architecture-diagram.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md) — Схема с Fast-Path, выходным `CentralDataSanitizer`, CLI/TUI клиентом, `Hangfire`, `Netrunner ETL Engine`, `ISubsystemDatabaseManager` (`cyberpipe_master.db` + `data/subsystems/*.db`).
-* [`03-tech-stack-libraries.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md) — Стек с `MassTransit`, `ISubsystemDatabaseManager`, `OllamaSharp` (Local HTTP), `IBrainstemIsolationPlatform`, `QuotaBoundedStream`, `Whisper.net`, `LibGit2Sharp` и `Hangfire` с защищенным Read-Only Dashboard.
+* [`01-principles.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/01-principles.md) — Принципы простоты, кроссплатформенных контрактов ОС, 4-Tier роутера, защиты хоста, Quartz.NET, мастер-каталога БД и контроллера бюджета.
+* [`02-architecture-diagram.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/02-architecture-diagram.md) — Схема с Fast-Path, выходным `CentralDataSanitizer`, CLI/TUI клиентом, `Quartz.NET`, `Netrunner ETL Engine`, `ISubsystemDatabaseManager` (`cyberpipe_master.db` + `data/subsystems/*.db`).
+* [`03-tech-stack-libraries.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/03-tech-stack-libraries.md) — Стек с `MassTransit`, `ISubsystemDatabaseManager`, `OllamaSharp` (Local HTTP), `IBrainstemIsolationPlatform`, `QuotaBoundedStream`, `Whisper.net`, `LibGit2Sharp` и `Quartz.NET` с защищенным Read-Only Dashboard.
 * [`04-agent-mesh-proposals.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/04-agent-mesh-proposals.md) — Детальное проектирование 4-Tier роутера, ролевого кэша, `MaxOutputTokens`, авто-паузы `PausedByBudget` и `/stop`.
 * [`05-security-agent.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md) — Правила защиты от вайпа ПК, `Volume Clamp` (с проверкой перед `Play`), NSFW-фильтр, `Hard Tool Stripping` для `UntrustedExternal` и `Fail-Closed` OSINT.
-* [`06-solution-structure.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md) — Ациклический граф проектов (DAG) с базовым слоем `CyberPipe.Contracts`, `CyberPipe.Security.Telemetry` и `CyberPipe.Skills.Netrunner`.
+* [`06-solution-structure.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md) — Ациклический граф проектов (цепочка) с базовым слоем `CyberPipe.Contracts`, `CyberPipe.Security.Telemetry` и `CyberPipe.Skills.Netrunner`.
 * [`07-ui-isolation-and-arch-tests.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md) — Конфигуратор моделей по Tiers в UI, панель шины MassTransit, планировщик задач, конструктор каскадов Netrunner и тесты `ArchUnitNET`.
 * [`08-implementation-roadmap.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/08-implementation-roadmap.md) — Сбалансированный план спринтов с `Storage.Sqlite` и `Tests.Isolation` в Спринте 1 и критериями приемки (DoD).
 * [`09-data-protection-and-state-hub.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/09-data-protection-and-state-hub.md) — Выходной `Sanitizer`, персистентный `SecretsVault`, центральный мастер `cyberpipe_master.db` + изолированные БД подсистем (`ISubsystemDatabaseManager`), `GlobalStateHub`.
@@ -147,5 +147,8 @@
 * [`13-model-advisor-and-tier-configuration.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md) — Архитектура `IHardwareCapabilitiesProbe` + `IModelCompatibilityAdvisor` (с учетом `KV-Cache`), таблица 15 локальных и 8 облачных моделей.
 * [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md) — Внутрипроцессные контуры устойчивости `CyberPipe` (`SafeBoot`, `IsolatedWorkerBase`, `Bulkhead Lanes`, `QuotaBoundedStream`, `InFlightOperations`).
 * [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md) — Единая спецификация исполняемых файлов, кроссплатформенной изоляции `Brainstem`, раздельных пулов воркеров, защиты IPC, `worker.manifest.json`, тестов изоляции в CI и матрицы команд CLI / TUI.
-* [`16-netrunner-etl-and-workflow-engine.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md) — Спецификация ассистента Netrunner: стандарт пакетов скриптов (`netrunner.manifest.json` + 6 обязательных файлов), каскадный движок `Mini-n8n DAG`, узлы `LlmProcessNode` и `HitlApprovalNode`, схема БД `netrunner.db`.
+* [`16-netrunner-etl-and-workflow-engine.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md) — Спецификация ассистента Netrunner: стандарт пакетов скриптов (`netrunner.manifest.json` + 6 обязательных файлов), каскадный движок `цепочка Trigger → Skill → Script → Delivery`, узлы `LlmProcessNode` и `HitlApprovalNode`, схема БД `netrunner.db`.
+
+
+
 

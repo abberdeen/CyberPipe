@@ -1,3 +1,5 @@
+﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (SQLite/SQLCipher убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
+
 # 08. План поэтапной реализации CyberPipe (От быстрого ядра к полному функционалу)
 
 План перестроен по принципу **«Сначала быстрый, безопасный и рабочий помощник без лишних зависимостей»**. Уже по итогам 1-го и 2-го спринтов система умеет мгновенно выполнять команды из Telegram (музыка, громкость, статус) за 0 токенов, защищена от вайпа и 18+ контента и жестко контролирует расходы.
@@ -24,7 +26,7 @@
 ### Фаза 1 (старт только после закрытия Фазы 0): Ядро Хоста, Базовый SQLite, Межпроцессная Изоляция, Периметр Telegram и Скиллы Хоста (Спринт 1)
 *Цель: Запустить ядро `CyberPipe`, базовый слой `CyberPipe.Storage.Sqlite`, изолированный воркер `CyberPipe.Brainstem`, верификацию изоляции ОС и безопасное управление медиа/звуком из Telegram за 0 токенов.*
 
-- [ ] Инициализация Solution (`CyberPipe.slnx`) на .NET 10 с тремя точками входа (`CyberPipe`, `CyberPipe.UI.Desktop`, `./worker/CyberPipe.Brainstem`, см. [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)) и строгим ациклическим графом проектов (DAG).
+- [ ] Инициализация Solution (`CyberPipe.slnx`) на .NET 10 с тремя точками входа (`CyberPipe`, `CyberPipe.UI.Desktop`, `./worker/CyberPipe.Brainstem`, см. [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)) и строгим ациклическим графом проектов (цепочка).
 - [ ] Разработка базового слоя **`CyberPipe.Storage.Sqlite`** (режим WAL + последовательный раннер миграций `SqliteMigrationRunner` на базе `PRAGMA user_version` с авто-бэкапом `SqliteBackupService` + асинхронный `Write-Behind`):
   - Базовые таблицы Спринта 1: `InFlightOperations`, `FinanceLedger`, `Notes` и персистентный `SecretsVault` (`ISecretVaultPlatform`: `DPAPI` / `LibSecret` / `Keychain` + `AES-256-GCM` + `ZeroMemory`).
 - [ ] Реализация диспетчера запуска в `CyberPipe` (`DaemonHostMode` + `CliClientMode`) и защищенного транспорта Named Pipes / Unix Domain Sockets (верификация `PID`, `SessionNonce`, `PipeSecurity`).
@@ -39,7 +41,7 @@
   - Автоматический запуск RabbitMQ через Центр Инфраструктуры (`ICenterInfrastructureSupervisor`) при отключенном брокере;
   - Проверка наличия логина/пароля в `SecretsVault`. При отсутствии — автогенерация админа `cyberpipe_admin`, установка прав только для себя (`rabbitmqctl set_permissions`) и сохранение в `secrets.vault`;
   - Запись истории проверок в таблицу `InfrastructureHealthRecords` (`data/subsystems/health.db`) и реактивная доставка статуса через `GlobalStateHub`.
-- [ ] Разработка `CyberPipe.Gateway.Telegram` (`TelegramAuthGuard`: Whitelist `UserId`, разделение `Owner` и `Guest`).
+- [ ] Разработка `CyberPipe.Gateway.Telegram` (`TelegramAuthGuard`: Whitelist `UserId`, разделение `Owner`).
 - [ ] Разработка `CyberPipe.Security.Guards` (`HostAndMediaSafetyGuard`):
   - **Anti-Wipe блок:** полный запрет Raw Shell из чата и блокировка деструктивных путей/команд.
   - **Media & Audio Guard:** ограничитель громкости (`Volume Clamp`: макс. 60% днем / 25% ночью, защита от скачков > +20%, принудительная проверка `EnsureSafeVolumeBeforePlayback()` перед `Play`) + многослойный фильтр 18+ / NSFW + Whitelist музыкальных сервисов.
@@ -79,8 +81,8 @@
 ### Фаза 3: Все 16+ Прикладных Скиллов (Личное, Dev/DevOps, Бизнес), Планировщик, Песочницы и SecurityGuard (Спринт 3)
 *Цель: Реализовать полный каталог из 16+ прикладных скиллов в едином скоупе Релиза 1.0 (сначала один сквозной сценарий `Telegram → роутер → песочница → ответ`, расширение каталога — после рабочего ядра, см. K.3/K.4), проактивный планировщик и изолированные песочницы `Tier 3`.*
 
-- [ ] Разработка **`ProactiveScheduler`** на базе **`Hangfire`** (с отдельной зашифрованной паролем базой `hangfire.db`, Read-Only Dashboard на `127.0.0.1` с одноразовым крипто-токеном и HttpOnly cookie + системные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
-  - Утренний (09:00) и вечерний (20:00) исполнительные брифинги, умные напоминания с кнопкой `[✅ Выполнено]`, предупреждения о списании подписок за 3 дня, визуализация очередей в защищенном Hangfire Dashboard.
+- [ ] Разработка **`ProactiveScheduler`** на базе **`Quartz.NET`** (с отдельной зашифрованной паролем базой `Quartz.NET.db`, Read-Only Dashboard на `127.0.0.1` с одноразовым крипто-токеном и HttpOnly cookie + системные триггеры) и личных скиллов (`SecondBrainInboxSkill`, `PersistentReminderSkill`, `FinanceAndSubscriptionsSkill`, `FocusAndHealthSkill`, `RemoteHostCompanionSkill`, `Clipboard & Screen OCR Skill`):
+  - Утренний (09:00) и вечерний (20:00) исполнительные брифинги, умные напоминания с кнопкой `[✅ Выполнено]`, предупреждения о списании подписок за 3 дня, визуализация очередей в защищенном Quartz.NET Dashboard.
 - [ ] Разработка инженерных скиллов (`CyberPipe.Skills.Host.DevAndInfra`) и сервиса `DevToolProcessRunner` (`CyberPipe.Execution.Providers`):
   - **`GitRepoRadarSkill` (`/repos`, `/standup`) & `DiffReviewSkill`:** сканирование `%USERPROFILE%\source\repos` через `LibGit2Sharp` / `IDevToolProcessRunner`, сводка коммитов за 0 токенов, генератор Conventional Commits и пре-ревью диффов.
   - **`InfraHealthWatchdog` & `DevMemorySkill`:** фоновый мониторинг рабочих серверов, контейнеров Docker, сроков жизни SSL-сертификатов и база фиксов `/remember-fix`.
@@ -124,3 +126,7 @@
   - Проверка принудительного ограничения `ChatOptions.MaxOutputTokens`, срабатывания авто-паузы при зацикливании агента и замер времени локального срабатывания `/stop` (`< 50 мс`, сеть Telegram исключена).
 - [ ] Бенчмарки `BenchmarkDotNet` (`CyberPipe.Tests.Router`): проверка соответствия целевым SLO для `Tier 0 (< 1 мс)`, `Tier 1 ONNX (5–15 мс)`, in-memory SIMD поиска в `KnowledgeVault (< 1.5 мс)` и задержки IPC (`p95 < 25 мс`).
 - **Критерий приемки (DoD Спринта 5 / Релиз 1.0):** 100% прохождение всех 5 тестовых проектов (`Architecture`, `Isolation`, `SafetyAndBudget`, `Router`, `Sanitization`) и соответствие всем целевым SLO.
+
+
+
+

@@ -1,3 +1,5 @@
+﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (SQLite/SQLCipher убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
+
 # 09. Защита данных, Санитизация, Локальный Кэш и Хранение (SQLite WAL)
 
 В **CyberPipe** защита данных построена прагматично: мы защищаем реальные векторы утечек (отправка промптов в облачные LLM, логи, база данных на диске и вывод в Telegram), не замедляя работу приложения избыточным перешифрованием памяти внутри одного процесса.
@@ -48,7 +50,7 @@
 > [!NOTE]
 > **Канонический реестр путей (ADR-002, AUD-03):** мастер — `data/cyberpipe_master.db` (корень каталога данных,
 > только `AppGlobalSettings` и `SubsystemDatabaseRegistry`); все БД подсистем — строго `data/subsystems/*.db`.
-> Имена `cyberpipe.db`, `data/hangfire.db`, `data/masstransit.db` вне `subsystems/` недействительны.
+> Имена `cyberpipe.db`, `data/Quartz.NET.db`, `data/masstransit.db` вне `subsystems/` недействительны.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -74,7 +76,7 @@
                     │   Local SecretsVault    │   │      Изолированные БД подсистем           │
                     │   (data/secrets.vault)  │   │          (data/subsystems/*.db)           │
                     ├─────────────────────────┤   ├───────────────────────────────────────────┤
-                    │ db:secret:hangfire      ├──►│ hangfire.db     (Фоновый планировщик)     │
+                    │ db:secret:Quartz.NET      ├──►│ Quartz.NET.db     (Фоновый планировщик)     │
                     │ db:secret:masstransit   ├──►│ masstransit.db  (MassTransit очереди/Outbox)│
                     │ db:secret:knowledge     ├──►│ knowledge.db    (База знаний / FTS5 / SIMD) │
                     │ db:secret:crm           ├──►│ crm.db          (Личная CRM и контакты)     │
@@ -102,7 +104,7 @@ CREATE TABLE IF NOT EXISTS AppGlobalSettings (
 
 -- Реестр изолированных баз данных подсистем
 CREATE TABLE IF NOT EXISTS SubsystemDatabaseRegistry (
-    SubsystemKey TEXT PRIMARY KEY,       -- 'Hangfire', 'MassTransit', 'KnowledgeVault', 'PersonalCrm', 'FinanceLedger', 'BudgetGov', 'InfraHealth', 'Netrunner'
+    SubsystemKey TEXT PRIMARY KEY,       -- 'Quartz.NET', 'MassTransit', 'KnowledgeVault', 'PersonalCrm', 'FinanceLedger', 'BudgetGov', 'InfraHealth', 'Netrunner'
     DatabasePath TEXT NOT NULL,          -- Относительный/абсолютный путь: 'data/subsystems/knowledge.db'
     SecretVaultKeyRef TEXT NOT NULL,     -- Ключ пароля в SecretsVault: 'db:secret:knowledge'
     IsEncrypted INTEGER NOT NULL,        -- 1 / 0 (флаг криптозащиты)
@@ -116,13 +118,13 @@ CREATE TABLE IF NOT EXISTS SubsystemDatabaseRegistry (
 
 #### 2. Изолированные базы данных подсистем (`data/subsystems/*.db`)
 Каждая подсистема и сервис имеют свой собственный файл SQLite в режиме `WAL`:
-1. **`data/subsystems/hangfire.db`** — планировщик периодических задач и расписаний Hangfire.
+1. **`data/subsystems/Quartz.NET.db`** — планировщик периодических задач и расписаний Quartz.NET.
 2. **`data/subsystems/masstransit.db`** — очереди сообщений, Saga state и Outbox/Inbox (используется **только** MassTransit и никто другой).
 3. **`data/subsystems/knowledge.db`** — долгосрочная память «Второй мозг», семантические индексы FTS5 и буфер векторов SIMD (`Memory<float>`).
 4. **`data/subsystems/crm.db`** — личная CRM, карточки контактов, каналы связи и социальные связи.
 5. **`data/subsystems/finance.db`** — финансовый учет, категории расходов, балансы и выписки.
 6. **`data/subsystems/budget.db`** — учет токенов LLM, дневные квоты, жесткие лимиты и чекпоинты задач (`TaskCheckpoints`).
-7. **`data/subsystems/health.db`** — аудит доступности инфраструктуры (`InfrastructureHealthRecords`: RabbitMQ, Brainstem, Hangfire).
+7. **`data/subsystems/health.db`** — аудит доступности инфраструктуры (`InfrastructureHealthRecords`: RabbitMQ, Brainstem, Quartz.NET).
 8. **`data/subsystems/netrunner.db`** — специализированная база детерминированных ETL-скриптов и JSON-схем ассистента Netrunner.
 
 #### 3. Раздельные доступы, криптографические пароли и сейф секретов
@@ -173,7 +175,7 @@ public interface ISubsystemDatabaseManager
    * Настраивает в новой базе `PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;`.
 3. **Получение пароля:** Запрашивает расшифрованный пароль из `SecretsVault` по ссылке `SecretVaultKeyRef`.
 4. **Открытие подключения:** Конструирует защищенную строку подключения `Data Source={fullPath};Password={secretPassword};Mode=ReadWriteCreate;Cache=Shared;` (требуется SQLCipher-провайдер; без него `Password` не шифрует — гипотеза до PoC AUD-04).
-5. **Предотвращение Confused Deputy:** Сервисы инжектируют только свои клиенты (например, `IKnowledgeStore` получает доступ исключительно к ключу `"KnowledgeVault"` и не имеет права запрашивать соединение с `"FinanceLedger"` или `"Hangfire"`).
+5. **Предотвращение Confused Deputy:** Сервисы инжектируют только свои клиенты (например, `IKnowledgeStore` получает доступ исключительно к ключу `"KnowledgeVault"` и не имеет права запрашивать соединение с `"FinanceLedger"` или `"Quartz.NET"`).
 
 ---
 
@@ -184,7 +186,7 @@ public interface ISubsystemDatabaseManager
 ```mermaid
 flowchart LR
     RMQ["RabbitMQ Health Check<br/>(Автозапуск через Центр)"] -->|Статус / Latency / Ошибки| DB[("data/subsystems/health.db<br/>(Таблица InfrastructureHealthRecords)")]
-    DB -->|Загрузка актуального среза| Hub["GlobalStateHub (In-Memory Singleton)<br/>• RabbitMqStatus: Connected, Latency, Error<br/>• BudgetStatus: Spent, HardLimit<br/>• WorkersStatus: Brainstem, Hangfire"]
+    DB -->|Загрузка актуального среза| Hub["GlobalStateHub (In-Memory Singleton)<br/>• RabbitMqStatus: Connected, Latency, Error<br/>• BudgetStatus: Spent, HardLimit<br/>• WorkersStatus: Brainstem, Quartz.NET"]
     Hub -->|gRPC Server Streaming / Named Pipes| UI["Avalonia Desktop UI<br/>(Живой индикатор + Кнопка 'Проверить')"]
 ```
 
@@ -193,7 +195,7 @@ flowchart LR
 ```sql
 CREATE TABLE IF NOT EXISTS InfrastructureHealthRecords (
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ServiceName TEXT NOT NULL,         -- 'RabbitMQ', 'Hangfire', 'Brainstem', 'MassTransit'
+    ServiceName TEXT NOT NULL,         -- 'RabbitMQ', 'Quartz.NET', 'Brainstem', 'MassTransit'
     Status TEXT NOT NULL,              -- 'Connected', 'Disconnected', 'Starting', 'Degraded', 'Error'
     IsHealthy INTEGER NOT NULL,        -- 1 / 0
     LatencyMs REAL,                    -- Пинг в миллисекундах
@@ -265,7 +267,7 @@ public sealed class GlobalStateHub : IGlobalStateHub
   "CyberPipe": {
     "Telegram": {
       "OwnerUserIds": [ 123456789 ],
-      "GuestUserIds": [ 987654321 ]
+      "Guest (удалён решением Q18: только Owner)UserIds": [ 987654321 ]
     },
     "Safety": {
       "MaxDaytimeVolumePercent": 60,
@@ -342,3 +344,7 @@ public sealed class GlobalStateHub : IGlobalStateHub
 * **Обновления/откат:** `Side-by-Side Update` + авто-восстановление бэкапа (см. `15`, разд. 8).
 * **Поддерживаемые ОС и .NET:** целевая ОС MVP — Windows 10/11; Linux/macOS — после первой рабочей версии (K.4).
   Точная версия .NET и матрица ОС фиксируются в Фазе 0 и проверяются `CyberPipe doctor`.
+
+
+
+

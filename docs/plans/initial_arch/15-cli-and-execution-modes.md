@@ -1,4 +1,4 @@
-# 15. Исполняемые файлы, Межпроцессная Изоляция (`CyberPipe.Brainstem`), Безопасность IPC и Системный CLI / TUI
+﻿# 15. Исполняемые файлы, Межпроцессная Изоляция (`CyberPipe.Brainstem`), Безопасность IPC и Системный CLI / TUI
 
 Этот документ является **единым каноническим источником** по компоновке исполняемых файлов системы, кроссплатформенной модели изоляции процессов (`IBrainstemIsolationPlatform` для Windows / Linux / macOS), протоколам межпроцессного взаимодействия (IPC), жизненному циклу двух пулов изолированного воркера `CyberPipe.Brainstem` и спецификации командного интерфейса (CLI/TUI). В остальных документах ([`06-solution-structure.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md), [`07-ui-isolation-and-arch-tests.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/07-ui-isolation-and-arch-tests.md), [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md)) приводятся только ссылки на данный раздел.
 
@@ -64,7 +64,7 @@ flowchart TD
 ### 3.1. Архитектура изоляции на Windows (`WindowsBrainstemIsolationPlatform`)
 В ядре Windows механизм Mandatory Integrity Control (MIC) по умолчанию реализует политику **`No-Write-Up`**, а монитор безопасности **NTFS игнорирует флаг `SYSTEM_MANDATORY_LABEL_NO_READ_UP` в SACL файлов и папок** (применяя `NO_READ_UP` только к объектам процессов и потоков в памяти). Кроме того, обычный процесс `Medium Integrity` не обладает привилегией `SeAssignPrimaryTokenPrivilege` для произвольного `CreateProcessAsUserW`.
 
-Поэтому на Windows защита памяти демона, баз `cyberpipe_master.db`, `data/subsystems/*.db` (`hangfire.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) и `secrets.vault` от `CyberPipe.Brainstem.exe` строится на **трех реально работающих в ядре NT механизмах**:
+Поэтому на Windows защита памяти демона, баз `cyberpipe_master.db`, `data/subsystems/*.db` (`Quartz.NET.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`) и `secrets.vault` от `CyberPipe.Brainstem.exe` строится на **трех реально работающих в ядре NT механизмах**:
 
 1. **Защита процесса `CyberPipe.exe` в оперативной памяти (Process SACL `NO_READ_UP`):**
    * При старте `CyberPipe.exe` устанавливает на **собственный дескриптор процесса (`Process Kernel Object`)** метку SACL:
@@ -119,7 +119,7 @@ flowchart TD
    действует только в пределах одной сессии и сжигается после первого успешного рукопожатия; повторный кадр
    с тем же nonce отклоняется. Окно рукопожатия ограничено таймаутом (воркер без валидного handshake за N секунд уничтожается).
 5. **Авторизация команд (не только аутентификация воркера):** контур 1 (`UI/CLI ↔ CyberPipe`) проверяет роль
-   вызывающего (`Owner` vs `Guest` из белого списка `TelegramUserId`/конфига): гостю запрещены команды управления задачами
+   вызывающего (`Owner` vs `Guest (удалён решением Q18: только Owner)` из белого списка `TelegramUserId`/конфига): гостю запрещены команды управления задачами
    Tier 3, секретами и лимитами. Неавторизованная команда возвращает ошибку, а не выполняется частично.
 6. **Fail-closed и негативные тесты:** подмененный клиент (чужой `PID`, неверный/повторный nonce, перехват имени пайпа)
    получает отказ (`ExitCode = 3`, разрыв соединения). Обязательные тесты: подмена IPC-клиента, перехват endpoint,
@@ -217,7 +217,7 @@ public record BrainstemControlSignal(
 
 1. **Структура каталогов при установке:**
    * `C:\Program Files\CyberPipe\` (или защищенный системный каталог `/opt/cyberpipe`, `/Applications/CyberPipe.app`): содержит `CyberPipe`, `CyberPipe.UI.Desktop`, управляемые `.dll` демона и подкаталог `worker/` (`CyberPipe.Brainstem` + манифест `worker.manifest.json`). Права на запись (`Write/Modify`) есть только у администратора (`BUILTIN\Administrators` / `root`). Обычный пользователь и сам демон имеют только `Read & Execute`.
-   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe_master.db` (`SQLite WAL`, только настройки и реестр) и подкаталог `subsystems/` (`hangfire.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`, `netrunner.db` — каждая со своим паролем в `SecretsVault`), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
+   * `%LOCALAPPDATA%\CyberPipe\data\` (`~/.local/share/CyberPipe/data/`): содержит `cyberpipe_master.db` (`SQLite WAL`, только настройки и реестр) и подкаталог `subsystems/` (`Quartz.NET.db`, `masstransit.db`, `knowledge.db`, `crm.db`, `finance.db`, `budget.db`, `health.db`, `netrunner.db` — каждая со своим паролем в `SecretsVault`), `secrets.vault`, `backups/` и логи. Закрыт от `AppContainer`, от `RestrictedWorkerCustomSid` (через `ACCESS_DENIED_ACE` в DACL) и от сторонних пользователей (`chmod 0700`).
 2. **Полная проверка целостности `worker/worker.manifest.json` перед запуском (`Full Worker Directory Integrity Check`):**
    * Чтобы исключить атаку подмены зависимых библиотек (`DLL Hijacking` через `whisper.dll` или управляемые `.dll`), при сборке релиза генерируется подписанный манифест `worker/worker.manifest.json`, содержащий **SHA-256 хеши `CyberPipe.Brainstem.exe` и всех `.dll` / `.so` / `.dylib` в каталоге `./worker/`**.
    * Перед созданием процесса `Brainstem` супервизор сверяет SHA-256 всех исполняемых и библиотечных файлов в `./worker/` против эталонного манифеста и удерживает дескриптор `FileShare.Read` на время работы воркера. При любом несовпадении запуск блокируется с кодом `ExitCode = 3`.
@@ -241,7 +241,7 @@ public record BrainstemControlSignal(
 4. **Пентест-попытка пробить границу процесса и диска (`Negative Escape Tests`):**
    * Специальный тестовый обработчик внутри `Brainstem` в рамках интеграционного теста пытается:
      * Вызвать `OpenProcess(PROCESS_VM_READ, daemonPid)` $\rightarrow$ тест проходит **только если получен `ACCESS_DENIED (5)`** (благодаря `Process SACL NO_READ_UP`).
-     * Открыть файл базы `../data/cyberpipe_master.db`, `../data/subsystems/hangfire.db`, `../data/subsystems/masstransit.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
+     * Открыть файл базы `../data/cyberpipe_master.db`, `../data/subsystems/Quartz.NET.db`, `../data/subsystems/masstransit.db` или `../data/secrets.vault` $\rightarrow$ тест проходит **только при `UnauthorizedAccessException`** (как в Профиле А `AppContainer`, так и в Профиле Б `RestrictedWorkerCustomSid` за счет `ACCESS_DENIED_ACE` в DACL `data/`).
      * Вызвать `Process.Start("cmd.exe")` внутри `Job Object` с `ActiveProcessLimit = 1` $\rightarrow$ тест проходит **только при блокировке создания процесса ядром ОС**.
 5. **Тест на `AccessViolation`, OOM и защиту от ложного `Poison-Pill` (`Crash & Cancellation Resilience Test`):**
    * Намеренный вызов нативного падения памяти (`AccessViolation`) и превышения лимита `512 МБ` внутри `Brainstem` подтверждает, что `CyberPipe` остается жив, инкрементирует `AttemptCount` в `InFlightOperations` и готов к следующему запросу менее чем через `200 мс`, тогда как штатная отмена задачи через `/stop` (`OperationCanceledException`) удаляет запись `InFlightOperations` без пометки `Poisoned`.
@@ -302,3 +302,5 @@ public record BrainstemControlSignal(
    * **Почему один бинарник `CyberPipe.Brainstem` с двумя пулами (`Stateful Voice STT Pool` и `SingleUse Document Parser Pool`):** Вместо распыления 5 разных `.exe` один верифицированный по `worker.manifest.json` бинарник запускается супервизором в разных экземплярах процессов с разными лимитами и профилями: голосовой воркер держит прогретую модель `Whisper.net` в памяти (`IdleTimeout = 45 мин`), а парсер внешних PDF/DOCX запускается в жестком `AppContainer` (`SingleUseProcess = true`, `512 МБ`) и уничтожается сразу после одного документа.
 3. **Почему демон регистрируется в интерактивной сессии пользователя (`Session >= 1`), а не как системная служба `Session 0`:**
    * Службы `Session 0` в Windows изолированы ядром от графического рабочего стола, буфера обмена и аудиоустройств пользователя (`WASAPI` / `Windows.Media.Ocr`). Запуск `CyberPipe` как фонового хоста интерактивной сессии (`LogonTrigger` / `systemd --user` / `LaunchAgent`) сохраняет 100% работоспособность голосового ассистента, записи созвонов, управления громкостью и OCR экрана без требования прав администратора.
+
+

@@ -1,3 +1,5 @@
+﻿> **Решения владельца 2026-10-19 ([DECISIONS.md](../DECISIONS.md), [17-adr-mvp.md](17-adr-mvp.md)):** хранение - одна PostgreSQL + pgvector (SQLite/SQLCipher убраны); цепочки только Trigger -> Skill -> Script -> Delivery (термины цепочка/цепочка/workflow/граф удалены); Telegram - первый канал, не единственный; Service и Desktop - разные приложения. При расхождении верны DECISIONS.md и 17-adr-mvp.md.
+
 # Архитектурная документация CyberPipe
 
 > [!CAUTION]
@@ -32,7 +34,7 @@
    *Архитектура `Tier 0` (Regex) ➔ `Tier 1` (ONNX + Semantic Cache) ➔ `Tier 2` (Легкая задача: `Local` или `RemoteCloud` по выбору из UI + Dynamic Tool Pruning) ➔ `Tier 3` (Сложная задача: `Local` или `RemoteCloud`). Авто-пауза в Telegram и мгновенный локальный `/stop` (< 50 мс без учета сети Telegram).*
 
 5. [**05. Безопасность Хоста (Anti-Wipe & Media Guard), Периметр Telegram и SecurityGuard**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/05-security-agent.md)  
-   *Whitelist авторизация Telegram (`Owner` vs `Guest`), запрет Raw Shell из чата, жесткий потолок громкости (`Volume Clamp` 60%/25%), локальный фильтр 18+/NSFW, AST-анализ скриптов и Stealth OSINT.*
+   *Whitelist авторизация Telegram (`Owner` vs `Guest (удалён решением Q18: только Owner)`), запрет Raw Shell из чата, жесткий потолок громкости (`Volume Clamp` 60%/25%), локальный фильтр 18+/NSFW, AST-анализ скриптов и Stealth OSINT.*
 
 6. [**06. Структура Solution и проектов (`CyberPipe.slnx`)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/06-solution-structure.md)  
    *Прозрачное дерево проектов с выделенными модулями `CyberPipe.Router`, `CyberPipe.Skills.Host`, `CyberPipe.Security.Guards`, `CyberPipe.Security.Budget` и `CyberPipe.Storage.Sqlite`.*
@@ -64,11 +66,14 @@
 15. [**15. Исполняемые файлы, Межпроцессная Изоляция (`CyberPipe.Brainstem`), Безопасность IPC и Системный CLI / TUI**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md)  
     *Каноническая спецификация точек входа (`CyberPipe.exe`, `CyberPipe.UI.Desktop.exe`, `worker/CyberPipe.Brainstem.exe`), кроссплатформенной изоляции воркера (`AppContainer` / `Restricted Token` с `SidsToRestrict` + DACL `Deny` в Windows, `bwrap` в Linux, `Seatbelt` в macOS), раздельных пулов `Whisper` и `SingleUse PDF/DOCX`, проверки `worker.manifest.json`, тестов `CyberPipe.Tests.Isolation` и матрицы команд CLI.*
 
-16. [**16. Ассистент Netrunner: Движок Каскадных Задач (Mini-n8n DAG), HITL и Стандарт Пакетов Скриптов**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md)  
-    *Архитектура специализированного ETL-ассистента Netrunner: стандарт пакетов скриптов с 6 обязательными файлами (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `main.*`, `tests/sample.fixture.json`), каскадный движок DAG (`SkillNode ➔ NetrunnerScriptNode ➔ ConditionNode ➔ LlmProcessNode ➔ HitlApprovalNode ➔ DeliveryNode`), транзакционные чекпоинты в `netrunner.db` и контроль целостности SHA-256.*
+16. [**16. Ассистент Netrunner: Движок Каскадных Задач (цепочка Trigger → Skill → Script → Delivery), HITL и Стандарт Пакетов Скриптов**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/16-netrunner-etl-and-workflow-engine.md)  
+    *Архитектура специализированного ETL-ассистента Netrunner: стандарт пакетов скриптов с 6 обязательными файлами (`netrunner.manifest.json`, `SKILL.md`, `schema.input.json`, `schema.output.json`, `skill-hack.*`, `tests/sample.fixture.json`), каскадный движок цепочка (`SkillNode ➔ NetrunnerScriptNode ➔ ConditionNode ➔ LlmProcessNode ➔ HitlApprovalNode ➔ DeliveryNode`), транзакционные чекпоинты в `netrunner.db` и контроль целостности SHA-256.*
 
 17. [**Экспертный аудит плана (Muse Wonder Audit)**](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/muse-wonder-audit.md)  
     *Комплексный стресс-тест архитектурных планов моделью `muse-wonder-1.0`: реестр замечаний (`AUD-01` – `AUD-15`), противоречия шины/БД/шифрования, анализ рисков и поэтапный план доработок (`K.1` – `K.4`).*
 
 18. [**17. Реестр решений MVP (ADR-001 – ADR-003)**](17-adr-mvp.md)
    *Канонические ответы на вопросы L1–L6 аудита: шина, реестр БД, шифрование/SQLCipher, целевая ОС, песочница DevTools, методика SLO.*
+
+
+

@@ -1,4 +1,4 @@
-# 06. Структура Solution и проектов (`CyberPipe.slnx`)
+﻿# 06. Структура Solution и проектов (`CyberPipe.slnx`)
 
 Структура решения упрощена и оптимизирована для **максимальной прозрачности, скорости сборки и отсутствия лишней прослойки абстракций**. Выделены четкие модули для каскадного роутера (0-токен Fast-Path), безопасных скиллов умного помощника (`Skills.Host`) и контроллера бюджета (`Security.Budget`).
 
@@ -10,7 +10,7 @@
 CyberPipe.slnx
 ├── src/
 │   ├── Shared/
-│   │   └── CyberPipe.Contracts/               # Уровень 0 DAG: 0 внешних зависимостей! Единственная зависимость UI и Brainstem!
+│   │   └── CyberPipe.Contracts/               # Уровень 0 цепочка: 0 внешних зависимостей! Единственная зависимость UI и Brainstem!
 │   │       ├── Protos/                        # gRPC контракты (gateway.proto, telemetry.proto, budget.proto)
 │   │       ├── Messages/                      # События и команды для шины MassTransit (InMemory, SQLite, RabbitMQ)
 │   │       ├── Enums/                         # RiskLevel, IntentTier, TaskLifecycleState, MemoryTrustSource, MessageBusTransportType
@@ -23,7 +23,7 @@ CyberPipe.slnx
 │   │                                          # SubsystemDatabaseDescriptor, NetrunnerManifestDto, NetrunnerWorkflowDefinition
 │   │
 │   ├── Security/                              # Детерминированная защита (0 токенов), Ресурсы и Контроль Бюджета
-│   │   ├── CyberPipe.Security.Telemetry/      # Уровень 1 DAG (зависит только от Contracts):
+│   │   ├── CyberPipe.Security.Telemetry/      # Уровень 1 цепочка (зависит только от Contracts):
 │   │   │                                      # IsolatedWorkerBase, QuotaBoundedStream, HardwareCapabilitiesProbe,
 │   │   │                                      # SystemResourceMonitor, ToolOutputTruncator и дайджест песочниц
 │   │   ├── CyberPipe.Security.Guards/         # HostSafetyGuard (Anti-Wipe), MediaSafetyGuard (Volume Clamp + Анти-18+), AST & OSINT
@@ -38,7 +38,7 @@ CyberPipe.slnx
 │   │   │   ├── DevAndInfra/                   # Git Repo Radar (LibGit2Sharp), BuildAndTestWatchdog (через IDevToolProcessRunner),
 │   │   │   │                                  # Мониторинг серверов/Docker/SSL, Память фиксов
 │   │   │   └── Business/                      # Личная CRM, Трекер Follow-up, Запись созвонов (IAudioDeviceController), Брифинги, Шаблоны КП
-│   │   └── CyberPipe.Skills.Netrunner/        # Ассистент Netrunner (см. разд. 16): движок каскадных задач Mini-n8n DAG (Skill/Netrunner/LLM/HITL),
+│   │   └── CyberPipe.Skills.Netrunner/        # Ассистент Netrunner (см. разд. 16): движок каскадных задач цепочка Trigger → Skill → Script → Delivery (Skill/Netrunner/LLM/HITL),
 │   │                                          # валидатор пакетов (netrunner.manifest.json + JSON Schema + SHA-256), Roslyn/Wasm ETL за 0 токенов
 │   │
 │   ├── Core/                                  # Оркестрация, Подбор Моделей и Сложные Агенты (Tier 3)
@@ -54,12 +54,12 @@ CyberPipe.slnx
 │   │
 │   ├── Gateway/                               # Входной периметр и Каналы связи
 │   │   ├── CyberPipe.Gateway.Telegram/        # Быстрый Telegram-бот: Голос/Файлы, Whitelist AuthGuard, /stop, кнопки Паузы
-│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер (Named Pipes/UDS) + локальный хост безопасного Read-Only Hangfire Dashboard (127.0.0.1)
+│   │   └── CyberPipe.Gateway.Api/             # Локальный gRPC сервер (Named Pipes/UDS) + локальный хост безопасного Read-Only Quartz.NET Dashboard (127.0.0.1)
 │   │
 │   ├── Storage/                               # Легковесное, надежное и изолированное локальное хранилище (SQLite WAL)
 │   │   └── CyberPipe.Storage.Sqlite/          # Центральный мастер cyberpipe_master.db (общие настройки + реестр SubsystemDatabaseRegistry),
 │   │                                          # сервис SubsystemDatabaseManagerService (генерация паролей в SecretsVault, provisioning, миграции),
-│   │                                          # изолированные базы подсистем data/subsystems/*.db (hangfire, masstransit, knowledge, crm, finance, budget, health, netrunner)
+│   │                                          # изолированные базы подсистем data/subsystems/*.db (Quartz.NET, masstransit, knowledge, crm, finance, budget, health, netrunner)
 │   │
 │   ├── UI/                                    # Мультиплатформенный интерфейс управления
 │   │   ├── CyberPipe.UI/                      # Разметка XAML, ViewModels, Выбор моделей по Tiers (Local vs Remote), Дашборд бюджета
@@ -69,7 +69,7 @@ CyberPipe.slnx
 │       └── CyberPipe/                         # Основной хост и CLI-диспетчер (CyberPipe: DaemonHostMode + CliClientMode, см. разд. 15)
 │
 └── tests/
-    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET: статическая проверка DAG всех сборок, запрета Process в Skills и UnboundedChannel
+    ├── CyberPipe.Tests.Architecture/          # ArchUnitNET: статическая проверка цепочка всех сборок, запрета Process в Skills и UnboundedChannel
     ├── CyberPipe.Tests.Isolation/             # Интеграционные тесты изоляции ОС (AppContainer/RestrictedToken/bwrap/Seatbelt, Job Object, ACL, IPC)
     ├── CyberPipe.Tests.SafetyAndBudget/       # Тесты Anti-Wipe, Volume Clamp перед Play, NSFW-фильтра, Hard Tool Stripping, MaxOutputTokens и /stop
     ├── CyberPipe.Tests.Router/                # Бенчмарки BenchmarkDotNet для Tier 0/1, ролевого кэша и тесты IModelCompatibilityAdvisor
@@ -78,7 +78,7 @@ CyberPipe.slnx
 
 ---
 
-### Архитектурные правила связей (Строгий ациклический граф DAG, проверяется в CI):
+### Архитектурные правила связей (Строгий ациклический граф цепочка, проверяется в CI):
 
 1. **Уровень 0 (`CyberPipe.Contracts`)** не зависит ни от одного другого проекта решения и содержит все общие DTO, перечисления и платформенные контракты (`IHardwareCapabilitiesProbe`, `IDevToolProcessRunner`, `IBrainstemIsolationPlatform` и др.).
 2. **Уровень 1 (`CyberPipe.Security.Telemetry`)** зависит только от `CyberPipe.Contracts` и предоставляет базовые примитивы устойчивости (`IsolatedWorkerBase`, `QuotaBoundedStream`), что полностью исключает циклические зависимости между `Storage.Sqlite`, `Skills.Host` и `Core.Orchestration`.
@@ -87,3 +87,5 @@ CyberPipe.slnx
 5. **`CyberPipe.Core.Agents`** вызываются только после прохождения **`CyberPipe.Router`**, **`TokenBudgetGovernor`** и **`CentralDataSanitizer`**.
 6. **Разделение `Local` и `RemoteCloud` через `TierModelDescriptor`:** Сервис `ModelCompatibilityAdvisorService` (`CyberPipe.Core.Orchestration`) получает параметры ПК через контракт `IHardwareCapabilitiesProbe` (`CyberPipe.Contracts.Hardware`, реализован в `CyberPipe.Security.Telemetry`, см. [`13-model-advisor-and-tier-configuration.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/13-model-advisor-and-tier-configuration.md)).
 7. **Устойчивость воркеров и межпроцессная изоляция:** Правила наследования от `CyberPipe.Security.Telemetry.Resilience.IsolatedWorkerBase`, запрета `Channel.CreateUnbounded<T>()` и изоляции `CyberPipe.Brainstem` регламентированы в [`14-fault-isolation-and-resilience.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/14-fault-isolation-and-resilience.md) и [`15-cli-and-execution-modes.md`](file:///c:/Users/Conqueror/source/repos/CyberPipeline/docs/plans/15-cli-and-execution-modes.md).
+
+
