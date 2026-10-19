@@ -53,6 +53,9 @@ public sealed class ContractsBoundaryTests
         "Result",
         "IServiceControl",
         "IServiceController",
+        "SandboxLaunchRequest",
+        "SandboxLaunchResult",
+        "ISandboxLauncher",
     ];
 
     [Fact]

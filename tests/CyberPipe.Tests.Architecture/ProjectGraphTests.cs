@@ -17,6 +17,7 @@ public sealed class ProjectGraphTests
         "CyberPipe.Desktop",
         "CyberPipe.Models",
         "CyberPipe.Router",
+        "CyberPipe.Execution.Sandbox",
         "CyberPipe.Security",
         "CyberPipe.Service",
         "CyberPipe.ServiceControl",
