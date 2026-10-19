@@ -25,6 +25,12 @@ public enum ChainMisfirePolicy
 
     /// <summary>Игнорировать пропуски и следовать расписанию.</summary>
     IgnoreMisfires = 2,
+
+    /// <summary>Пропустить запуск при опоздании больше N минут.</summary>
+    SkipIfLate = 3,
+
+    /// <summary>Не запускать, а отправить запрос подтверждения через порт доставки.</summary>
+    AskUser = 4,
 }
 
 /// <summary>

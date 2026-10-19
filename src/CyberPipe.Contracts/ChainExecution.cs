@@ -97,6 +97,10 @@ public interface IDelayedResumeScheduler
 {
     /// <summary>Планирует отложенное возобновление запуска цепочки.</summary>
     Task ScheduleResumeAsync(RunId runId, TimeSpan delay, CancellationToken cancellationToken = default);
+
+    /// <summary>Планирует отложенное возобновление конкретного шага запуска цепочки.</summary>
+    Task ScheduleResumeAsync(RunId runId, TimeSpan delay, string stepId, CancellationToken cancellationToken = default) =>
+        ScheduleResumeAsync(runId, delay, cancellationToken);
 }
 
 /// <summary>

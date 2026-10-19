@@ -119,6 +119,9 @@ public sealed class ContractsBoundaryTests
         "ISkillInvoker",
         "IDelayedResumeScheduler",
         "IChainExecutionRepository",
+        "ScheduledChainInfo",
+        "InvalidCronExpressionException",
+        "IChainSchedulerService",
     ];
 
     [Fact]
