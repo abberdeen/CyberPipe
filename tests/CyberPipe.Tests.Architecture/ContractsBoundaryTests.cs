@@ -87,6 +87,16 @@ public sealed class ContractsBoundaryTests
         "IChainDefinitionValidator",
         "IChainDefinitionRepository",
         "IChainDefinitionLoader",
+        "TriggerEvent",
+        "IChainExecutor",
+        "IIdempotencyStore",
+        "ICronTriggerRegistrar",
+        "ITriggerInvoker",
+        "IInboundMessageSource",
+        "WebhookRequest",
+        "WebhookResponse",
+        "ITriggerRegistry",
+        "ChainNotFoundException",
     ];
 
     [Fact]
