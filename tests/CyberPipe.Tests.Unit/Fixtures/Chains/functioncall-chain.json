@@ -1,0 +1,43 @@
+{
+  "id": "30000000-0000-0000-0000-000000000003",
+  "name": "Function Call Vulnerability Scanner",
+  "isEnabled": true,
+  "trigger": {
+    "kind": "functionCall",
+    "functionName": "scan_repository_dependencies",
+    "parameters": {
+      "timeoutSeconds": "60"
+    }
+  },
+  "skill": {
+    "skillId": "git-cloner",
+    "inputMapping": {
+      "repoUrl": "{{ trigger.payload.repoUrl }}"
+    }
+  },
+  "script": {
+    "packageSlug": "vuln-auditor",
+    "packageVersion": "0.9.4",
+    "inputMapping": {
+      "localPath": "{{ skill.output.localPath }}"
+    },
+    "fileInputBindings": {
+      "lockFile": "skill:repoPath/packages.lock.json"
+    }
+  },
+  "delivery": {
+    "channel": "desktop",
+    "target": "security-engineer",
+    "messageTemplate": "Security scan completed with status: {{ script.output.status }}",
+    "sendFiles": true
+  },
+  "requiresHitl": true,
+  "retryPolicy": {
+    "maxAttempts": 1,
+    "backoffMs": 0
+  },
+  "misfirePolicy": "doNothing",
+  "version": 1,
+  "createdAtUtc": "2026-10-19T10:00:00+00:00",
+  "updatedAtUtc": "2026-10-19T10:00:00+00:00"
+}

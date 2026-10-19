@@ -20,6 +20,12 @@
     <ProjectReference Include="..\..\src\Execution\CyberPipe.Brainstem\CyberPipe.Brainstem.csproj" />
     <ProjectReference Include="..\..\src\Execution\CyberPipe.Brainstem.Supervisor\CyberPipe.Brainstem.Supervisor.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Router\CyberPipe.Router.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Chains\CyberPipe.Chains.csproj" />
     <ProjectReference Include="..\CyberPipe.Sandbox.Payload\CyberPipe.Sandbox.Payload.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 </Project>

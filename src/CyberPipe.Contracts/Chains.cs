@@ -236,3 +236,138 @@ public sealed record ChainDefinitionDto
             Delivery,
             HashCode.Combine(RequiresHitl, RetryPolicy, MisfirePolicy, Version, CreatedAtUtc, UpdatedAtUtc));
 }
+
+/// <summary>
+/// Стандартные коды ошибок валидации определения цепочки (TASK-040).
+/// </summary>
+public static class ChainErrorCodes
+{
+    /// <summary>Отсутствует обязательный шаг цепочки или его ключевое свойство.</summary>
+    public const string MissingStep = "ChainDefinition.MissingStep";
+
+    /// <summary>Неизвестный или неподдерживаемый вид триггера.</summary>
+    public const string UnknownTriggerKind = "ChainDefinition.UnknownTriggerKind";
+
+    /// <summary>Обнаружены конструкции ветвления, параллелизма, условий-переходов, LLM-шагов, графов или вторичных скриптов.</summary>
+    public const string BranchingNotSupported = "ChainDefinition.BranchingNotSupported";
+
+    /// <summary>Некорректный слаг пакета скрипта (требуется kebab-case).</summary>
+    public const string InvalidSlug = "ChainDefinition.InvalidSlug";
+
+    /// <summary>Некорректная версия пакета скрипта (требуется SemVer).</summary>
+    public const string InvalidVersion = "ChainDefinition.InvalidVersion";
+
+    /// <summary>Ссылка на неизвестный источник данных в шаблоне подстановки (разрешены только trigger, skill, script).</summary>
+    public const string UnknownMappingSource = "ChainDefinition.UnknownMappingSource";
+
+    /// <summary>Неизвестное поле верхнего уровня в определении цепочки.</summary>
+    public const string UnknownProperty = "ChainDefinition.UnknownProperty";
+}
+
+/// <summary>
+/// Ошибка валидации определения цепочки (TASK-040).
+/// </summary>
+public sealed record ChainValidationError
+{
+    /// <summary>Код ошибки из <see cref="ChainErrorCodes" />.</summary>
+    public required string Code { get; init; }
+
+    /// <summary>Путь свойства или шага, вызвавшего ошибку.</summary>
+    public required string Path { get; init; }
+
+    /// <summary>Человекочитаемое описание ошибки.</summary>
+    public required string Message { get; init; }
+}
+
+/// <summary>
+/// Результат валидации определения цепочки (TASK-040).
+/// </summary>
+public sealed record ChainValidationResult
+{
+    /// <summary>Признак успешной валидации (ошибок нет).</summary>
+    public bool IsValid => Errors.Count == 0;
+
+    /// <summary>Список обнаруженных ошибок.</summary>
+    public IReadOnlyList<ChainValidationError> Errors { get; init; } = Array.Empty<ChainValidationError>();
+
+    /// <summary>Успешный результат валидации.</summary>
+    public static ChainValidationResult Success { get; } = new();
+
+    /// <summary>Создаёт результат валидации с ошибками.</summary>
+    public static ChainValidationResult Failure(params ChainValidationError[] errors) =>
+        new() { Errors = errors };
+
+    /// <summary>Создаёт результат валидации с ошибками.</summary>
+    public static ChainValidationResult Failure(IEnumerable<ChainValidationError> errors) =>
+        new() { Errors = errors.ToArray() };
+}
+
+/// <summary>
+/// Исключение, выбрасываемое при обнаружении ошибок валидации цепочки (TASK-040).
+/// </summary>
+public sealed class ChainValidationException : Exception
+{
+    /// <summary>Ошибки валидации.</summary>
+    public IReadOnlyList<ChainValidationError> Errors { get; }
+
+    /// <summary>Инициализирует исключение с коллекцией ошибок.</summary>
+    public ChainValidationException(IReadOnlyList<ChainValidationError> errors)
+        : base($"Chain definition validation failed with {errors.Count} error(s): {string.Join("; ", errors.Select(e => $"[{e.Code}] {e.Path}: {e.Message}"))}")
+    {
+        Errors = errors ?? Array.Empty<ChainValidationError>();
+    }
+
+    /// <summary>Инициализирует исключение с одной ошибкой.</summary>
+    public ChainValidationException(string code, string path, string message)
+        : this(new[] { new ChainValidationError { Code = code, Path = path, Message = message } })
+    {
+    }
+}
+
+/// <summary>
+/// Валидатор определений цепочек (TASK-040).
+/// Проверяет строго линейную форму Trigger → Skill → Script → Delivery и отклоняет ветвления.
+/// </summary>
+public interface IChainDefinitionValidator
+{
+    /// <summary>Валидирует объектное определение цепочки.</summary>
+    ChainValidationResult Validate(ChainDefinitionDto definition);
+
+    /// <summary>Валидирует строковое JSON-определение цепочки, включая проверку неизвестных свойств и запрещённых структур ветвления.</summary>
+    ChainValidationResult ValidateJson(string json);
+}
+
+/// <summary>
+/// Репозиторий определений цепочек для загрузки и управления жизненным циклом (TASK-040).
+/// </summary>
+public interface IChainDefinitionRepository
+{
+    /// <summary>Возвращает определение цепочки по идентификатору или null, если не найдено.</summary>
+    Task<ChainDefinitionDto?> GetByIdAsync(ChainId id, CancellationToken cancellationToken = default);
+
+    /// <summary>Возвращает список всех активных (включённых) цепочек.</summary>
+    Task<IReadOnlyList<ChainDefinitionDto>> ListEnabledAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Сохраняет или обновляет определение цепочки. При обновлении включённой цепочки версия инкрементируется.</summary>
+    Task<ChainDefinitionDto> UpsertAsync(ChainDefinitionDto definition, CancellationToken cancellationToken = default);
+
+    /// <summary>Устанавливает флаг активности цепочки.</summary>
+    Task<bool> SetEnabledAsync(ChainId id, bool isEnabled, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Загрузчик определений цепочек из конфигурации и репозитория (TASK-040).
+/// Слияние источников запрещено — один источник на вызов.
+/// </summary>
+public interface IChainDefinitionLoader
+{
+    /// <summary>Загружает и валидирует определение цепочки из JSON-строки конфигурации.</summary>
+    Task<ChainDefinitionDto> LoadFromConfigAsync(string json, CancellationToken cancellationToken = default);
+
+    /// <summary>Загружает и валидирует определение цепочки из файла конфигурации.</summary>
+    Task<ChainDefinitionDto> LoadFromConfigFileAsync(string filePath, CancellationToken cancellationToken = default);
+
+    /// <summary>Загружает и валидирует определение цепочки из репозитория по идентификатору.</summary>
+    Task<ChainDefinitionDto?> LoadFromRepositoryAsync(ChainId id, CancellationToken cancellationToken = default);
+}
+

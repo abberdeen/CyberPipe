@@ -1,0 +1,41 @@
+{
+  "id": "20000000-0000-0000-0000-000000000002",
+  "name": "Daily CBR Currency Sync Chain",
+  "isEnabled": true,
+  "trigger": {
+    "kind": "cron",
+    "cronExpression": "0 0 9 * * ?",
+    "parameters": {
+      "timeZone": "UTC"
+    }
+  },
+  "skill": {
+    "skillId": "http-fetch",
+    "inputMapping": {
+      "url": "https://www.cbr.ru/scripts/XML_daily.asp"
+    }
+  },
+  "script": {
+    "packageSlug": "cbr-rates-parser",
+    "packageVersion": "2.1.0-beta.1",
+    "inputMapping": {
+      "xmlPayload": "{{ skill.output }}"
+    },
+    "fileInputBindings": {}
+  },
+  "delivery": {
+    "channel": "cli",
+    "target": "finance-operator",
+    "messageTemplate": "CBR rates loaded: {{ script.output.usd }} RUB/USD",
+    "sendFiles": false
+  },
+  "requiresHitl": false,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "backoffMs": 500
+  },
+  "misfirePolicy": "fireOnceNow",
+  "version": 1,
+  "createdAtUtc": "2026-10-19T10:00:00+00:00",
+  "updatedAtUtc": "2026-10-19T10:00:00+00:00"
+}

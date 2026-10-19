@@ -5,7 +5,7 @@ using Npgsql;
 namespace CyberPipe.Data;
 
 /// <summary>Репозиторий app.chains: определение цепочки целиком в definition_json, колонки — проекция для поиска.</summary>
-public sealed class ChainRepository : RepositoryBase, IChainRepository
+public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDefinitionRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -129,6 +129,48 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository
         {
             await using var command = Command(connection, transaction, "DELETE FROM app.chains WHERE id = @id");
             Param(command, "id", id.Value);
+            return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    Task<ChainDefinitionDto?> IChainDefinitionRepository.GetByIdAsync(ChainId id, CancellationToken cancellationToken) =>
+        GetAsync(id, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ChainDefinitionDto>> ListEnabledAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync("chains.list_enabled", async (connection, transaction, token) =>
+        {
+            await using var command = Command(connection, transaction,
+                $"SELECT {SelectColumns} FROM app.chains WHERE is_enabled = true ORDER BY name");
+            var items = new List<ChainDefinitionDto>();
+            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            while (await reader.ReadAsync(token).ConfigureAwait(false))
+                items.Add(Map(reader));
+            return (IReadOnlyList<ChainDefinitionDto>)items;
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task<ChainDefinitionDto> UpsertAsync(ChainDefinitionDto definition, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ChainDefinitionDto? existing = await GetAsync(definition.Id, cancellationToken).ConfigureAwait(false);
+        if (existing is null)
+        {
+            return await AddAsync(definition, cancellationToken).ConfigureAwait(false);
+        }
+
+        int nextVersion = existing.IsEnabled ? existing.Version + 1 : existing.Version;
+        return await UpdateAsync(definition with { Version = nextVersion }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> SetEnabledAsync(ChainId id, bool isEnabled, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("chains.set_enabled", async (connection, transaction, token) =>
+        {
+            await using var command = Command(connection, transaction,
+                "UPDATE app.chains SET is_enabled = @is_enabled, updated_at = now() WHERE id = @id");
+            Param(command, "id", id.Value);
+            Param(command, "is_enabled", isEnabled);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
 

@@ -1,0 +1,41 @@
+{
+  "id": "40000000-0000-0000-0000-000000000004",
+  "name": "Chat Support Assistant Chain",
+  "isEnabled": true,
+  "trigger": {
+    "kind": "chat",
+    "chatFilter": "cmd:diagnose",
+    "parameters": {
+      "prefix": "/"
+    }
+  },
+  "skill": {
+    "skillId": "user-context-fetcher",
+    "inputMapping": {
+      "userId": "{{ trigger.payload.userId }}"
+    }
+  },
+  "script": {
+    "packageSlug": "system-diagnostics",
+    "packageVersion": "3.0.1+build2026",
+    "inputMapping": {
+      "profile": "{{ skill.output.profile }}"
+    },
+    "fileInputBindings": {}
+  },
+  "delivery": {
+    "channel": "telegram",
+    "target": "requester",
+    "messageTemplate": "Diagnostics report: {{ script.output.report }}",
+    "sendFiles": false
+  },
+  "requiresHitl": false,
+  "retryPolicy": {
+    "maxAttempts": 2,
+    "backoffMs": 250
+  },
+  "misfirePolicy": "doNothing",
+  "version": 1,
+  "createdAtUtc": "2026-10-19T10:00:00+00:00",
+  "updatedAtUtc": "2026-10-19T10:00:00+00:00"
+}

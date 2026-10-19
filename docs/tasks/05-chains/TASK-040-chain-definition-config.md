@@ -48,11 +48,11 @@
 
 ## Критерии приёмки
 
-- [ ] Валидная цепочка каждого из 4 видов триггера проходит валидацию; цепочка без любого из 4 шагов отклоняется с `MissingStep` и путём поля.
-- [ ] Определение со списком `nodes`/`edges`, условием-переходом или вторым скриптом отклоняется с `BranchingNotSupported`.
-- [ ] Неизвестный `Trigger.Kind`, битый slug/SemVer, маппинг на несуществующий источник (`{{ llm.* }}`) отклоняются с соответствующими кодами.
-- [ ] Round-trip JSON: `Deserialize(Serialize(def))` равен исходному; отключённая цепочка валидируется, но не попадает в `ListEnabledAsync` фейка.
-- [ ] Ни одного упоминания DAG/графа/n8n в публичных именах типов.
+- [x] Валидная цепочка каждого из 4 видов триггера проходит валидацию; цепочка без любого из 4 шагов отклоняется с `MissingStep` и путём поля.
+- [x] Определение со списком `nodes`/`edges`, условием-переходом или вторым скриптом отклоняется с `BranchingNotSupported`.
+- [x] Неизвестный `Trigger.Kind`, битый slug/SemVer, маппинг на несуществующий источник (`{{ llm.* }}`) отклоняются с соответствующими кодами.
+- [x] Round-trip JSON: `Deserialize(Serialize(def))` равен исходному; отключённая цепочка валидируется, но не попадает в `ListEnabledAsync` фейка.
+- [x] Ни одного упоминания DAG/графа/n8n в публичных именах типов.
 
 ## Тестирование
 
@@ -63,9 +63,8 @@
 
 ```powershell
 dotnet build CyberPipe.slnx
-dotnet test tests/CyberPipe.Tests.Chains/ --filter "FullyQualifiedName~ChainDefinition"
+dotnet test tests/CyberPipe.Tests.Unit/ --filter "FullyQualifiedName~ChainDefinition"
 ```
 
-(Путь тестового проекта — to-be-created, имя фиксируется в TASK-001.)
+## Статус: Done
 
-## Статус: Planned

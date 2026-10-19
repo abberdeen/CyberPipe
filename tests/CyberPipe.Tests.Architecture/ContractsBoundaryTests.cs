@@ -80,6 +80,13 @@ public sealed class ContractsBoundaryTests
         "ChatModelRequest",
         "ChatModelResponse",
         "LlmClassificationJson",
+        "ChainErrorCodes",
+        "ChainValidationError",
+        "ChainValidationResult",
+        "ChainValidationException",
+        "IChainDefinitionValidator",
+        "IChainDefinitionRepository",
+        "IChainDefinitionLoader",
     ];
 
     [Fact]

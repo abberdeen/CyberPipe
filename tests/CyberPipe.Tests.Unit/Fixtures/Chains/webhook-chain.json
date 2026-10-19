@@ -1,0 +1,41 @@
+{
+  "id": "10000000-0000-0000-0000-000000000001",
+  "name": "Webhook Notification Chain",
+  "isEnabled": true,
+  "trigger": {
+    "kind": "webhook",
+    "webhookPath": "/api/v1/alerts/order-failed",
+    "parameters": {
+      "secretHeader": "X-Alert-Secret"
+    }
+  },
+  "skill": {
+    "skillId": "order-enricher",
+    "inputMapping": {
+      "orderId": "{{ trigger.payload.orderId }}"
+    }
+  },
+  "script": {
+    "packageSlug": "order-diagnostics",
+    "packageVersion": "1.0.0",
+    "inputMapping": {
+      "details": "{{ skill.output.details }}"
+    },
+    "fileInputBindings": {}
+  },
+  "delivery": {
+    "channel": "telegram",
+    "target": "admin-chat",
+    "messageTemplate": "Alert for order: {{ script.output.summary }}",
+    "sendFiles": false
+  },
+  "requiresHitl": false,
+  "retryPolicy": {
+    "maxAttempts": 3,
+    "backoffMs": 1000
+  },
+  "misfirePolicy": "doNothing",
+  "version": 1,
+  "createdAtUtc": "2026-10-19T10:00:00+00:00",
+  "updatedAtUtc": "2026-10-19T10:00:00+00:00"
+}
