@@ -29,7 +29,16 @@ internal sealed class PostgresChainExecutionRepository(
     IChainRunRepository runs,
     ICheckpointRepository checkpoints) : IChainExecutionRepository
 {
-    private static readonly PagedQuery BigPage = new() { Offset = 0, Limit = 200, SortBy = "created_at", Descending = false };
+    private static readonly PagedQuery BigPage = new() { Offset = 0, Limit = RunPageSize, SortBy = "created_at", Descending = false };
+
+    /// <summary>Размер страницы списка запусков. Последняя короткая страница — конец набора.</summary>
+    internal const int RunPageSize = 200;
+
+    /// <summary>
+    /// Потолок страниц: репозиторий, который всегда отдаёт полную страницу и завышает
+    /// <see cref="PagedResult{T}.TotalCount"/>, иначе крутит <c>while (true)</c> без выхода.
+    /// </summary>
+    internal const int MaxRunListPages = 500;
 
     private static readonly IReadOnlySet<ChainRunStatus> UnfinishedStatuses =
         new HashSet<ChainRunStatus>
@@ -58,26 +67,15 @@ internal sealed class PostgresChainExecutionRepository(
     {
         // Пагинация до конца: общая тестовая БД накапливает сотни прогонов,
         // однопроходный лимит 200 прятал свежие строки (TASK-093).
-        int offset = 0;
-        while (true)
+        await foreach (ChainRunRecord record in EnumerateRunsAsync(chainId, cancellationToken).ConfigureAwait(false))
         {
-            PagedResult<ChainRunRecord> page = await runs.ListAsync(
-                    new PagedQuery { Offset = offset, Limit = 200, SortBy = "created_at", Descending = false },
-                    chainId, cancellationToken).ConfigureAwait(false);
-            ChainRunRecord? found = page.Items.FirstOrDefault(
-                r => string.Equals(r.IdempotencyKey, idempotencyKey, StringComparison.Ordinal));
-            if (found is not null)
+            if (string.Equals(record.IdempotencyKey, idempotencyKey, StringComparison.Ordinal))
             {
-                return found.Id;
+                return record.Id;
             }
-
-            if (page.Items.Count < 200)
-            {
-                return null;
-            }
-
-            offset += 200;
         }
+
+        return null;
     }
 
     public async Task<ChainRunState> CreateRunAsync(RunId runId, ChainId chainId, TriggerEvent trigger, CancellationToken cancellationToken = default)
@@ -137,20 +135,45 @@ internal sealed class PostgresChainExecutionRepository(
     {
         // Пагинация до конца: см. FindRunByIdempotencyKeyAsync (TASK-093).
         var result = new List<RunId>();
+        await foreach (ChainRunRecord record in EnumerateRunsAsync(null, cancellationToken).ConfigureAwait(false))
+        {
+            if (UnfinishedStatuses.Contains(record.Status))
+            {
+                result.Add(record.Id);
+            }
+        }
+
+        return result;
+    }
+
+    private async IAsyncEnumerable<ChainRunRecord> EnumerateRunsAsync(
+        ChainId? chainId,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         int offset = 0;
-        while (true)
+        for (int pageIndex = 0; pageIndex < MaxRunListPages; pageIndex++)
         {
             PagedResult<ChainRunRecord> page = await runs.ListAsync(
-                    new PagedQuery { Offset = offset, Limit = 200, SortBy = "created_at", Descending = false },
-                    null, cancellationToken).ConfigureAwait(false);
-            result.AddRange(page.Items.Where(r => UnfinishedStatuses.Contains(r.Status)).Select(r => r.Id));
-            if (page.Items.Count < 200)
+                    new PagedQuery { Offset = offset, Limit = RunPageSize, SortBy = "created_at", Descending = false },
+                    chainId, cancellationToken).ConfigureAwait(false);
+
+            foreach (ChainRunRecord record in page.Items)
             {
-                return result;
+                yield return record;
             }
 
-            offset += 200;
+            // Короткая страница или достигнут TotalCount — конец. Полная страница при
+            // завышенном TotalCount не должна крутить цикл: есть потолок MaxRunListPages.
+            if (page.Items.Count < RunPageSize || (long)offset + page.Items.Count >= page.TotalCount)
+            {
+                yield break;
+            }
+
+            offset += page.Items.Count;
         }
+
+        throw new InvalidOperationException(
+            $"Chain run pagination exceeded {MaxRunListPages} pages of {RunPageSize}.");
     }
 
     private TriggerEvent GetTrigger(ChainRunRecord record)
