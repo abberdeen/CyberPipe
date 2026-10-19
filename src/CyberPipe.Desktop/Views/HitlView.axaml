@@ -1,0 +1,101 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             x:Class="CyberPipe.Desktop.Views.HitlView">
+
+  <Grid ColumnDefinitions="320,*" Margin="16">
+    <!-- Left Pane: Pending Queue -->
+    <Border Grid.Column="0"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            CornerRadius="8"
+            Padding="12"
+            Margin="0,0,12,0">
+      <Grid RowDefinitions="Auto,*">
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+          <TextBlock Text="Pending Approvals" FontWeight="Bold" FontSize="16" />
+          <TextBlock Text="{Binding PendingCount, StringFormat='Count: {0}'}" FontSize="11" Opacity="0.6" />
+        </StackPanel>
+
+        <ListBox Grid.Row="1"
+                 ItemsSource="{Binding PendingApprovals}"
+                 SelectedItem="{Binding SelectedApproval, Mode=TwoWay}">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="vm:HitlApprovalItemViewModel">
+              <StackPanel Spacing="2" Margin="0,4">
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding PreviewText}" FontSize="11" TextTrimming="CharacterEllipsis" Opacity="0.8" />
+                <TextBlock Text="{Binding FormattedExpiresAt, StringFormat='Expires: {0}'}" FontSize="10" Opacity="0.6" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
+
+    <!-- Right Pane: Approval Details & Actions -->
+    <Border Grid.Column="1"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            CornerRadius="8"
+            Padding="16">
+      <ScrollViewer>
+        <StackPanel Spacing="16">
+          <TextBlock Text="{Binding SelectedApproval.Title, FallbackValue='No approval selected'}"
+                     FontWeight="Bold"
+                     FontSize="18" />
+
+          <StackPanel Spacing="8">
+            <TextBlock Text="Summary / Preview:" FontWeight="SemiBold" />
+            <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    CornerRadius="6"
+                    Padding="12">
+              <SelectableTextBlock Text="{Binding SelectedApproval.PreviewText}" TextWrapping="Wrap" />
+            </Border>
+          </StackPanel>
+
+          <StackPanel Spacing="8">
+            <TextBlock Text="Payload (JSON) — editable for «Edit &amp; Approve»:" FontWeight="SemiBold" />
+            <TextBox Text="{Binding EditedPayloadJson, Mode=TwoWay}"
+                     AcceptsReturn="True"
+                     Height="120"
+                     FontFamily="Consolas,Menlo,monospace" />
+          </StackPanel>
+
+          <StackPanel Spacing="8">
+            <TextBlock Text="Rejection Reason (optional):" FontWeight="SemiBold" />
+            <TextBox Text="{Binding RejectReason, Mode=TwoWay}"
+                     PlaceholderText="Enter reason if rejecting..." />
+          </StackPanel>
+
+          <!-- Action Buttons -->
+          <Grid ColumnDefinitions="*,*,*">
+            <Button Grid.Column="0"
+                    Content="Approve"
+                    Command="{Binding ApproveCommand}"
+                    Classes="accent"
+                    HorizontalAlignment="Stretch"
+                    Margin="0,0,4,0" />
+
+            <Button Grid.Column="1"
+                    Content="Edit &amp; Approve"
+                    Command="{Binding EditCommand}"
+                    HorizontalAlignment="Stretch"
+                    Margin="4,0,4,0" />
+
+            <Button Grid.Column="2"
+                    Content="Reject"
+                    Command="{Binding RejectCommand}"
+                    Foreground="Red"
+                    HorizontalAlignment="Stretch"
+                    Margin="4,0,0,0" />
+          </Grid>
+
+          <!-- Status Message -->
+          <TextBlock Text="{Binding StatusMessage}"
+                     FontSize="12"
+                     Opacity="0.8"
+                     IsVisible="{Binding StatusMessage, Converter={x:Null}}" />
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

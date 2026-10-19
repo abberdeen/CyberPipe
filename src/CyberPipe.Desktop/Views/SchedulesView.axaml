@@ -1,0 +1,109 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             x:Class="CyberPipe.Desktop.Views.SchedulesView">
+
+  <Grid ColumnDefinitions="*,360" Margin="16">
+    <!-- Left Pane: Cron schedules list -->
+    <Border Grid.Column="0"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            CornerRadius="8"
+            Padding="16"
+            Margin="0,0,12,0">
+      <Grid RowDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,8">
+          <TextBlock Text="Quartz.NET Cron Schedules" FontWeight="Bold" FontSize="16" />
+          <TextBlock Text="Schedules executed by Windows Service background host" FontSize="11" Opacity="0.6" />
+        </StackPanel>
+
+        <ListBox Grid.Row="1"
+                 ItemsSource="{Binding Schedules}"
+                 SelectedItem="{Binding SelectedSchedule, Mode=TwoWay}">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="vm:ScheduledChainItemViewModel">
+              <Border Margin="0,4"
+                      Padding="8"
+                      CornerRadius="6"
+                      Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="{Binding ChainId.Value, StringFormat='Chain: {0}'}" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding CronExpression, StringFormat='Cron: {0}'}" FontFamily="Consolas,Menlo,monospace" FontSize="12" />
+                    <TextBlock Text="{Binding FormattedNextFire, StringFormat='Next run: {0}'}" FontSize="11" Opacity="0.7" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="PAUSED" Foreground="Orange" FontWeight="Bold" FontSize="11" IsVisible="{Binding IsPaused}" />
+                    <TextBlock Text="ACTIVE" Foreground="Green" FontWeight="Bold" FontSize="11" IsVisible="{Binding !IsPaused}" />
+                  </StackPanel>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- Actions on selected schedule -->
+        <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+          <Button Content="Pause"
+                  Command="{Binding PauseCommand}"
+                  Margin="0,0,8,0" />
+          <Button Content="Resume"
+                  Command="{Binding ResumeCommand}"
+                  Margin="0,0,8,0" />
+          <Button Content="Unschedule"
+                  Command="{Binding UnscheduleCommand}"
+                  Foreground="Red"
+                  Margin="0,0,8,0" />
+          <Button Content="Trigger Now"
+                  Command="{Binding TriggerNowCommand}"
+                  Classes="accent"
+                  Margin="0,0,8,0" />
+          <Button Content="Refresh"
+                  Command="{Binding LoadSchedulesCommand}" />
+        </WrapPanel>
+      </Grid>
+    </Border>
+
+    <!-- Right Pane: Add/Update Schedule (Single text field for cron with validation) -->
+    <Border Grid.Column="1"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            CornerRadius="8"
+            Padding="16">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Schedule Chain" FontWeight="Bold" FontSize="16" />
+        <TextBlock Text="Specify chain ID and cron expression (e.g. '0 0 12 * * ?'). Visual cron designer is disabled."
+                   FontSize="11"
+                   TextWrapping="Wrap"
+                   Opacity="0.7" />
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Chain ID (Guid):" FontWeight="SemiBold" />
+          <TextBox Text="{Binding ChainIdInput, Mode=TwoWay}" PlaceholderText="e.g. 00000000-0000-0000-0000-000000000001" />
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Cron Expression:" FontWeight="SemiBold" />
+          <TextBox Text="{Binding CronExpressionInput, Mode=TwoWay}" FontFamily="Consolas,Menlo,monospace" PlaceholderText="0 0 12 * * ?" />
+        </StackPanel>
+
+        <Button Content="Save Schedule"
+                Command="{Binding ScheduleCommand}"
+                Classes="accent"
+                HorizontalAlignment="Stretch"
+                Margin="0,8,0,0" />
+
+        <!-- Error & Status Feedback -->
+        <TextBlock Text="{Binding ErrorMessage}"
+                   Foreground="Red"
+                   TextWrapping="Wrap"
+                   FontSize="12"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Null}}" />
+
+        <TextBlock Text="{Binding StatusMessage}"
+                   Foreground="Green"
+                   TextWrapping="Wrap"
+                   FontSize="12"
+                   IsVisible="{Binding StatusMessage, Converter={x:Null}}" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

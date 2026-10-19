@@ -1,0 +1,83 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             x:Class="CyberPipe.Desktop.Views.ModelsView">
+
+  <ScrollViewer Margin="16">
+    <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Left">
+      <!-- Header Banner / Installer Entry Point -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Spacing="4">
+            <TextBlock Text="Model Catalogs &amp; Tier Assignments" FontWeight="Bold" FontSize="18" />
+            <TextBlock Text="{Binding InstallerNotice}" TextWrapping="Wrap" FontSize="12" Opacity="0.8" />
+          </StackPanel>
+          <Button Grid.Column="1"
+                  Content="Ollama &amp; Local Setup (TASK-081)"
+                  Command="{Binding LaunchInstallerCommand}"
+                  Classes="accent"
+                  VerticalAlignment="Center"
+                  Margin="16,0,0,0" />
+        </Grid>
+      </Border>
+
+      <!-- Tier Model Assignments -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Tier Model Assignments" FontWeight="Bold" FontSize="16" />
+
+          <ItemsControl ItemsSource="{Binding Assignments}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:TierModelAssignmentViewModel">
+                <Border Margin="0,4"
+                        Padding="10"
+                        CornerRadius="6"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                  <Grid ColumnDefinitions="160,*,Auto">
+                    <TextBlock Grid.Column="0" Text="{Binding TierName}" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1" Text="{Binding ModelId}" FontFamily="Consolas,Menlo,monospace" />
+                    <TextBlock Grid.Column="2" Text="{Binding HostingType}" Opacity="0.7" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <!-- Catalog Overview -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Model Catalog" FontWeight="Bold" FontSize="16" />
+
+          <ItemsControl ItemsSource="{Binding Catalog}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border Margin="0,4"
+                        Padding="10"
+                        CornerRadius="6"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                  <Grid ColumnDefinitions="*,Auto,Auto">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding ParamsSummary}" FontSize="11" Opacity="0.7" />
+                      <TextBlock Text="{Binding BestFor}" FontSize="11" Opacity="0.7" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding HostingType}" Margin="12,0" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding Provider}" Opacity="0.6" VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

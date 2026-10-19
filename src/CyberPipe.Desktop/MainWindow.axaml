@@ -1,10 +1,126 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+        xmlns:views="using:CyberPipe.Desktop.Views"
+        xmlns:notif="using:CyberPipe.Desktop.Services"
         x:Class="CyberPipe.Desktop.MainWindow"
         Title="CyberPipe"
-        Width="800"
-        Height="450">
-  <TextBlock Text="CyberPipe"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center" />
+        Width="1100"
+        Height="720"
+        MinWidth="800"
+        MinHeight="500">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <!-- Header Bar -->
+    <Border Grid.Row="0"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            BorderThickness="0,0,0,1"
+            Padding="16,10">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <!-- Logo and Service Indicator -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+          <TextBlock Text="CyberPipe" FontWeight="Bold" FontSize="18" VerticalAlignment="Center" />
+          <Border CornerRadius="4" Padding="8,4" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Text="Service:" FontSize="12" Opacity="0.7" />
+              <TextBlock Text="{Binding Service.State}" FontSize="12" FontWeight="SemiBold" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
+        <!-- Right Controls: Language & Theme -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <!-- Language Toggle -->
+          <Button Content="RU/EN"
+                  Command="{Binding SwitchLanguageCommand}"
+                  ToolTip.Tip="Switch Language (RU/EN)" />
+
+          <!-- Theme Toggle -->
+          <Button Content="Theme"
+                  Command="{Binding ToggleThemeCommand}"
+                  ToolTip.Tip="Toggle Light/Dark Theme" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- First Run Setup Wizard Banner (visible if IsFirstRun is true) -->
+    <Border Grid.Row="1"
+            Background="DarkOrange"
+            Padding="12,8"
+            IsVisible="{Binding IsFirstRun}">
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <TextBlock Grid.Column="0"
+                   Text="Initial system setup required! Run Setup Wizard to initialize PostgreSQL, Owner credentials, and AI models."
+                   Foreground="White"
+                   FontWeight="SemiBold"
+                   VerticalAlignment="Center" />
+        <Button Grid.Column="1"
+                Content="Launch Setup Wizard"
+                Command="{Binding LaunchSetupWizardCommand}"
+                Margin="8,0" />
+        <Button Grid.Column="2"
+                Content="Dismiss"
+                Command="{Binding DismissSetupBannerCommand}" />
+      </Grid>
+    </Border>
+
+    <!-- Main Navigation TabControl -->
+    <TabControl Grid.Row="2" SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}" Margin="0">
+      <TabItem Header="Chat">
+        <views:ChatView DataContext="{Binding Chat}" />
+      </TabItem>
+
+      <TabItem Header="Chains">
+        <views:ChainsView DataContext="{Binding Chains}" />
+      </TabItem>
+
+      <TabItem>
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <TextBlock Text="HITL" />
+            <TextBlock Text="{Binding Hitl.PendingCount, StringFormat='({0})'}"
+                       FontWeight="Bold"
+                       Foreground="Orange"
+                       IsVisible="{Binding Hitl.PendingCount}" />
+          </StackPanel>
+        </TabItem.Header>
+        <views:HitlView DataContext="{Binding Hitl}" />
+      </TabItem>
+
+      <TabItem Header="Service">
+        <views:ServiceView DataContext="{Binding Service}" />
+      </TabItem>
+
+      <TabItem Header="Schedules">
+        <views:SchedulesView DataContext="{Binding Schedules}" />
+      </TabItem>
+
+      <TabItem Header="Models">
+        <views:ModelsView DataContext="{Binding Models}" />
+      </TabItem>
+    </TabControl>
+
+    <!-- In-App Notification Overlay / Toast Bar -->
+    <Border Grid.Row="3"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            BorderThickness="0,1,0,0"
+            Padding="12,6"
+            IsVisible="{Binding Notifications.ActiveNotifications.Count}">
+      <ItemsControl ItemsSource="{Binding Notifications.ActiveNotifications}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate DataType="notif:DesktopNotification">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{Binding Title, StringFormat='[{0}]'}" FontWeight="Bold" FontSize="11" />
+                <TextBlock Text="{Binding Message}" FontSize="11" Opacity="0.9" />
+              </StackPanel>
+              <TextBlock Grid.Column="1" Text="{Binding CreatedAtUtc, StringFormat='{}{0:HH:mm:ss}'}" FontSize="10" Opacity="0.5" />
+            </Grid>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </Border>
+  </Grid>
 </Window>

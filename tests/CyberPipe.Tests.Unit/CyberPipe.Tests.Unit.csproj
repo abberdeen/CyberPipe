@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\CyberPipe.Chains\CyberPipe.Chains.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Skills\CyberPipe.Skills.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Channels.Telegram\CyberPipe.Channels.Telegram.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Desktop\CyberPipe.Desktop.csproj" />
     <ProjectReference Include="..\CyberPipe.Sandbox.Payload\CyberPipe.Sandbox.Payload.csproj" />
   </ItemGroup>
   <ItemGroup>

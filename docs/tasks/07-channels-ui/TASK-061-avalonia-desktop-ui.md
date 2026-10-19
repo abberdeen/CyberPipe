@@ -69,4 +69,4 @@ dotnet test CyberPipe.slnx --filter "FullyQualifiedName~Desktop"
 
 Пути проектов — to-be-created; команды плановые, заработают после TASK-001/TASK-002.
 
-## Статус: Planned
+## Статус: Done

@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             x:Class="CyberPipe.Desktop.Views.ServiceView">
+
+  <ScrollViewer Margin="16">
+    <StackPanel Spacing="16" MaxWidth="680" HorizontalAlignment="Left">
+      <!-- Status Card -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="20">
+        <StackPanel Spacing="12">
+          <TextBlock Text="CyberPipe Windows Service Control" FontWeight="Bold" FontSize="18" />
+
+          <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="0,8,0,0">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" FontWeight="SemiBold" Margin="0,0,16,8" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding State}" FontWeight="Bold" Margin="0,0,0,8" />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Service Version:" FontWeight="SemiBold" Margin="0,0,16,8" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ServiceVersion}" Margin="0,0,0,8" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Desktop Version:" FontWeight="SemiBold" Margin="0,0,16,8" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DesktopVersion}" Margin="0,0,0,8" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Started At:" FontWeight="SemiBold" Margin="0,0,16,8" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StartedAtUtc, StringFormat='{}{0:g}'}" Margin="0,0,0,8" />
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Last Error:" FontWeight="SemiBold" Margin="0,0,16,8" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding LastError, FallbackValue='None'}" Foreground="Red" Margin="0,0,0,8" />
+          </Grid>
+
+          <!-- Prompt message -->
+          <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                  CornerRadius="6"
+                  Padding="12"
+                  Margin="0,8,0,0">
+            <TextBlock Text="{Binding ActionPrompt}" TextWrapping="Wrap" />
+          </Border>
+        </StackPanel>
+      </Border>
+
+      <!-- Action Buttons Card -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="20">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Service Actions" FontWeight="Bold" FontSize="14" />
+
+          <WrapPanel Orientation="Horizontal">
+            <Button Content="Start Service"
+                    Command="{Binding StartCommand}"
+                    Classes="accent"
+                    IsEnabled="{Binding CanStart}"
+                    Margin="0,0,8,8" />
+
+            <Button Content="Stop Service"
+                    Command="{Binding StopCommand}"
+                    IsEnabled="{Binding CanStop}"
+                    Margin="0,0,8,8" />
+
+            <Button Content="Restart Service"
+                    Command="{Binding RestartCommand}"
+                    IsEnabled="{Binding CanRestart}"
+                    Margin="0,0,8,8" />
+
+            <Button Content="Refresh Status"
+                    Command="{Binding RefreshCommand}"
+                    Margin="0,0,8,8" />
+          </WrapPanel>
+
+          <ProgressBar IsIndeterminate="True" Height="4" IsVisible="{Binding IsBusy}" Margin="0,8,0,0" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
