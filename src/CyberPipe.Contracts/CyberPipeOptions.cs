@@ -56,6 +56,9 @@ public sealed record CyberPipeOptions
     /// <summary>Параметры эвристической безопасности аудиоконтента (TASK-071).</summary>
     public AudioContentSafetyOptions AudioContentSafety { get; init; } = new();
 
+    /// <summary>Параметры санитизации исходящих данных (TASK-072).</summary>
+    public EgressSanitizerOptions EgressSanitizer { get; init; } = new();
+
     /// <summary>
     /// Проверяет опции и возвращает ошибки с именами ключей в форме Section:Property.
     /// Значения секретов в ошибки не попадают: секретов-значений в конфигурации нет.
@@ -164,6 +167,13 @@ public sealed record CyberPipeOptions
             errors.Add("AudioContentSafety:MediumRiskThreshold must be between LowRiskThreshold and 1.");
         if (AudioContentSafety.HighRiskThreshold < AudioContentSafety.MediumRiskThreshold || AudioContentSafety.HighRiskThreshold > 1)
             errors.Add("AudioContentSafety:HighRiskThreshold must be between MediumRiskThreshold and 1.");
+
+        if (EgressSanitizer.MaxPayloadSizeBytes <= 0)
+            errors.Add("EgressSanitizer:MaxPayloadSizeBytes must be positive.");
+        if (EgressSanitizer.HighEntropyThreshold <= 0)
+            errors.Add("EgressSanitizer:HighEntropyThreshold must be positive.");
+        if (EgressSanitizer.HighEntropyMinLength <= 0)
+            errors.Add("EgressSanitizer:HighEntropyMinLength must be positive.");
 
         return errors;
     }
