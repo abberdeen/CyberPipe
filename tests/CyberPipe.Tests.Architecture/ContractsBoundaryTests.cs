@@ -146,6 +146,21 @@ public sealed class ContractsBoundaryTests
         "AlarmRecord",
         "IAlarmService",
         "IHostSkillRegistry",
+        "ISkill",
+        "NoteRecord",
+        "INoteRepository",
+        "FinanceTransactionKind",
+        "FinanceTransactionRecord",
+        "CategorySummaryDto",
+        "FinanceReportDto",
+        "IFinanceRepository",
+        "ReminderStatus",
+        "ReminderItemRecord",
+        "IReminderRepository",
+        "ContactRecord",
+        "InteractionRecord",
+        "IContactRepository",
+        "IPersonalSkillRegistry",
     ];
 
     [Fact]

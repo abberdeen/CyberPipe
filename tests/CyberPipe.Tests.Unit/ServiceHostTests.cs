@@ -210,8 +210,11 @@ public sealed class ServiceHostTests
         using var cts = new CancellationTokenSource();
         Task workerTask = worker.StartAsync(cts.Token);
 
-        // Give it a brief moment to run
-        await Task.Delay(100);
+        // Wait for worker to enter Running state
+        for (int i = 0; i < 40 && tracker.State != "Running"; i++)
+        {
+            await Task.Delay(50);
+        }
         Assert.Equal("Running", tracker.State);
 
         await worker.StopAsync(CancellationToken.None);

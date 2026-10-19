@@ -99,19 +99,8 @@ public sealed record HostSkillResult
 /// <summary>
 /// Интерфейс исполняемого хост-навыка (TASK-050).
 /// </summary>
-public interface IHostSkill
+public interface IHostSkill : ISkill
 {
-    /// <summary>Уникальный идентификатор навыка (например, "media.play", "volume.set").</summary>
-    string SkillId { get; }
-
-    /// <summary>Имя навыка для отображения.</summary>
-    string Name { get; }
-
-    /// <summary>Описание навыка для модели и документации.</summary>
-    string Description { get; }
-
-    /// <summary>Исполняет навык с переданными аргументами в формате JSON.</summary>
-    Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
