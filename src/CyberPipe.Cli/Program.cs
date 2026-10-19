@@ -1,28 +1,33 @@
-using System.Text.Json;
+using CyberPipe.Cli;
 using CyberPipe.Contracts;
 using CyberPipe.Logging;
 using Microsoft.Extensions.Logging;
 
-// CLI/TUI skeleton. Implementation: TASK-062. Logging and diagnostics command: TASK-004.
-CyberPipeOptions options = CyberPipeConfigurationLoader.LoadFromSources(
-    appsettingsPath: null,
-    environmentVariables: null,
-    uiOverridesPath: null);
-using ILoggerFactory loggerFactory =
-    CyberPipeLogging.CreateLoggerFactory("Cli", options, writeToConsole: true);
-ILogger logger = loggerFactory.CreateLogger("CyberPipe.Cli");
-
-if (args.Length > 0 && args[0] is "health" or "diagnostics")
+// CLI entry point: TASK-062. Logging and configuration: TASK-003, TASK-004.
+CyberPipeOptions options;
+try
 {
-    var diagnostics = new DiagnosticsService(
-        "Cli",
-        options,
-        new UnavailableDatabaseHealthProbe());
-    HealthReportDto report = await diagnostics.GetHealthAsync();
-    Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-    logger.LogInformation("Diagnostics report collected Status={Status}", report.Status);
-    return 0;
+    options = CyberPipeConfigurationLoader.LoadFromSources(
+        appsettingsPath: null,
+        environmentVariables: null,
+        uiOverridesPath: null);
+}
+catch (ConfigurationValidationException)
+{
+    options = new CyberPipeOptions();
 }
 
-logger.LogInformation("CyberPipe CLI starting");
-return 0;
+using ILoggerFactory loggerFactory =
+    CyberPipeLogging.CreateLoggerFactory("Cli", options, writeToConsole: false);
+ILogger logger = loggerFactory.CreateLogger("CyberPipe.Cli");
+
+var ctx = new CliContext
+{
+    Options = options,
+};
+
+logger.LogInformation("CyberPipe CLI invoking command with {Count} args", args.Length);
+
+int exitCode = await CliApp.RunAsync(args, ctx);
+
+return exitCode;
