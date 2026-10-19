@@ -44,6 +44,9 @@ public sealed record CyberPipeOptions
     /// <summary>Логирование: уровень и файл с ротацией; уровень меняется конфигурацией без пересборки (TASK-004).</summary>
     public LoggingOptions Logging { get; init; } = new();
 
+    /// <summary>Параметры службы и управляющего канала (TASK-020).</summary>
+    public HostingOptions Hosting { get; init; } = new();
+
     /// <summary>
     /// Проверяет опции и возвращает ошибки с именами ключей в форме Section:Property.
     /// Значения секретов в ошибки не попадают: секретов-значений в конфигурации нет.
@@ -111,6 +114,13 @@ public sealed record CyberPipeOptions
             errors.Add("PerformanceTargets:Tier0TargetMilliseconds must be positive.");
         if (PerformanceTargets.StopTargetMilliseconds <= 0)
             errors.Add("PerformanceTargets:StopTargetMilliseconds must be positive.");
+
+        if (string.IsNullOrWhiteSpace(Hosting.ServiceName))
+            errors.Add("Hosting:ServiceName must not be empty.");
+        if (string.IsNullOrWhiteSpace(Hosting.PipeName))
+            errors.Add("Hosting:PipeName must not be empty.");
+        if (Hosting.ShutdownTimeoutSeconds <= 0)
+            errors.Add("Hosting:ShutdownTimeoutSeconds must be positive.");
 
         if (!LoggingLevelNames.Contains(Logging.MinimumLevel))
             errors.Add("Logging:MinimumLevel must be one of Verbose, Debug, Information, Warning, Error, Fatal.");
@@ -299,4 +309,19 @@ public sealed record LoggingOptions
 
     /// <summary>Писать ли события в консоль в дополнение к файлу; хосты CLI/Desktop включают явно.</summary>
     public bool WriteToConsole { get; init; }
+}
+
+/// <summary>
+/// Параметры хоста службы Windows и управляющего канала (TASK-020).
+/// </summary>
+public sealed record HostingOptions
+{
+    /// <summary>Имя службы Windows.</summary>
+    public string ServiceName { get; init; } = "CyberPipe";
+
+    /// <summary>Имя Named Pipe для канала управления службой (без префикса \\.\pipe\).</summary>
+    public string PipeName { get; init; } = "CyberPipe.Service.Control.v1";
+
+    /// <summary>Тайм-аут корректного завершения службы в секундах.</summary>
+    public int ShutdownTimeoutSeconds { get; init; } = 30;
 }

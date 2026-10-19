@@ -91,4 +91,4 @@ dotnet test CyberPipe.slnx --filter "FullyQualifiedName~ServiceHost"
 
 Пути проектов — к созданию; команды заработают после TASK-001.
 
-## Статус: Planned
+## Статус: Done

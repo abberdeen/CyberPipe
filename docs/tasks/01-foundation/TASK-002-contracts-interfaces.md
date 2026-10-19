@@ -71,4 +71,4 @@ dotnet test tests/CyberPipe.Tests.Unit
 dotnet test tests/CyberPipe.Tests.Architecture
 ```
 
-## Статус: Planned
+## Статус: Done

@@ -63,4 +63,4 @@ dotnet build CyberPipe.slnx
 dotnet test tests/CyberPipe.Tests.Unit --filter LoggingAndDiagnostics
 ```
 
-## Статус: Planned
+## Статус: Done

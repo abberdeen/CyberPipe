@@ -36,18 +36,18 @@
 
 | ID | Задача | Зависимости | Статус |
 |---|---|---|---|
-| TASK-001 | Каркас решения (solution skeleton) | — | Ready |
-| TASK-002 | Контракты и интерфейсы (DTO, интерфейсы, абстракции сообщений) | TASK-001 | Planned |
-| TASK-003 | Конфигурация и секреты | TASK-001, TASK-002 | Planned |
-| TASK-004 | Логирование и диагностика | TASK-001, TASK-002 | Planned |
-| TASK-010 | Bootstrap PostgreSQL (установка, подключение, запрос пароля) | TASK-002, TASK-003 | Planned |
-| TASK-011 | Схема базы данных и миграции | TASK-010 | Planned |
-| TASK-012 | Хранилище эмбеддингов на pgvector | TASK-002, TASK-011 | Planned |
-| TASK-013 | Репозитории и доступ к данным | TASK-002, TASK-011, TASK-012 | Planned |
-| TASK-020 | Windows Service Host | TASK-001, TASK-002, TASK-003, TASK-004 | Planned |
+| TASK-001 | Каркас решения (solution skeleton) | — | Done |
+| TASK-002 | Контракты и интерфейсы (DTO, интерфейсы, абстракции сообщений) | TASK-001 | Done |
+| TASK-003 | Конфигурация и секреты | TASK-001, TASK-002 | Done |
+| TASK-004 | Логирование и диагностика | TASK-001, TASK-002 | Done |
+| TASK-010 | Bootstrap PostgreSQL (установка, подключение, запрос пароля) | TASK-002, TASK-003 | Done |
+| TASK-011 | Схема базы данных и миграции | TASK-010 | Done |
+| TASK-012 | Хранилище эмбеддингов на pgvector | TASK-002, TASK-011 | Done |
+| TASK-013 | Репозитории и доступ к данным | TASK-002, TASK-011, TASK-012 | Done |
+| TASK-020 | Windows Service Host | TASK-001, TASK-002, TASK-003, TASK-004 | In Progress |
 | TASK-021 | Управление Service из Desktop (Start/Stop/Restart) | TASK-002, TASK-020 | Planned |
 | TASK-022 | Супервизор Brainstem-воркера | TASK-002, TASK-020, TASK-023 | Planned |
-| TASK-023 | Sandbox: Restricted Token + Job Object + Deny-ACL | TASK-002 | Planned |
+| TASK-023 | Sandbox: Restricted Token + Job Object + Deny-ACL | TASK-002 | Ready |
 | TASK-030 | Tier 0: regex-роутер | TASK-002 | Planned |
 | TASK-031 | Tier 1: семантический роутер на ONNX-эмбеддингах | TASK-002, TASK-012 | Planned |
 | TASK-032 | Tier 2/3: LLM-роутер (лёгкая и тяжёлая модели) | TASK-002, TASK-033 | Planned |
@@ -263,12 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Ready | 1 | TASK-001 |
-| Planned | 42 | Все остальные: TASK-002–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-073, TASK-080–TASK-082, TASK-090–TASK-093 |
-| In Progress / Done | 0 | — |
+| Done | 8 | TASK-001–TASK-004, TASK-010–TASK-013 |
+| In Progress | 1 | TASK-020 |
+| Ready | 16 | TASK-023, TASK-030, TASK-031, TASK-033, TASK-034, TASK-040, TASK-042, TASK-051, TASK-052, TASK-053, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Planned | 18 | TASK-021, TASK-022, TASK-032, TASK-041, TASK-043–TASK-046, TASK-050, TASK-060, TASK-061, TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Ready` только у TASK-001, потому что это единственная задача без зависимостей; правило индекса — `Ready` ставится только задаче без невыполненных зависимостей. Все прочие задачи формально `Planned`, даже если их зависимости почти закрыты.
+`Done` у завершённых задач областей 01 и 02. `In Progress` у TASK-020. `Ready` у разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

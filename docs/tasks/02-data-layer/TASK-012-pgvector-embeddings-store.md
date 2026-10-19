@@ -70,4 +70,4 @@ dotnet test tests/CyberPipe.Data.Tests (к созданию) --filter "Category!
 dotnet test tests/CyberPipe.Data.Tests (к созданию) --filter "Category=Integration"
 ```
 
-## Статус: Planned
+## Статус: Done

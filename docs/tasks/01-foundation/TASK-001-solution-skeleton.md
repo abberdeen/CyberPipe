@@ -66,4 +66,4 @@ dotnet build CyberPipe.slnx
 dotnet test CyberPipe.slnx
 ```
 
-## Статус: Ready
+## Статус: Done
