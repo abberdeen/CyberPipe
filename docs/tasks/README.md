@@ -69,9 +69,9 @@
 | TASK-062 | CLI/TUI клиент | TASK-002 | Done |
 | TASK-063 | Мастер первого запуска (First-Run Setup Wizard) | TASK-002, TASK-010, TASK-011 | Done |
 | TASK-070 | Anti-wipe guard | TASK-002 | Done |
-| TASK-071 | Эвристическая безопасность аудио и контента | TASK-002 | Ready |
-| TASK-072 | Egress sanitizer | TASK-002 | Ready |
-| TASK-073 | Owner auth whitelist | TASK-002 | Ready |
+| TASK-071 | Эвристическая безопасность аудио и контента | TASK-002 | Done |
+| TASK-072 | Egress sanitizer | TASK-002 | Done |
+| TASK-073 | Owner auth whitelist | TASK-002 | Done |
 | TASK-080 | Каталоги моделей в JSON (15 локальных + 8 облачных) | TASK-002 | Ready |
 | TASK-081 | Инструмент установки и настройки локальных моделей (Ollama) | TASK-002, TASK-080 | Planned |
 | TASK-082 | Советник по железу и совместимости локальных моделей | TASK-002, TASK-080 | Planned |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 35 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-072 |
+| Done | 36 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-073 |
 | In Progress | 0 | — |
-| Ready | 2 | TASK-073, TASK-080 |
+| Ready | 1 | TASK-080 |
 | Planned | 6 | TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 35 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host, 04-router-tiers, 05-chains, 06-skills, 07-channels-ui целиком; TASK-070–TASK-072). `Ready` у 2 разблокированных задач без незавершённых зависимостей.
+`Done` у 36 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host, 04-router-tiers, 05-chains, 06-skills, 07-channels-ui целиком; TASK-070–TASK-073). `Ready` у 1 разблокированной задачи без незавершённых зависимостей (TASK-080).
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

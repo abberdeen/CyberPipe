@@ -18,7 +18,7 @@
 | TASK-070 | [TASK-070-anti-wipe-guard.md](TASK-070-anti-wipe-guard.md) | Anti-wipe guard: блокировка/подтверждение необратимых операций | Done |
 | TASK-071 | [TASK-071-heuristic-audio-content-safety.md](TASK-071-heuristic-audio-content-safety.md) | Эвристическая безопасность аудио/контента через embedding-оценку риска | Done |
 | TASK-072 | [TASK-072-egress-sanitizer.md](TASK-072-egress-sanitizer.md) | Egress sanitizer: очистка исходящих данных от секретов и ПДн | Done |
-| TASK-073 | [TASK-073-owner-auth-whitelist.md](TASK-073-owner-auth-whitelist.md) | Owner auth whitelist: только Owner, без Guest | Planned |
+| TASK-073 | [TASK-073-owner-auth-whitelist.md](TASK-073-owner-auth-whitelist.md) | Owner auth whitelist: только Owner, без Guest | Done |
 
 ## Общие принципы
 
@@ -38,4 +38,4 @@
 
 ## Статус
 
-Все задачи области: `Planned` (у каждой есть зависимость от TASK-002).
+Все задачи области: `Done` (зависимость от TASK-002 закрыта).

@@ -1,0 +1,27 @@
+{
+  "catalogVersion": "1.0.0",
+  "models": [
+    {
+      "id": "multilingual-e5-small",
+      "name": "Multilingual E5 Small",
+      "hostingType": "Local",
+      "recommendedFor": "EmbeddingTier1",
+      "provider": "ONNX",
+      "modelId": "intfloat/multilingual-e5-small",
+      "paramsSummary": "118M",
+      "contextWindowTokens": 512,
+      "defaultContextTokens": 512,
+      "q4SizeGb": 0.5,
+      "minRamGb": 2,
+      "inputPricePer1mUsd": null,
+      "outputPricePer1mUsd": null,
+      "licenseOrPricing": "MIT",
+      "bestFor": "Tier 1 semantic embeddings RU/EN",
+      "runtime": "ONNX",
+      "vectorDimensions": 384,
+      "normalization": "l2",
+      "languages": [ "ru", "en" ]
+    }
+  ],
+  "alternatives": []
+}

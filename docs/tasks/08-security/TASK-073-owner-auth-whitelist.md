@@ -80,4 +80,4 @@ dotnet test --filter "FullyQualifiedName~OwnerAuth"
 
 ## Статус
 
-Planned
+Done
