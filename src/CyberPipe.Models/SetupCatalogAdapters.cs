@@ -1,0 +1,74 @@
+using CyberPipe.Contracts;
+
+namespace CyberPipe.Models;
+
+/// <summary>
+/// Адаптеры портов мастера первого запуска (TASK-063) поверх каталога и установщика (TASK-090).
+/// </summary>
+public sealed class SetupModelInstallerAdapter : IModelInstaller
+{
+    private readonly ILocalModelInstaller _installer;
+    private readonly IModelCatalog _catalog;
+
+    /// <summary>Создаёт адаптер.</summary>
+    public SetupModelInstallerAdapter(ILocalModelInstaller installer, IModelCatalog catalog)
+    {
+        _installer = installer ?? throw new ArgumentNullException(nameof(installer));
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+    }
+
+    /// <inheritdoc />
+    public async Task<Result<bool>> InstallModelAsync(string modelId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            return Result<bool>.Failure("Model.NoRuntimeId", "Model id is required.");
+        }
+
+        ModelDescriptorDto? descriptor = _catalog.GetById(modelId);
+        if (descriptor is null)
+        {
+            return Result<bool>.Failure("Model.NotInCatalog", $"Model '{modelId}' is not in the catalog.");
+        }
+
+        Result<ModelProbeResult> result = await _installer.InstallAsync(descriptor, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        return result.IsSuccess
+            ? Result<bool>.Success(true)
+            : Result<bool>.Failure(result.Error!);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> IsModelInstalledAsync(string modelId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            return false;
+        }
+
+        string runtimeId = _catalog.GetById(modelId)?.ModelId ?? modelId;
+        IReadOnlyList<InstalledLocalModel> installed =
+            await _installer.ListInstalledAsync(cancellationToken).ConfigureAwait(false);
+        return installed.Any(m => string.Equals(m.ModelId, runtimeId, StringComparison.Ordinal));
+    }
+}
+
+/// <summary>
+/// Поставщик каталога для мастера первого запуска поверх <see cref="IModelCatalog" /> (TASK-090).
+/// </summary>
+public sealed class SetupModelCatalogProviderAdapter : IModelCatalogProvider
+{
+    private readonly IModelCatalog _catalog;
+
+    /// <summary>Создаёт адаптер.</summary>
+    public SetupModelCatalogProviderAdapter(IModelCatalog catalog)
+    {
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ModelDescriptorDto>> GetCatalogAsync(
+        ModelHostingType? hostingType = null,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(_catalog.Find(hostingType: hostingType));
+}

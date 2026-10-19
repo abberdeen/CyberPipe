@@ -54,17 +54,31 @@ public sealed class ProjectGraphTests
         Assert.Empty(graph["CyberPipe.Contracts"]);
     }
 
+    private static readonly string[] FeatureProjects =
+    [
+        "CyberPipe.Chains",
+        "CyberPipe.Channels.Telegram",
+        "CyberPipe.Data",
+        "CyberPipe.Desktop",
+        "CyberPipe.Execution.Sandbox",
+        "CyberPipe.Logging",
+        "CyberPipe.Models",
+        "CyberPipe.Router",
+        "CyberPipe.Security",
+        "CyberPipe.ServiceControl",
+        "CyberPipe.Setup",
+        "CyberPipe.Skills",
+    ];
+
     [Fact]
-    public void SrcProjects_ReferenceOnlyContracts()
+    public void FeatureProjects_ReferenceOnlyContractsAndLogging()
     {
-        // TASK-004: CyberPipe.Logging is the single shared infrastructure project on top of
-        // Contracts; every src project references Contracts and at most Logging, nothing else.
+        // TASK-004/TASK-090: feature projects reference Contracts and at most Logging;
+        // cross-area wiring happens only in the Service composition root.
         Dictionary<string, string[]> graph = LoadGraph();
-        string root = FindSolutionRoot();
-        foreach (string projectFile in Directory.GetFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories))
+        foreach (string name in FeatureProjects)
         {
-            string name = Path.GetFileNameWithoutExtension(projectFile);
-            if (name == "CyberPipe.Contracts")
+            if (!graph.ContainsKey(name))
             {
                 continue;
             }
@@ -73,9 +87,103 @@ public sealed class ProjectGraphTests
             Assert.True(
                 graph[name].All(r => r is "CyberPipe.Contracts" or "CyberPipe.Logging"),
                 $"{name} references unexpected projects: {string.Join(", ", graph[name])}");
-            if (name == "CyberPipe.Logging")
+        }
+    }
+
+    [Fact]
+    public void ServiceComposition_MayReferenceFeatureProjectsOnly()
+    {
+        // TASK-090: Service is the single composition root; it must not pull
+        // UI processes (Desktop/CLI) or the isolated Brainstem worker.
+        Dictionary<string, string[]> graph = LoadGraph();
+        string[] allowed =
+        [
+            "CyberPipe.Contracts",
+            "CyberPipe.Logging",
+            "CyberPipe.Chains",
+            "CyberPipe.Channels.Telegram",
+            "CyberPipe.Data",
+            "CyberPipe.Execution.Sandbox",
+            "CyberPipe.Models",
+            "CyberPipe.Router",
+            "CyberPipe.Security",
+            "CyberPipe.ServiceControl",
+            "CyberPipe.Setup",
+            "CyberPipe.Skills",
+        ];
+        Assert.True(
+            graph["CyberPipe.Service"].All(r => allowed.Contains(r, StringComparer.Ordinal)),
+            $"CyberPipe.Service references unexpected projects: {string.Join(", ", graph["CyberPipe.Service"])}");
+    }
+
+    [Fact]
+    public void DesktopAndCli_HaveNoDataReference()
+    {
+        // TASK-090: Desktop and CLI never reference the data project or the
+        // PostgreSQL driver; they reach state only through contracts.
+        Dictionary<string, string[]> graph = LoadGraph();
+        foreach (string name in new[] { "CyberPipe.Desktop", "CyberPipe.Cli" })
+        {
+            Assert.DoesNotContain("CyberPipe.Data", graph[name]);
+        }
+    }
+
+    [Fact]
+    public void Brainstem_ReferencesOnlyContractsAndLogging()
+    {
+        // TASK-090: the isolated worker and its supervisor stay free of
+        // channels, UI and chain scheduling.
+        Dictionary<string, string[]> graph = LoadGraph();
+        foreach (string name in new[] { "CyberPipe.Brainstem", "CyberPipe.Brainstem.Supervisor" })
+        {
+            if (!graph.ContainsKey(name))
             {
-                Assert.Equal(["CyberPipe.Contracts"], graph[name]);
+                continue;
+            }
+
+            Assert.True(
+                graph[name].All(r => r is "CyberPipe.Contracts" or "CyberPipe.Logging"),
+                $"{name} references unexpected projects: {string.Join(", ", graph[name])}");
+        }
+    }
+
+    [Fact]
+    public void SrcProjects_HaveNoForbiddenPackageReferences()
+    {
+        // TASK-090/TASK-093 G3: no fixed broker, no Hangfire, no gRPC packages;
+        // Npgsql (PostgreSQL driver) is allowed only in Data and Chains
+        // (Quartz in the same PostgreSQL).
+        string root = FindSolutionRoot();
+        string[] forbiddenEverywhere = ["Hangfire", "RabbitMQ", "Kafka", "MassTransit", "NServiceBus", "Grpc"];
+        foreach (string projectFile in Directory.GetFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories))
+        {
+            string name = Path.GetFileNameWithoutExtension(projectFile);
+            XDocument doc = XDocument.Load(projectFile);
+            string[] packages = doc.Descendants("PackageReference")
+                .Select(element => (string?)element.Attribute("Include"))
+                .Where(include => include is not null)
+                .Select(include => include!)
+                .ToArray();
+            foreach (string package in packages)
+            {
+                foreach (string forbidden in forbiddenEverywhere)
+                {
+                    Assert.False(
+                        package.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                        $"{name} references forbidden package {package}");
+                }
+
+                if (package.Contains("Npgsql", StringComparison.OrdinalIgnoreCase))
+                {
+                    Assert.True(
+                        name is "CyberPipe.Data" or "CyberPipe.Chains",
+                        $"{name} must not reference the PostgreSQL driver");
+                }
+
+                if (package.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
+                {
+                    Assert.Fail($"{name} must not reference SQLite");
+                }
             }
         }
     }

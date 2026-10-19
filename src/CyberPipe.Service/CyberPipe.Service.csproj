@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <AssemblyName>CyberPipe.Service</AssemblyName>
@@ -7,11 +7,21 @@
   <ItemGroup>
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
     <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
+    <ProjectReference Include="..\CyberPipe.Data\CyberPipe.Data.csproj" />
+    <ProjectReference Include="..\CyberPipe.Router\CyberPipe.Router.csproj" />
+    <ProjectReference Include="..\CyberPipe.Chains\CyberPipe.Chains.csproj" />
+    <ProjectReference Include="..\CyberPipe.Skills\CyberPipe.Skills.csproj" />
+    <ProjectReference Include="..\CyberPipe.Channels.Telegram\CyberPipe.Channels.Telegram.csproj" />
+    <ProjectReference Include="..\CyberPipe.Security\CyberPipe.Security.csproj" />
+    <ProjectReference Include="..\CyberPipe.Models\CyberPipe.Models.csproj" />
+    <ProjectReference Include="..\CyberPipe.Setup\CyberPipe.Setup.csproj" />
+    <ProjectReference Include="..\Execution\CyberPipe.Execution.Sandbox\CyberPipe.Execution.Sandbox.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.13" />
+    <PackageReference Include="Quartz" Version="3.13.1" />
   </ItemGroup>
 </Project>

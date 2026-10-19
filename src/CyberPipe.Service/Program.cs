@@ -1,6 +1,7 @@
 using CyberPipe.Contracts;
 using CyberPipe.Logging;
 using CyberPipe.Service;
+using CyberPipe.Service.Composition;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,7 @@ public static class Program
     public static async Task<int> Main(string[] args)
     {
         bool isConsole = args.Any(arg => string.Equals(arg, "--console", StringComparison.OrdinalIgnoreCase));
+        bool validateOnly = args.Any(arg => string.Equals(arg, "--validate-config", StringComparison.OrdinalIgnoreCase));
 
         CyberPipeOptions options;
         try
@@ -33,6 +35,11 @@ public static class Program
 
         using ILoggerFactory loggerFactory = CyberPipeLogging.CreateLoggerFactory("Service", options);
         ILogger logger = loggerFactory.CreateLogger("CyberPipe.Service");
+
+        if (validateOnly)
+        {
+            return RunValidateConfig(options, logger);
+        }
 
         logger.LogInformation(
             "CyberPipe Service initializing. Mode: {Mode}, ServiceName: {ServiceName}",
@@ -60,7 +67,7 @@ public static class Program
             {
                 services.AddSingleton<ILoggerFactory>(loggerFactory);
                 services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
-                services.AddSingleton(options);
+                services.AddCyberPipeService(options);
                 services.AddSingleton<ServiceStatusTracker>();
                 services.AddSingleton(sp =>
                 {
@@ -104,5 +111,32 @@ public static class Program
             Console.Error.WriteLine($"Fatal error: {ex.Message}");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Диагностический прогон конфигурации (TASK-090): связность DI-графа, каталоги
+    /// моделей, запрещённые сервисы. Без запуска каналов и без записи в БД.
+    /// </summary>
+    private static int RunValidateConfig(CyberPipeOptions options, ILogger logger)
+    {
+        var services = new ServiceCollection();
+        services.AddCyberPipeService(options);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        ConfigurationValidationReport report = ServiceComposition.ValidateConfiguration(provider, options);
+        if (report.IsValid)
+        {
+            Console.WriteLine("Configuration is valid: DI graph resolves, model catalogs 15+8 are present.");
+            logger.LogInformation("Validate-config succeeded.");
+            return 0;
+        }
+
+        foreach (string error in report.Errors)
+        {
+            Console.Error.WriteLine($"Invalid: {error}");
+            logger.LogWarning("Validate-config error: {Error}", error);
+        }
+
+        return 1;
     }
 }
