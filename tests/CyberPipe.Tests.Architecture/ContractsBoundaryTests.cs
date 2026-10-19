@@ -173,6 +173,14 @@ public sealed class ContractsBoundaryTests
         "VoiceSkillLimits",
         "IVoiceSkill",
         "IVoiceSkillRegistry",
+        "KnowledgeHit",
+        "IngestDocumentRequest",
+        "KnowledgeSearchRequest",
+        "MemoryFact",
+        "IKnowledgeContextProvider",
+        "KnowledgeOptions",
+        "KnowledgeDimensionMismatchException",
+        "IKnowledgeSkillRegistry",
     ];
 
     [Fact]

@@ -59,4 +59,4 @@
 - `dotnet test --filter "FullyQualifiedName~Skills.Knowledge"` (плановая)
 - `dotnet test --filter "Category=RequiresModel"` (плановая, только при установленной модели эмбеддингов)
 
-## Статус: Planned
+## Статус: Done
