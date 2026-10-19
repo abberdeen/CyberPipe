@@ -76,6 +76,22 @@ public static class CyberPipeLogging
         if (inMemorySink is not null)
             configuration.WriteTo.Sink(inMemorySink);
 
+        if (options.Telemetry.Enabled)
+            configuration.WriteTo.OpenTelemetry(sinkOptions =>
+            {
+                sinkOptions.Endpoint = options.Telemetry.OtlpEndpoint;
+                sinkOptions.Protocol = Telemetry.TelemetryConfiguration.MapProtocol(options.Telemetry)
+                    == OpenTelemetry.Exporter.OtlpExportProtocol.HttpProtobuf
+                    ? Serilog.Sinks.OpenTelemetry.OtlpProtocol.HttpProtobuf
+                    : Serilog.Sinks.OpenTelemetry.OtlpProtocol.Grpc;
+                sinkOptions.ResourceAttributes = new Dictionary<string, object>
+                {
+                    ["service.name"] = processName,
+                    ["service.version"] = Telemetry.TelemetryConfiguration.ResolveServiceVersion(),
+                    ["deployment.environment"] = options.Telemetry.Environment,
+                };
+            });
+
         Serilog.Core.Logger serilogLogger = configuration.CreateLogger();
         return new SerilogLoggerFactory(serilogLogger, dispose: true);
     }

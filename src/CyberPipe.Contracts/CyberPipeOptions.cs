@@ -47,6 +47,9 @@ public sealed record CyberPipeOptions
     /// <summary>Логирование: уровень и файл с ротацией; уровень меняется конфигурацией без пересборки (TASK-004).</summary>
     public LoggingOptions Logging { get; init; } = new();
 
+    /// <summary>Экспорт телеметрии OpenTelemetry (трейсы, метрики, логи) в OTLP-приёмник.</summary>
+    public TelemetryOptions Telemetry { get; init; } = new();
+
     /// <summary>Параметры изолированного воркера Brainstem и его супервизора (TASK-022).</summary>
     public BrainstemOptions Brainstem { get; init; } = new();
 
@@ -145,6 +148,18 @@ public sealed record CyberPipeOptions
             errors.Add("Logging:FileSizeLimitBytes must be positive.");
         if (Logging.RetainedFileCountLimit <= 0)
             errors.Add("Logging:RetainedFileCountLimit must be positive.");
+
+        if (Telemetry.Enabled)
+        {
+            if (!Uri.TryCreate(Telemetry.OtlpEndpoint, UriKind.Absolute, out Uri? otlpUri)
+                || (otlpUri.Scheme != Uri.UriSchemeHttp && otlpUri.Scheme != Uri.UriSchemeHttps))
+                errors.Add("Telemetry:OtlpEndpoint must be an absolute http(s) URI.");
+            if (!Telemetry.OtlpProtocol.Equals("Grpc", StringComparison.OrdinalIgnoreCase)
+                && !Telemetry.OtlpProtocol.Equals("HttpProtobuf", StringComparison.OrdinalIgnoreCase))
+                errors.Add("Telemetry:OtlpProtocol must be Grpc or HttpProtobuf.");
+            if (Telemetry.SampleRatio is < 0 or > 1)
+                errors.Add("Telemetry:SampleRatio must be between 0 and 1.");
+        }
 
         if (string.IsNullOrWhiteSpace(Brainstem.Role))
             errors.Add("Brainstem:Role must not be empty.");
@@ -382,6 +397,29 @@ public sealed record LoggingOptions
 
     /// <summary>Писать ли события в консоль в дополнение к файлу; хосты CLI/Desktop включают явно.</summary>
     public bool WriteToConsole { get; init; }
+}
+
+/// <summary>
+/// Телеметрия OpenTelemetry: трейсы и метрики через OTLP-экспортёр SDK,
+/// логи — через Serilog-sink в тот же приёмник. По умолчанию выключена;
+/// включается секцией Telemetry или переменными CYBERPIPE_Telemetry__*.
+/// </summary>
+public sealed record TelemetryOptions
+{
+    /// <summary>Включить экспорт телеметрии; при false провайдеры не создаются.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>OTLP-эндпоинт приёмника (SigNoz: http://localhost:4317 gRPC или :4318 HTTP).</summary>
+    public string OtlpEndpoint { get; init; } = "http://localhost:4317";
+
+    /// <summary>OTLP-протокол: Grpc или HttpProtobuf.</summary>
+    public string OtlpProtocol { get; init; } = "Grpc";
+
+    /// <summary>Окружение для resource-атрибута deployment.environment.</summary>
+    public string Environment { get; init; } = "local";
+
+    /// <summary>Доля сэмплирования трейсов 0..1 (1 — все спаны).</summary>
+    public double SampleRatio { get; init; } = 1.0;
 }
 
 /// <summary>

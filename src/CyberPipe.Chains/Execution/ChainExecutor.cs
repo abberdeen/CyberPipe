@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CyberPipe.Contracts;
+using CyberPipe.Logging.Telemetry;
 
 namespace CyberPipe.Chains.Execution;
 
@@ -146,6 +147,7 @@ public sealed class ChainExecutor : IChainExecutor
         _activeCts[runId] = linkedCts;
         CancellationToken ct = linkedCts.Token;
 
+        using ChainRunTrace trace = ChainRunTrace.Start(runId, def.Id, trigger);
         try
         {
             IReadOnlyList<ChainCheckpointDto> rawCheckpoints = await _repository.GetCheckpointsAsync(runId, ct);
@@ -218,6 +220,7 @@ public sealed class ChainExecutor : IChainExecutor
                     }, ct);
 
                     await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Failed, err, ct);
+                    trace.SetOutcome("Failed", err.Code);
                     return;
                 }
 
@@ -235,6 +238,7 @@ public sealed class ChainExecutor : IChainExecutor
                     OutputJson = currentPayload,
                     CheckpointAtUtc = DateTimeOffset.UtcNow,
                 }, ct);
+                trace.Event("skill.completed");
             }
 
             // --- ШАГ 2: SCRIPT ---
@@ -264,6 +268,7 @@ public sealed class ChainExecutor : IChainExecutor
                     }, ct);
 
                     await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Failed, err, ct);
+                    trace.SetOutcome("Failed", err.Code);
                     return;
                 }
 
@@ -332,6 +337,7 @@ public sealed class ChainExecutor : IChainExecutor
                                 ct);
                         }
 
+                        trace.SetOutcome("WaitingForRetry");
                         return; // Память и поток освобождены
                     }
 
@@ -344,6 +350,7 @@ public sealed class ChainExecutor : IChainExecutor
                     if (runResult.Status == ScriptRunStatus.Cancelled)
                     {
                         await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Cancelled, null, ct);
+                        trace.SetOutcome("Cancelled");
                         return;
                     }
 
@@ -373,6 +380,7 @@ public sealed class ChainExecutor : IChainExecutor
                     }, ct);
 
                     await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Failed, err, ct);
+                    trace.SetOutcome("Failed", err.Code);
                     return;
                 }
 
@@ -389,6 +397,7 @@ public sealed class ChainExecutor : IChainExecutor
                     OutputJson = currentPayload,
                     CheckpointAtUtc = DateTimeOffset.UtcNow,
                 }, ct);
+                trace.Event("script.completed");
             }
 
             // --- ШАГ 3: HITL (если требуется) ---
@@ -408,6 +417,7 @@ public sealed class ChainExecutor : IChainExecutor
                             Message = "Chain requires HITL approval, but no IHitlApprovalGate configured.",
                         };
                         await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Failed, err, ct);
+                        trace.SetOutcome("Failed", err.Code);
                         return;
                     }
 
@@ -435,7 +445,9 @@ public sealed class ChainExecutor : IChainExecutor
                         ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(24),
                     };
 
+                    trace.Event("hitl.requested");
                     HitlApprovalResult decision = await _hitlGate.RequestApprovalAsync(approvalReq, ct);
+                    trace.SetTag("hitl.decision", decision.Decision.ToString());
 
                     if (decision.Decision == HitlDecision.Approved)
                     {
@@ -486,6 +498,7 @@ public sealed class ChainExecutor : IChainExecutor
                         }, ct);
 
                         await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Failed, err, ct);
+                        trace.SetOutcome("Failed", err.Code);
                         return;
                     }
                 }
@@ -543,6 +556,14 @@ public sealed class ChainExecutor : IChainExecutor
                     }, ct);
 
                     await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Completed, null, ct);
+                    trace.Event("delivery.sent");
+                    CyberPipeTelemetry.DeliveriesSent.Add(1, new TagList
+                    {
+                        { "chain.id", def.Id.ToString() },
+                        { "chain.run.id", runId.ToString() },
+                        { "delivery.channel", def.Delivery.Channel.ToString() },
+                    });
+                    trace.SetOutcome("Completed");
                 }
                 else
                 {
@@ -559,11 +580,13 @@ public sealed class ChainExecutor : IChainExecutor
                     }, ct);
 
                     await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Failed, err, ct);
+                    trace.SetOutcome("Failed", err.Code);
                 }
             }
         }
         catch (OperationCanceledException)
         {
+            trace.SetOutcome("Cancelled");
             await _repository.UpdateRunStatusAsync(runId, ChainRunStatus.Cancelled, null, CancellationToken.None);
         }
         finally

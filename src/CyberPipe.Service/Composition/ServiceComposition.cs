@@ -6,6 +6,7 @@ using CyberPipe.Channels.Telegram.Adapter;
 using CyberPipe.Contracts;
 using CyberPipe.Data;
 using CyberPipe.Execution.Sandbox;
+using CyberPipe.Logging.Telemetry;
 using CyberPipe.Models;
 using CyberPipe.Router;
 using CyberPipe.Security;
@@ -78,6 +79,7 @@ public static class ServiceComposition
             sp.GetRequiredService<Skills.Voice.Registry.VoiceSkillRegistry>(),
         }));
         services.TryAddSingleton<ServiceStartupCoordinator>();
+        services.AddCyberPipeTelemetry(options.Telemetry, "CyberPipe.Service");
 
         return services;
     }

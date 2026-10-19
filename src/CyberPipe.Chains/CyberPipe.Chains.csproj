@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+    <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Npgsql" Version="9.0.2" />
