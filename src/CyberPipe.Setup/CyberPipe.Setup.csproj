@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>CyberPipe.Setup</AssemblyName>
+    <RootNamespace>CyberPipe.Setup</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+    <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
+  </ItemGroup>
+</Project>

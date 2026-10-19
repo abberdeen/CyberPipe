@@ -51,6 +51,7 @@ public static class CliApp
             "approve" => await HitlCommand.ExecuteApproveAsync(ctx, cmdArgs, ct).ConfigureAwait(false),
             "reject" => await HitlCommand.ExecuteRejectAsync(ctx, cmdArgs, ct).ConfigureAwait(false),
             "logs" => await LogsCommand.ExecuteAsync(ctx, cmdArgs, ct).ConfigureAwait(false),
+            "setup" => await SetupCommand.ExecuteAsync(ctx, cmdArgs, ct).ConfigureAwait(false),
             "health" or "diagnostics" => await RunDiagnosticsAsync(ctx, ct).ConfigureAwait(false),
             _ => await UnknownCommandAsync(ctx, command).ConfigureAwait(false),
         };
@@ -91,6 +92,7 @@ public static class CliApp
         await ctx.Out.WriteLineAsync("  approve <id>              Approve pending HITL request").ConfigureAwait(false);
         await ctx.Out.WriteLineAsync("  reject <id> [reason]      Reject pending HITL request").ConfigureAwait(false);
         await ctx.Out.WriteLineAsync("  logs [-f] [lines]         View diagnostic log output").ConfigureAwait(false);
+        await ctx.Out.WriteLineAsync("  setup [status]            Run or inspect first-run setup wizard").ConfigureAwait(false);
         await ctx.Out.WriteLineAsync("  diagnostics               Collect and print system diagnostics report").ConfigureAwait(false);
         await ctx.Out.WriteLineAsync().ConfigureAwait(false);
         await ctx.Out.WriteLineAsync("Options:").ConfigureAwait(false);

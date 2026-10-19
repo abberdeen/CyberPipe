@@ -19,6 +19,7 @@ public sealed class CliContext
     public IChainExecutionRepository? ExecutionRepo { get; init; }
     public ITriggerInvoker? TriggerInvoker { get; init; }
     public IHitlApprovalService? HitlService { get; init; }
+    public ISetupWizardEngine? SetupWizard { get; init; }
     public CyberPipeOptions? Options { get; init; }
 
     public bool IsJson { get; set; }

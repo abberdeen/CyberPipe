@@ -22,6 +22,7 @@ public sealed class ProjectGraphTests
         "CyberPipe.Security",
         "CyberPipe.Service",
         "CyberPipe.ServiceControl",
+        "CyberPipe.Setup",
         "CyberPipe.Skills",
     ];
 

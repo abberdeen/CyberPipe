@@ -14,6 +14,7 @@
     <Project Path="src/CyberPipe.Security/CyberPipe.Security.csproj" />
     <Project Path="src/CyberPipe.Service/CyberPipe.Service.csproj" />
     <Project Path="src/CyberPipe.ServiceControl/CyberPipe.ServiceControl.csproj" />
+    <Project Path="src/CyberPipe.Setup/CyberPipe.Setup.csproj" />
     <Project Path="src/CyberPipe.Skills/CyberPipe.Skills.csproj" />
     <Project Path="src/Execution/CyberPipe.Execution.Sandbox/CyberPipe.Execution.Sandbox.csproj" />
   </Folder>

@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\CyberPipe.Channels.Telegram\CyberPipe.Channels.Telegram.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Desktop\CyberPipe.Desktop.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Cli\CyberPipe.Cli.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Setup\CyberPipe.Setup.csproj" />
     <ProjectReference Include="..\CyberPipe.Sandbox.Payload\CyberPipe.Sandbox.Payload.csproj" />
   </ItemGroup>
   <ItemGroup>

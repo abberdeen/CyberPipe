@@ -13,7 +13,7 @@
 | TASK-060 | [TASK-060-telegram-bot-channel.md](TASK-060-telegram-bot-channel.md) | Telegram-бот: приём/отправка, HITL-кнопки | Done |
 | TASK-061 | [TASK-061-avalonia-desktop-ui.md](TASK-061-avalonia-desktop-ui.md) | Avalonia Desktop: чат, цепочки, HITL, управление Service | Done |
 | TASK-062 | [TASK-062-cli-tui.md](TASK-062-cli-tui.md) | CLI/TUI: команды, чат, статус, HITL из терминала | Done |
-| TASK-063 | [TASK-063-first-run-setup-wizard.md](TASK-063-first-run-setup-wizard.md) | Мастер первого запуска: БД, Owner, эмбеддинг, каналы | Planned |
+| TASK-063 | [TASK-063-first-run-setup-wizard.md](TASK-063-first-run-setup-wizard.md) | Мастер первого запуска: БД, Owner, эмбеддинг, каналы | Done |
 
 ## Общие принципы
 
