@@ -1,5 +1,6 @@
 using CyberPipe.Contracts;
 using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
 namespace CyberPipe.Logging.Telemetry;

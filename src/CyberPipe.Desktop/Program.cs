@@ -1,6 +1,7 @@
 using Avalonia;
 using CyberPipe.Contracts;
 using CyberPipe.Logging;
+using CyberPipe.Logging.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Desktop;
@@ -28,6 +29,8 @@ internal static class Program
 
         _loggerFactory = CyberPipeLogging.CreateLoggerFactory("Desktop", options, writeToConsole: true);
         _loggerFactory.CreateLogger("CyberPipe.Desktop").LogInformation("CyberPipe Desktop starting");
+
+        using IDisposable? telemetry = TelemetryProviders.Start(options.Telemetry, "CyberPipe.Desktop");
 
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }

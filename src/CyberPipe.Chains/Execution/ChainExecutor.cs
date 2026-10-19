@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CyberPipe.Contracts;
@@ -559,8 +560,8 @@ public sealed class ChainExecutor : IChainExecutor
                     trace.Event("delivery.sent");
                     CyberPipeTelemetry.DeliveriesSent.Add(1, new TagList
                     {
-                        { "chain.id", def.Id.ToString() },
-                        { "chain.run.id", runId.ToString() },
+                        { "chain.id", def.Id.Value.ToString() },
+                        { "chain.run.id", runId.Value.ToString() },
                         { "delivery.channel", def.Delivery.Channel.ToString() },
                     });
                     trace.SetOutcome("Completed");

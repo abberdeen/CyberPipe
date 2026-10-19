@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CyberPipe.Contracts;
 using CyberPipe.Service.Composition;
 using Microsoft.Extensions.Hosting;
@@ -75,7 +76,10 @@ public sealed class CyberPipeWorker : BackgroundService
 
     private async Task<bool> RunStartupSequenceAsync(CancellationToken stoppingToken)
     {
+        using Activity? activity =
+            CyberPipe.Logging.Telemetry.CyberPipeTelemetry.Service.StartActivity("service.startup");
         StartupReport report = await _startup!.RunAsync(stoppingToken).ConfigureAwait(false);
+        activity?.SetTag("service.startup.ready", report.IsReady);
         if (report.Steps.Any(s => !s.Ok && !s.Degraded))
         {
             string failed = string.Join("; ", report.Steps.Where(s => !s.Ok && !s.Degraded).Select(s => s.Step));

@@ -29,8 +29,8 @@ public sealed class ChainRunTrace : IDisposable
     {
         var tags = new TagList
         {
-            { "chain.id", chainId.ToString() },
-            { "chain.run.id", runId.ToString() },
+            { "chain.id", chainId.Value.ToString() },
+            { "chain.run.id", runId.Value.ToString() },
             { "chain.trigger.kind", trigger.Kind.ToString() },
         };
         Activity? activity = CyberPipeTelemetry.Chains.StartActivity(
@@ -84,7 +84,13 @@ public sealed class ChainRunTrace : IDisposable
             _activity.SetStatus(status == "Completed" ? ActivityStatusCode.Ok : ActivityStatusCode.Error);
         }
 
-        var finished = new TagList(_tags) { { "chain.run.status", status } };
+        var finished = new TagList();
+        foreach (KeyValuePair<string, object?> tag in _tags)
+        {
+            finished.Add(tag.Key, tag.Value);
+        }
+
+        finished.Add("chain.run.status", status);
         CyberPipeTelemetry.RunsFinished.Add(1, finished);
         CyberPipeTelemetry.RunDurationMs.Record(_stopwatch.Elapsed.TotalMilliseconds, finished);
     }
