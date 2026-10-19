@@ -37,16 +37,16 @@ public sealed class ChainScenarioTests
 
         public int Invocations { get; private set; }
 
-        public bool ShouldFail { get; set; }
+        public bool ShouldDefer { get; set; }
 
         public bool CanRun(NetrunnerManifestDto manifest) => true;
 
         public Task<ScriptRunResult> RunAsync(ScriptRunRequest request, CancellationToken cancellationToken = default)
         {
             Invocations++;
-            return Task.FromResult(ShouldFail
-                ? ScriptRunResult.Failed(ScriptRunStatus.ScriptFailed, "Stub failure", exitCode: 1)
-                : ScriptRunResult.Success("{\"result\":\"processed\"}", [], 0, "ok", string.Empty, 5));
+            return Task.FromResult(ShouldDefer
+                ? ScriptRunResult.Failed(ScriptRunStatus.DeferRetry, "Stub deferred", retryAfterSeconds: 1)
+                : ScriptRunResult.Success("{\"script\":\"processed\"}", [], 0, "ok", string.Empty, 5));
         }
     }
 
@@ -275,7 +275,7 @@ public sealed class ChainScenarioTests
                 Channel = ChannelKind.Telegram,
                 SenderId = "111",
                 ChatId = "777001",
-                Text = "пришли мне отчёт",
+                Text = "отчёт за неделю",
                 SentAtUtc = DateTimeOffset.UtcNow,
             }),
             fixture.Idempotency);
@@ -286,7 +286,7 @@ public sealed class ChainScenarioTests
             Channel = ChannelKind.Telegram,
             SenderId = "111",
             ChatId = "777001",
-            Text = "пришли мне отчёт",
+            Text = "отчёт за неделю",
             SentAtUtc = DateTimeOffset.UtcNow,
         });
 
@@ -305,42 +305,33 @@ public sealed class ChainScenarioTests
         });
         await fixture.RegisterAsync(definition);
 
-        IScheduler scheduler = await new StdSchedulerFactory(new System.Collections.Specialized.NameValueCollection
-        {
-            ["quartz.scheduler.instanceName"] = "E2E",
-            ["quartz.threadPool.threadCount"] = "2",
-        }).GetScheduler();
-        try
-        {
-            var invoker = new FunctionCallTriggerInvoker(fixture.Definitions, fixture.Executor);
-            var service = new QuartzChainSchedulerService(
-                scheduler,
-                new QuartzSchedulerOptions(),
-                (chainId, fireTime) => invoker.InvokeFunctionCallAsync(chainId, "{}"));
-
-            await scheduler.Start();
-            await service.ScheduleChainAsync(fixture.ChainId, "0/1 * * * * ?");
-
-            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
-            while (fixture.Delivery.Invocations == 0 && DateTimeOffset.UtcNow < deadline)
+        CronTriggerManager? manager = null;
+        await using var service = await QuartzChainSchedulerService.CreateAsync(
+            new QuartzSchedulerOptions
             {
-                await Task.Delay(250);
-            }
+                InstanceName = "E2E" + Guid.NewGuid().ToString("N"),
+                UsePostgres = false,
+            },
+            (chainId, fireTime) => manager!.FireCronAsync(chainId, fireTime));
+        manager = new CronTriggerManager(fixture.Definitions, fixture.Executor, service, fixture.Idempotency);
 
-            Assert.True(fixture.Delivery.Invocations >= 1, "Cron never fired the chain.");
-            Assert.Equal(ChainTriggerKind.Cron, definition.Trigger.Kind);
-        }
-        finally
+        await manager.RegisterCronChainAsync(definition);
+
+        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (fixture.Delivery.Invocations == 0 && DateTimeOffset.UtcNow < deadline)
         {
-            await scheduler.Shutdown();
+            await Task.Delay(250);
         }
+
+        Assert.True(fixture.Delivery.Invocations >= 1, "Cron never fired the chain.");
+        Assert.Equal(ChainTriggerKind.Cron, definition.Trigger.Kind);
     }
 
     [Fact]
-    public async Task RestartAfterFailure_ResumesWithoutRerunningCompletedSteps()
+    public async Task RestartAfterInterruption_ResumesWithoutRerunningCompletedSteps()
     {
         var fixture = new Fixture();
-        fixture.Scripts.ShouldFail = true;
+        fixture.Scripts.ShouldDefer = true;
         ChainDefinitionDto definition = fixture.BuildDefinition(new ChainTriggerDto
         {
             Kind = ChainTriggerKind.Webhook,
@@ -359,14 +350,14 @@ public sealed class ChainScenarioTests
             Source = "/webhook/e2e",
         });
 
-        ChainRunState? failed = await fixture.Executor.GetRunAsync(runId);
-        Assert.NotNull(failed);
-        Assert.Equal(ChainRunStatus.Failed, failed.Status);
+        ChainRunState? interrupted = await fixture.Executor.GetRunAsync(runId);
+        Assert.NotNull(interrupted);
+        Assert.Equal(ChainRunStatus.WaitingForRetry, interrupted.Status);
         Assert.Equal(1, fixture.Skills.Invocations);
         Assert.Equal(0, fixture.Delivery.Invocations);
 
         // "Restart": new executor + recovery over the same repositories.
-        fixture.Scripts.ShouldFail = false;
+        fixture.Scripts.ShouldDefer = false;
         var restarted = new ChainExecutor(
             fixture.Executions, fixture.Definitions, fixture.Skills, fixture.Runners,
             new StubPackageRepo(), fixture.Delivery);

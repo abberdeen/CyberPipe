@@ -105,4 +105,4 @@ dotnet run --project src/CyberPipe.Service/ -- --validate-config
 
 (Пути проектов и тестов — to-be-created, имена фиксируются в TASK-001.)
 
-## Статус: Planned
+## Статус: Done

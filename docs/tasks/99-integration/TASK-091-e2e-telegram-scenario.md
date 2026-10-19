@@ -61,4 +61,4 @@ dotnet test tests/CyberPipe.Tests.E2E/ --filter "FullyQualifiedName~TelegramScen
 
 (Путь тестового проекта — to-be-created, имя фиксируется в TASK-001.)
 
-## Статус: Planned
+## Статус: Done
