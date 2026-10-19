@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/CyberPipe.AppHost/CyberPipe.AppHost.csproj" />
     <Project Path="src/Execution/CyberPipe.Brainstem/CyberPipe.Brainstem.csproj" />
     <Project Path="src/Execution/CyberPipe.Brainstem.Supervisor/CyberPipe.Brainstem.Supervisor.csproj" />
     <Project Path="src/CyberPipe.Chains/CyberPipe.Chains.csproj" />

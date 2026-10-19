@@ -7,6 +7,7 @@ public sealed class ProjectGraphTests
 {
     private static readonly string[] ExpectedSrcProjects =
     [
+        "CyberPipe.AppHost",
         "CyberPipe.Brainstem",
         "CyberPipe.Brainstem.Supervisor",
         "CyberPipe.Chains",
