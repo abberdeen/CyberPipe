@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\Execution\CyberPipe.Brainstem.Supervisor\CyberPipe.Brainstem.Supervisor.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Router\CyberPipe.Router.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Chains\CyberPipe.Chains.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Skills\CyberPipe.Skills.csproj" />
     <ProjectReference Include="..\CyberPipe.Sandbox.Payload\CyberPipe.Sandbox.Payload.csproj" />
   </ItemGroup>
   <ItemGroup>

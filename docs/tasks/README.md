@@ -60,7 +60,7 @@
 | TASK-044 | Исполнитель цепочки Trigger → Skill → Script → Delivery с чекпоинтами в PostgreSQL | TASK-002, TASK-011, TASK-040, TASK-041, TASK-042, TASK-043 | Done |
 | TASK-045 | Планировщик Quartz.NET в той же PostgreSQL (Cron-цепочки) | TASK-002, TASK-010, TASK-011, TASK-040, TASK-041 | Done |
 | TASK-046 | HITL-подтверждения (Approve / Edit / Reject / Timeout) | TASK-002, TASK-011, TASK-044 | Done |
-| TASK-050 | Хост-навыки: медиа, система (media/volume/status/timers) | TASK-002, TASK-020 | Ready |
+| TASK-050 | Хост-навыки: медиа, система (media/volume/status/timers) | TASK-002, TASK-020 | Done |
 | TASK-051 | Персональные навыки (notes/finance/reminders/crm) | TASK-002, TASK-011 | Ready |
 | TASK-052 | Голос: распознавание речи Whisper (voice-whisper) | TASK-002 | Ready |
 | TASK-053 | Знания: второй мозг (knowledge-second-brain, search/memory) | TASK-002, TASK-011, TASK-012 | Ready |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 24 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046 |
+| Done | 25 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050 |
 | In Progress | 0 | — |
-| Ready | 12 | TASK-050, TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
+| Ready | 11 | TASK-051, TASK-052, TASK-053, TASK-060, TASK-061, TASK-062, TASK-063, TASK-070–TASK-073, TASK-080 |
 | Planned | 7 | TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 24 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host целиком, 04-router-tiers целиком, 05-chains целиком). `Ready` у 12 разблокированных задач без незавершённых зависимостей.
+`Done` у 25 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host, 04-router-tiers, 05-chains целиком; TASK-050 из 06-skills). `Ready` у 11 разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

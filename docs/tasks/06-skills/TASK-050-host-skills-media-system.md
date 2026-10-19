@@ -54,4 +54,4 @@
 - `dotnet build CyberPipe.slnx` (плановая, после создания проектов)
 - `dotnet test --filter "FullyQualifiedName~Skills.Host"` (плановая)
 
-## Статус: Planned
+## Статус: Done
