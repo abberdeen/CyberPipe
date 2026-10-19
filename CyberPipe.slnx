@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/CyberPipe.Brainstem/CyberPipe.Brainstem.csproj" />
+    <Project Path="src/Execution/CyberPipe.Brainstem/CyberPipe.Brainstem.csproj" />
+    <Project Path="src/Execution/CyberPipe.Brainstem.Supervisor/CyberPipe.Brainstem.Supervisor.csproj" />
     <Project Path="src/CyberPipe.Chains/CyberPipe.Chains.csproj" />
     <Project Path="src/CyberPipe.Channels.Telegram/CyberPipe.Channels.Telegram.csproj" />
     <Project Path="src/CyberPipe.Cli/CyberPipe.Cli.csproj" />

@@ -44,6 +44,9 @@ public sealed record CyberPipeOptions
     /// <summary>Логирование: уровень и файл с ротацией; уровень меняется конфигурацией без пересборки (TASK-004).</summary>
     public LoggingOptions Logging { get; init; } = new();
 
+    /// <summary>Параметры изолированного воркера Brainstem и его супервизора (TASK-022).</summary>
+    public BrainstemOptions Brainstem { get; init; } = new();
+
     /// <summary>Параметры службы и управляющего канала (TASK-020).</summary>
     public HostingOptions Hosting { get; init; } = new();
 
@@ -128,6 +131,21 @@ public sealed record CyberPipeOptions
             errors.Add("Logging:FileSizeLimitBytes must be positive.");
         if (Logging.RetainedFileCountLimit <= 0)
             errors.Add("Logging:RetainedFileCountLimit must be positive.");
+
+        if (string.IsNullOrWhiteSpace(Brainstem.Role))
+            errors.Add("Brainstem:Role must not be empty.");
+        if (Brainstem.HeartbeatIntervalSeconds <= 0)
+            errors.Add("Brainstem:HeartbeatIntervalSeconds must be positive.");
+        if (Brainstem.HeartbeatTimeoutSeconds <= Brainstem.HeartbeatIntervalSeconds)
+            errors.Add("Brainstem:HeartbeatTimeoutSeconds must be greater than Brainstem:HeartbeatIntervalSeconds.");
+        if (Brainstem.MaxRestartAttempts < 0)
+            errors.Add("Brainstem:MaxRestartAttempts must not be negative.");
+        if (Brainstem.InitialBackoffSeconds < 0)
+            errors.Add("Brainstem:InitialBackoffSeconds must not be negative.");
+        if (Brainstem.MaxBackoffSeconds < Brainstem.InitialBackoffSeconds)
+            errors.Add("Brainstem:MaxBackoffSeconds must not be less than Brainstem:InitialBackoffSeconds.");
+        if (Brainstem.MemoryLimitMb is <= 0)
+            errors.Add("Brainstem:MemoryLimitMb must be positive if specified.");
 
         return errors;
     }
@@ -325,3 +343,34 @@ public sealed record HostingOptions
     /// <summary>Тайм-аут корректного завершения службы в секундах.</summary>
     public int ShutdownTimeoutSeconds { get; init; } = 30;
 }
+
+/// <summary>
+/// Параметры изолированного воркера Brainstem и его супервизора (TASK-022).
+/// </summary>
+public sealed record BrainstemOptions
+{
+    /// <summary>Роль воркера (по умолчанию "default").</summary>
+    public string Role { get; init; } = "default";
+
+    /// <summary>Интервал отправки heartbeat воркером в секундах.</summary>
+    public int HeartbeatIntervalSeconds { get; init; } = 2;
+
+    /// <summary>Тайм-аут ожидания heartbeat супервизором в секундах.</summary>
+    public int HeartbeatTimeoutSeconds { get; init; } = 6;
+
+    /// <summary>Максимальное число попыток перезапуска до перехода в состояние Faulted.</summary>
+    public int MaxRestartAttempts { get; init; } = 3;
+
+    /// <summary>Начальная задержка бэкоффа перезапуска в секундах.</summary>
+    public int InitialBackoffSeconds { get; init; } = 1;
+
+    /// <summary>Максимальная задержка бэкоффа перезапуска в секундах.</summary>
+    public int MaxBackoffSeconds { get; init; } = 16;
+
+    /// <summary>Лимит памяти воркера в мегабайтах; null — умолчание песочницы.</summary>
+    public long? MemoryLimitMb { get; init; }
+
+    /// <summary>Префикс имени Named Pipe для IPC супервизора и воркера.</summary>
+    public string PipePrefix { get; init; } = "CyberPipe.Brainstem";
+}
+

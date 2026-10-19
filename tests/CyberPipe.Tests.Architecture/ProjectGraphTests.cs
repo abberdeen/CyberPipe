@@ -8,6 +8,7 @@ public sealed class ProjectGraphTests
     private static readonly string[] ExpectedSrcProjects =
     [
         "CyberPipe.Brainstem",
+        "CyberPipe.Brainstem.Supervisor",
         "CyberPipe.Chains",
         "CyberPipe.Channels.Telegram",
         "CyberPipe.Cli",

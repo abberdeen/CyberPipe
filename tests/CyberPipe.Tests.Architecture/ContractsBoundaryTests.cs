@@ -56,6 +56,12 @@ public sealed class ContractsBoundaryTests
         "SandboxLaunchRequest",
         "SandboxLaunchResult",
         "ISandboxLauncher",
+        "BrainstemJobRequest",
+        "BrainstemJobResult",
+        "IBrainstemWorker",
+        "IBrainstemSupervisor",
+        "BrainstemStateChanged",
+        "BrainstemRestartExhausted",
     ];
 
     [Fact]

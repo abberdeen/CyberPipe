@@ -17,6 +17,8 @@
     <ProjectReference Include="..\..\src\CyberPipe.Service\CyberPipe.Service.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.ServiceControl\CyberPipe.ServiceControl.csproj" />
     <ProjectReference Include="..\..\src\Execution\CyberPipe.Execution.Sandbox\CyberPipe.Execution.Sandbox.csproj" />
+    <ProjectReference Include="..\..\src\Execution\CyberPipe.Brainstem\CyberPipe.Brainstem.csproj" />
+    <ProjectReference Include="..\..\src\Execution\CyberPipe.Brainstem.Supervisor\CyberPipe.Brainstem.Supervisor.csproj" />
     <ProjectReference Include="..\CyberPipe.Sandbox.Payload\CyberPipe.Sandbox.Payload.csproj" />
   </ItemGroup>
 </Project>

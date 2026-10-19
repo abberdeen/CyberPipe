@@ -89,4 +89,4 @@ dotnet test CyberPipe.slnx --filter "FullyQualifiedName~Brainstem"
 
 Пути проектов — к созданию; команды заработают после TASK-001, TASK-020 и TASK-023.
 
-## Статус: Planned
+## Статус: Done
