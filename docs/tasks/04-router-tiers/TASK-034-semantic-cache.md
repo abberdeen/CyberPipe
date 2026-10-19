@@ -73,4 +73,4 @@ dotnet test --filter "FullyQualifiedName~SemanticCache"
 
 ## Статус
 
-Planned
+Done
