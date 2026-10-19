@@ -104,6 +104,14 @@ public sealed class ContractsBoundaryTests
         "PackageRegistrationRecord",
         "IPackageRegistryRepository",
         "PackageRegistrationException",
+        "ScriptRunStatus",
+        "ScriptOutputFile",
+        "ScriptRunRequest",
+        "ScriptRunResult",
+        "IScriptRunner",
+        "IScriptRunnerRegistry",
+        "ISchemaValidator",
+        "ISandboxProvider",
     ];
 
     [Fact]

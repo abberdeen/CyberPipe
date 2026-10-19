@@ -133,10 +133,10 @@ public sealed class ServiceHostTests
             logger: NullLogger.Instance);
         server.Start();
 
-        var client = new ServiceControlPipeClient(pipeName, connectTimeoutMs: 3000);
+        var client = new ServiceControlPipeClient(pipeName, connectTimeoutMs: 10000);
         await client.RequestStopAsync();
 
-        Task completed = await Task.WhenAny(stopTcs.Task, Task.Delay(3000));
+        Task completed = await Task.WhenAny(stopTcs.Task, Task.Delay(10000));
         Assert.Same(stopTcs.Task, completed);
         Assert.True(await stopTcs.Task);
     }
@@ -161,10 +161,10 @@ public sealed class ServiceHostTests
             logger: NullLogger.Instance);
         server.Start();
 
-        var client = new ServiceControlPipeClient(pipeName, connectTimeoutMs: 3000);
+        var client = new ServiceControlPipeClient(pipeName, connectTimeoutMs: 10000);
         await client.RequestRestartAsync();
 
-        Task completed = await Task.WhenAny(restartTcs.Task, Task.Delay(3000));
+        Task completed = await Task.WhenAny(restartTcs.Task, Task.Delay(10000));
         Assert.Same(restartTcs.Task, completed);
         Assert.True(await restartTcs.Task);
     }

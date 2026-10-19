@@ -46,11 +46,11 @@
 
 ## Критерии приёмки
 
-- [ ] Каждый из 3 фикстурных пакетов на своём `sample.fixture.json` даёт `Succeeded` и выход, равный `expectedOutput`; dry-run gate: несоответствие ожидаемому — `ScriptFailed`/`SchemaValidationFailed`, не `Succeeded`.
-- [ ] Вход, нарушающий `schema.input.json`, отклоняется до запуска (фейк песочницы не вызван); выход, нарушающий `schema.output.json`, даёт `SchemaValidationFailed`.
-- [ ] Скрипт-«вечный цикл» прерывается по `timeoutMs` со статусом `TimedOut`; отмена токеном — `Cancelled`.
-- [ ] Манифест с парой (`Ruby`,`MRI`) даёт `UnsupportedRuntime` с именем пары; скрипт с exit 75 — `DeferRetry` с `retryAfterSeconds` из вывода.
-- [ ] Ни один раннер не вызывает `Process.Start` напрямую (проверяется поиском по исходникам проекта раннеров в тесте/ревью; все запуски — через фейк-порт в тестах).
+- [x] Каждый из 3 фикстурных пакетов на своём `sample.fixture.json` даёт `Succeeded` и выход, равный `expectedOutput`; dry-run gate: несоответствие ожидаемому — `ScriptFailed`/`SchemaValidationFailed`, не `Succeeded`.
+- [x] Вход, нарушающий `schema.input.json`, отклоняется до запуска (фейк песочницы не вызван); выход, нарушающий `schema.output.json`, даёт `SchemaValidationFailed`.
+- [x] Скрипт-«вечный цикл» прерывается по `timeoutMs` со статусом `TimedOut`; отмена токеном — `Cancelled`.
+- [x] Манифест с парой (`Ruby`,`MRI`) даёт `UnsupportedRuntime` с именем пары; скрипт с exit 75 — `DeferRetry` с `retryAfterSeconds` из вывода.
+- [x] Ни один раннер не вызывает `Process.Start` напрямую (проверяется поиском по исходникам проекта раннеров в тесте/ревью; все запуски — через фейк-порт в тестах).
 
 ## Тестирование
 
@@ -61,9 +61,9 @@
 
 ```powershell
 dotnet build CyberPipe.slnx
-dotnet test tests/CyberPipe.Tests.Chains/ --filter "FullyQualifiedName~ScriptRunner"
+dotnet test tests/CyberPipe.Tests.Unit/ --filter "FullyQualifiedName~ScriptRunner"
 ```
 
 (Путь тестового проекта — to-be-created, имя фиксируется в TASK-001.)
 
-## Статус: Planned
+## Статус: Done
