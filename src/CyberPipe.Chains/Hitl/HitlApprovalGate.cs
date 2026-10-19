@@ -18,6 +18,10 @@ public sealed class HitlApprovalGate : IHitlApprovalGate
     public HitlApprovalGate(IHitlApprovalService approvalService)
     {
         _approvalService = approvalService ?? throw new ArgumentNullException(nameof(approvalService));
+        if (approvalService is HitlApprovalService concrete)
+        {
+            concrete.DecisionResolved += NotifyDecision;
+        }
     }
 
     /// <inheritdoc />

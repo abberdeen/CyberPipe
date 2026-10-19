@@ -44,12 +44,12 @@
 
 ## Критерии приёмки
 
-- [ ] Approve: фейк-исполнитель получил `ResumeAsync` один раз, Delivery в сценарии TASK-044 достижима; решение, канал и время записаны.
-- [ ] Edit валидным payload: возобновление с отредактированным payload; Edit невалидным по схеме пакета: `InvalidEditedPayload`, запрос остался `Pending`, возобновления нет.
-- [ ] Reject: возобновления на Delivery нет, запуск завершён как отменённый по `HitlRejected` (через фейк-порт исполнителя), причина сохранена.
-- [ ] Истечение срока: `ExpireOverdueAsync` переводит запрос в `Expired`, запуск отменён по `HitlTimeout`; позднее нажатие Approve → `Hitl.Expired`, состояние не меняется.
-- [ ] Не-Owner (фейк `IOwnerGuard` отклоняет): любое решение → ошибка доступа, запрос остаётся `Pending`; второе решение после первого (другой канал) → `AlreadyResolved`.
-- [ ] «Перезапуск»: новый экземпляр сервиса на том же фейк/реальном репозитории видит `Pending`-запрос и принимает по нему решение.
+- [x] Approve: фейк-исполнитель получил `ResumeAsync` один раз, Delivery в сценарии TASK-044 достижима; решение, канал и время записаны.
+- [x] Edit валидным payload: возобновление с отредактированным payload; Edit невалидным по схеме пакета: `InvalidEditedPayload`, запрос остался `Pending`, возобновления нет.
+- [x] Reject: возобновления на Delivery нет, запуск завершён как отменённый по `HitlRejected` (через фейк-порт исполнителя), причина сохранена.
+- [x] Истечение срока: `ExpireOverdueAsync` переводит запрос в `Expired`, запуск отменён по `HitlTimeout`; позднее нажатие Approve → `Hitl.Expired`, состояние не меняется.
+- [x] Не-Owner (фейк `IOwnerGuard` отклоняет): любое решение → ошибка доступа, запрос остаётся `Pending`; второе решение после первого (другой канал) → `AlreadyResolved`.
+- [x] «Перезапуск»: новый экземпляр сервиса на том же фейк/реальном репозитории видит `Pending`-запрос и принимает по нему решение.
 
 ## Тестирование
 
@@ -60,10 +60,8 @@
 
 ```powershell
 dotnet build CyberPipe.slnx
-dotnet test tests/CyberPipe.Tests.Chains/ --filter "FullyQualifiedName~HitlApproval"
-dotnet test tests/CyberPipe.Tests.Chains.Integration/ --filter "FullyQualifiedName~HitlApprovalRepository"
+dotnet test tests/CyberPipe.Tests.Unit/ --filter "FullyQualifiedName~HitlApproval"
+dotnet test tests/CyberPipe.Data.Tests/ --filter "FullyQualifiedName~HitlApprovalRepository"
 ```
 
-(Пути тестовых проектов — to-be-created, имена фиксируются в TASK-001.)
-
-## Статус: Planned
+## Статус: Done

@@ -19,6 +19,11 @@ public sealed class HitlApprovalService : IHitlApprovalService
     private readonly IChainExecutionRepository? _executions;
 
     /// <summary>
+    /// Событие разрешения решения (для оповещения гейтов в том же процессе).
+    /// </summary>
+    public event Action<HitlApprovalResult>? DecisionResolved;
+
+    /// <summary>
     /// Инициализирует сервис HITL-подтверждений.
     /// </summary>
     public HitlApprovalService(
@@ -123,6 +128,7 @@ public sealed class HitlApprovalService : IHitlApprovalService
         }
 
         await _executor.ResumeAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+        DecisionResolved?.Invoke(result);
         return result;
     }
 
@@ -208,6 +214,7 @@ public sealed class HitlApprovalService : IHitlApprovalService
         }
 
         await _executor.ResumeAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+        DecisionResolved?.Invoke(result);
         return result;
     }
 
@@ -257,14 +264,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
                 CheckpointAtUtc = DateTimeOffset.UtcNow,
             }, cancellationToken).ConfigureAwait(false);
 
-            await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+            ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+            if (existingRun is not null)
             {
-                Code = "HitlRejected",
-                Message = rejectionReason,
-            }, cancellationToken).ConfigureAwait(false);
+                await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                {
+                    Code = "HitlRejected",
+                    Message = rejectionReason,
+                }, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await _executor.CancelAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+        DecisionResolved?.Invoke(result);
         return result;
     }
 
@@ -303,14 +315,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
                         CheckpointAtUtc = nowUtc,
                     }, cancellationToken).ConfigureAwait(false);
 
-                    await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                    ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+                    if (existingRun is not null)
                     {
-                        Code = "HitlTimeout",
-                        Message = "HITL approval timed out.",
-                    }, cancellationToken).ConfigureAwait(false);
+                        await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                        {
+                            Code = "HitlTimeout",
+                            Message = "HITL approval timed out.",
+                        }, cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
                 await _executor.CancelAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+                DecisionResolved?.Invoke(result);
             }
         }
 

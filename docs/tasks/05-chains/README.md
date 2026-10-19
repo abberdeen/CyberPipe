@@ -22,15 +22,15 @@
 
 | ID | Файл | Результат | Статус |
 |---|---|---|---|
-| TASK-040 | [TASK-040-chain-definition-config.md](TASK-040-chain-definition-config.md) | Формат и валидатор определения цепочки (конфигурация) | Planned |
-| TASK-041 | [TASK-041-triggers.md](TASK-041-triggers.md) | Триггеры Webhook/Cron/function call/chat → единый `TriggerEvent` | Planned |
-| TASK-042 | [TASK-042-skill-package-manifest-validator.md](TASK-042-skill-package-manifest-validator.md) | Валидатор пакета `skill-hack.*` и `netrunner.manifest.json` | Planned |
-| TASK-043 | [TASK-043-script-runners.md](TASK-043-script-runners.md) | Раннеры скриптов по языкам/средам через песочницу | Planned |
-| TASK-044 | [TASK-044-chain-executor.md](TASK-044-chain-executor.md) | Исполнитель цепочки с чекпоинтами в PostgreSQL | Planned |
-| TASK-045 | [TASK-045-quartz-scheduling.md](TASK-045-quartz-scheduling.md) | Quartz.NET в той же PostgreSQL, управление Cron-цепочками | Planned |
-| TASK-046 | [TASK-046-hitl-approval.md](TASK-046-hitl-approval.md) | HITL: Approve/Edit/Reject/Timeout через Telegram/Avalonia | Planned |
+| TASK-040 | [TASK-040-chain-definition-config.md](TASK-040-chain-definition-config.md) | Формат и валидатор определения цепочки (конфигурация) | Done |
+| TASK-041 | [TASK-041-triggers.md](TASK-041-triggers.md) | Триггеры Webhook/Cron/function call/chat → единый `TriggerEvent` | Done |
+| TASK-042 | [TASK-042-skill-package-manifest-validator.md](TASK-042-skill-package-manifest-validator.md) | Валидатор пакета `skill-hack.*` и `netrunner.manifest.json` | Done |
+| TASK-043 | [TASK-043-script-runners.md](TASK-043-script-runners.md) | Раннеры скриптов по языкам/средам через песочницу | Done |
+| TASK-044 | [TASK-044-chain-executor.md](TASK-044-chain-executor.md) | Исполнитель цепочки с чекпоинтами в PostgreSQL | Done |
+| TASK-045 | [TASK-045-quartz-scheduling.md](TASK-045-quartz-scheduling.md) | Quartz.NET в той же PostgreSQL, управление Cron-цепочками | Done |
+| TASK-046 | [TASK-046-hitl-approval.md](TASK-046-hitl-approval.md) | HITL: Approve/Edit/Reject/Timeout через Telegram/Avalonia | Done |
 
-Статус `Ready` не выставлен ни одной задаче: у каждой есть зависимость (правило области — `Ready` только без зависимостей).
+Все 7 задач области 05-chains полностью реализованы (100% Done).
 
 ## Порядок и зависимости
 

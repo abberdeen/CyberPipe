@@ -293,4 +293,63 @@ public sealed class RepositoryIntegrationTests
         Assert.DoesNotContain(logger.Messages, m => m.Contains(secretValue, StringComparison.Ordinal));
         Assert.DoesNotContain(logger.Messages, m => m.Contains("chain.created", StringComparison.Ordinal) && m.Contains(secretValue, StringComparison.Ordinal));
     }
+
+    [PostgresIntegrationFact]
+    public async Task PostgresHitlApprovalRepository_AtomicTryResolve_OnlyOneSucceeds()
+    {
+        await using Fixture fx = await CreateAsync();
+        var hitlRepo = new PostgresHitlApprovalRepository(fx.Factory);
+        await hitlRepo.EnsureTableCreatedAsync();
+
+        var approvalId = Guid.NewGuid();
+        var runId = new RunId(Guid.NewGuid());
+        var chainId = new ChainId(Guid.NewGuid());
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        var record = new HitlApprovalRecord
+        {
+            ApprovalId = approvalId,
+            RunId = runId,
+            ChainId = chainId,
+            Title = "Postgres HITL Test",
+            PreviewText = "Preview data",
+            PayloadJson = "{\"count\": 10}",
+            Status = HitlStatus.Pending,
+            CreatedAtUtc = now,
+            ExpiresAtUtc = now.AddHours(2),
+        };
+
+        await hitlRepo.CreateAsync(record);
+        HitlApprovalRecord? created = await hitlRepo.GetAsync(approvalId);
+        Assert.NotNull(created);
+        Assert.Equal(HitlStatus.Pending, created.Status);
+
+        Task<bool> task1 = Task.Run(() => hitlRepo.TryResolveAsync(approvalId, new HitlApprovalResult
+        {
+            ApprovalId = approvalId,
+            Decision = HitlDecision.Approved,
+            OwnerId = "owner-tg",
+            Channel = ChannelKind.Telegram,
+            DecidedAtUtc = DateTimeOffset.UtcNow,
+        }));
+
+        Task<bool> task2 = Task.Run(() => hitlRepo.TryResolveAsync(approvalId, new HitlApprovalResult
+        {
+            ApprovalId = approvalId,
+            Decision = HitlDecision.Rejected,
+            Reason = "Late cancel",
+            OwnerId = "owner-desktop",
+            Channel = ChannelKind.Desktop,
+            DecidedAtUtc = DateTimeOffset.UtcNow,
+        }));
+
+        bool[] results = await Task.WhenAll(task1, task2);
+
+        Assert.Single(results, r => r);
+        Assert.Single(results, r => !r);
+
+        HitlApprovalRecord? resolved = await hitlRepo.GetAsync(approvalId);
+        Assert.NotNull(resolved);
+        Assert.Equal(HitlStatus.Resolved, resolved.Status);
+    }
 }
