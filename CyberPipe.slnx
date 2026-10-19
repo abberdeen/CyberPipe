@@ -5,6 +5,7 @@
     <Project Path="src/CyberPipe.Channels.Telegram/CyberPipe.Channels.Telegram.csproj" />
     <Project Path="src/CyberPipe.Cli/CyberPipe.Cli.csproj" />
     <Project Path="src/CyberPipe.Contracts/CyberPipe.Contracts.csproj" />
+    <Project Path="src/CyberPipe.Logging/CyberPipe.Logging.csproj" />
     <Project Path="src/CyberPipe.Data/CyberPipe.Data.csproj" />
     <Project Path="src/CyberPipe.Desktop/CyberPipe.Desktop.csproj" />
     <Project Path="src/CyberPipe.Models/CyberPipe.Models.csproj" />
@@ -14,6 +15,7 @@
     <Project Path="src/CyberPipe.Skills/CyberPipe.Skills.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CyberPipe.Data.Tests/CyberPipe.Data.Tests.csproj" />
     <Project Path="tests/CyberPipe.Tests.Architecture/CyberPipe.Tests.Architecture.csproj" />
     <Project Path="tests/CyberPipe.Tests.Unit/CyberPipe.Tests.Unit.csproj" />
   </Folder>

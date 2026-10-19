@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>CyberPipe.Desktop</AssemblyName>
@@ -12,5 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+    <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
   </ItemGroup>
 </Project>

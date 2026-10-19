@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\CyberPipe.Logging\CyberPipe.Logging.csproj" />
     <ProjectReference Include="..\..\src\CyberPipe.Security\CyberPipe.Security.csproj" />
   </ItemGroup>
 </Project>

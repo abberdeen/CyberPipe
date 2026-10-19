@@ -12,6 +12,11 @@ namespace CyberPipe.Contracts;
 /// </summary>
 public sealed record CyberPipeOptions
 {
+    private static readonly HashSet<string> LoggingLevelNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Verbose", "Debug", "Information", "Warning", "Error", "Fatal",
+    };
+
     /// <summary>Параметры подключения к PostgreSQL; пароль — только ссылка на секрет.</summary>
     public DatabaseOptions Database { get; init; } = new();
 
@@ -36,6 +41,9 @@ public sealed record CyberPipeOptions
     /// <summary>Целевые показатели производительности (targets, не limits и не ворота приёмки, Q11).</summary>
     public PerformanceTargetsOptions PerformanceTargets { get; init; } = new();
 
+    /// <summary>Логирование: уровень и файл с ротацией; уровень меняется конфигурацией без пересборки (TASK-004).</summary>
+    public LoggingOptions Logging { get; init; } = new();
+
     /// <summary>
     /// Проверяет опции и возвращает ошибки с именами ключей в форме Section:Property.
     /// Значения секретов в ошибки не попадают: секретов-значений в конфигурации нет.
@@ -55,6 +63,10 @@ public sealed record CyberPipeOptions
             errors.Add("Database:Username must not be empty.");
         if (string.IsNullOrWhiteSpace(Database.PasswordSecretKey))
             errors.Add("Database:PasswordSecretKey must name a secret key.");
+        if (Database.MaxPoolSize <= 0)
+            errors.Add("Database:MaxPoolSize must be positive.");
+        if (Database.CommandTimeout <= 0)
+            errors.Add("Database:CommandTimeout must be positive.");
 
         if (Budget.DailyCapUsd < 0)
             errors.Add("Budget:DailyCapUsd must not be negative.");
@@ -100,6 +112,13 @@ public sealed record CyberPipeOptions
         if (PerformanceTargets.StopTargetMilliseconds <= 0)
             errors.Add("PerformanceTargets:StopTargetMilliseconds must be positive.");
 
+        if (!LoggingLevelNames.Contains(Logging.MinimumLevel))
+            errors.Add("Logging:MinimumLevel must be one of Verbose, Debug, Information, Warning, Error, Fatal.");
+        if (Logging.FileSizeLimitBytes <= 0)
+            errors.Add("Logging:FileSizeLimitBytes must be positive.");
+        if (Logging.RetainedFileCountLimit <= 0)
+            errors.Add("Logging:RetainedFileCountLimit must be positive.");
+
         return errors;
     }
 }
@@ -125,6 +144,12 @@ public sealed record DatabaseOptions
 
     /// <summary>Ключ секрета с паролем в ISecretStore, не сам пароль.</summary>
     public string PasswordSecretKey { get; init; } = SecretKeys.DatabasePassword;
+
+    /// <summary>Максимальный размер пула соединений Npgsql (TASK-010).</summary>
+    public int MaxPoolSize { get; init; } = 100;
+
+    /// <summary>Тайм-аут команды PostgreSQL в секундах (TASK-010).</summary>
+    public int CommandTimeout { get; init; } = 30;
 }
 
 /// <summary>Бюджет с дефолтами Q23; все поля переопределяемы конфигурацией. Применение — TASK-033.</summary>
@@ -252,4 +277,26 @@ public sealed record PerformanceTargetsOptions
 
     /// <summary>Целевое время реакции на остановку в миллисекундах.</summary>
     public int StopTargetMilliseconds { get; init; } = 50;
+}
+
+/// <summary>
+/// Логирование (TASK-004): уровень задаётся строкой конфигурации Logging:MinimumLevel и меняется
+/// без пересборки; файл пишется в каталог данных пользователя с ротацией по дням и размеру.
+/// </summary>
+public sealed record LoggingOptions
+{
+    /// <summary>Минимальный уровень: Verbose, Debug, Information, Warning, Error или Fatal.</summary>
+    public string MinimumLevel { get; init; } = "Information";
+
+    /// <summary>Каталог файлов лога; null — каталог данных пользователя CyberPipe/logs.</summary>
+    public string? LogDirectory { get; init; }
+
+    /// <summary>Предел размера одного файла лога в байтах; при достижении файл ротируется.</summary>
+    public long FileSizeLimitBytes { get; init; } = 10 * 1024 * 1024;
+
+    /// <summary>Сколько ротированных файлов лога хранить.</summary>
+    public int RetainedFileCountLimit { get; init; } = 31;
+
+    /// <summary>Писать ли события в консоль в дополнение к файлу; хосты CLI/Desktop включают явно.</summary>
+    public bool WriteToConsole { get; init; }
 }

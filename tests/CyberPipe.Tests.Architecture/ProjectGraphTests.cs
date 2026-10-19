@@ -12,6 +12,7 @@ public sealed class ProjectGraphTests
         "CyberPipe.Channels.Telegram",
         "CyberPipe.Cli",
         "CyberPipe.Contracts",
+        "CyberPipe.Logging",
         "CyberPipe.Data",
         "CyberPipe.Desktop",
         "CyberPipe.Models",
@@ -52,6 +53,8 @@ public sealed class ProjectGraphTests
     [Fact]
     public void SrcProjects_ReferenceOnlyContracts()
     {
+        // TASK-004: CyberPipe.Logging is the single shared infrastructure project on top of
+        // Contracts; every src project references Contracts and at most Logging, nothing else.
         Dictionary<string, string[]> graph = LoadGraph();
         string root = FindSolutionRoot();
         foreach (string projectFile in Directory.GetFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories))
@@ -62,7 +65,14 @@ public sealed class ProjectGraphTests
                 continue;
             }
 
-            Assert.Equal(["CyberPipe.Contracts"], graph[name]);
+            Assert.Contains("CyberPipe.Contracts", graph[name]);
+            Assert.True(
+                graph[name].All(r => r is "CyberPipe.Contracts" or "CyberPipe.Logging"),
+                $"{name} references unexpected projects: {string.Join(", ", graph[name])}");
+            if (name == "CyberPipe.Logging")
+            {
+                Assert.Equal(["CyberPipe.Contracts"], graph[name]);
+            }
         }
     }
 

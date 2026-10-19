@@ -80,3 +80,25 @@ public interface ISecretStore
     /// <returns>True, если ключ существовал и удалён.</returns>
     Task<bool> DeleteAsync(string key, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Запрос секрета (пароля) у пользователя. Контракт TASK-002/TASK-003; реализация UI — TASK-063,
+/// здесь только абстракция. В тестах заменяется фейком. Возвращает null при отказе пользователя.
+/// Открытое значение существует только внутри <see cref="SecretValue" /> и не попадает в логи.
+/// </summary>
+public interface ISecretPrompt
+{
+    /// <summary>Запрашивает пароль у пользователя.</summary>
+    /// <param name="purpose">Назначение запроса без секретов, например "database.password for cyberpipe@localhost".</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Введённый секрет или null, если пользователь отказался.</returns>
+    Task<SecretValue?> RequestPasswordAsync(string purpose, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Промпт, который всегда отказывает: для неинтерактивных хостов (Service без UI).</summary>
+public sealed class NullSecretPrompt : ISecretPrompt
+{
+    /// <inheritdoc />
+    public Task<SecretValue?> RequestPasswordAsync(string purpose, CancellationToken cancellationToken = default) =>
+        Task.FromResult<SecretValue?>(null);
+}
