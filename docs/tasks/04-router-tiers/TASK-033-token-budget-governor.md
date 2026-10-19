@@ -73,4 +73,4 @@ dotnet test --filter "FullyQualifiedName~TokenBudget"
 
 ## Статус
 
-Planned
+Done

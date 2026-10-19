@@ -163,3 +163,28 @@ public interface ITokenBudgetGovernor
     /// <returns>Снимок бюджета.</returns>
     Task<BudgetStatusDto> GetStatusAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Хранилище записей и агрегатов токен-бюджета (TASK-033).
+/// </summary>
+public interface IBudgetStore
+{
+    /// <summary>Возвращает сумму расходов в USD за указанную дату.</summary>
+    Task<decimal> GetSpentTodayUsdAsync(DateOnly date, CancellationToken cancellationToken = default);
+
+    /// <summary>Возвращает количество использованных токенов за указанную дату.</summary>
+    Task<int> GetTokensUsedTodayAsync(DateOnly date, CancellationToken cancellationToken = default);
+
+    /// <summary>Сохраняет запись о фактическом использовании модели.</summary>
+    Task RecordUsageAsync(TokenUsageDto usage, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Поставщик цен моделей для оценки стоимости перед вызовом (TASK-033).
+/// </summary>
+public interface IModelPriceProvider
+{
+    /// <summary>Возвращает цены за 1M токенов (входные, выходные) для модели; null если модель неизвестна.</summary>
+    (decimal InputPricePer1mUsd, decimal OutputPricePer1mUsd)? GetModelPricing(string modelId);
+}
+

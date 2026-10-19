@@ -64,6 +64,8 @@ public sealed class ContractsBoundaryTests
         "BrainstemRestartExhausted",
         "RegexRuleDefinition",
         "IRegexRuleProvider",
+        "IBudgetStore",
+        "IModelPriceProvider",
     ];
 
     [Fact]
