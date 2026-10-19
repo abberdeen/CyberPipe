@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 34 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070, TASK-071 |
+| Done | 35 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-072 |
 | In Progress | 0 | — |
-| Ready | 3 | TASK-072, TASK-073, TASK-080 |
+| Ready | 2 | TASK-073, TASK-080 |
 | Planned | 6 | TASK-081, TASK-082, TASK-090–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 34 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host, 04-router-tiers, 05-chains, 06-skills, 07-channels-ui целиком; TASK-070, TASK-071). `Ready` у 3 разблокированных задач без незавершённых зависимостей.
+`Done` у 35 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host, 04-router-tiers, 05-chains, 06-skills, 07-channels-ui целиком; TASK-070–TASK-072). `Ready` у 2 разблокированных задач без незавершённых зависимостей.
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

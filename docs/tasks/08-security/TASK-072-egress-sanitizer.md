@@ -80,4 +80,4 @@ dotnet test --filter "FullyQualifiedName~EgressSanitizer"
 
 ## Статус
 
-Planned
+Done
