@@ -406,7 +406,11 @@ public sealed record TelemetryOptions
     /// <summary>Включить экспорт телеметрии; при false провайдеры не создаются.</summary>
     public bool Enabled { get; init; }
 
-    /// <summary>OTLP-эндпоинт приёмника (SigNoz: :4317 бинарный OTLP или :4318 OTLP/HTTP).</summary>
+    /// <summary>
+    /// Базовый адрес OTLP-приёмника без пути сигнала (SigNoz: :4317 бинарный OTLP
+    /// или :4318 OTLP/HTTP). Путь сигнала (/v1/traces, /v1/metrics, /v1/logs) добавляет
+    /// код экспорта; явно заданный путь сохраняется как есть.
+    /// </summary>
     public string OtlpEndpoint { get; init; } = "http://localhost:4317";
 
     /// <summary>

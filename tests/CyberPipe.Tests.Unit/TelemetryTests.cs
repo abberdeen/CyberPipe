@@ -106,6 +106,23 @@ public sealed class TelemetryTests
         Assert.Null(TelemetryProviders.Start(new TelemetryOptions(), "CyberPipe.Tests"));
     }
 
+    [Theory]
+    [InlineData("http://localhost:4317", false, "v1/traces", "http://localhost:4317/")]
+    [InlineData("http://localhost:4317", false, "v1/metrics", "http://localhost:4317/")]
+    [InlineData("http://localhost:4318", true, "v1/traces", "http://localhost:4318/v1/traces")]
+    [InlineData("http://localhost:4318", true, "v1/metrics", "http://localhost:4318/v1/metrics")]
+    [InlineData("http://localhost:4318/", true, "v1/traces", "http://localhost:4318/v1/traces")]
+    [InlineData("http://localhost:4318/v1/traces", true, "v1/traces", "http://localhost:4318/v1/traces")]
+    public void ResolveEndpoint_MapsSignalPath(
+        string configured, bool http, string signal, string expected)
+    {
+        var options = new TelemetryOptions { Enabled = true, OtlpEndpoint = configured, OtlpHttp = http };
+
+        Uri actual = TelemetryConfiguration.ResolveEndpoint(options, signal);
+
+        Assert.Equal(expected, actual.ToString());
+    }
+
     [Fact]
     public void CyberPipeTelemetry_SourcesAndInstrumentsExist()
     {
