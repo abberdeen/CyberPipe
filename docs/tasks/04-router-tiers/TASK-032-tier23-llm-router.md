@@ -70,4 +70,4 @@ dotnet test --filter "FullyQualifiedName~Tier23"
 
 ## Статус
 
-Ready
+Done

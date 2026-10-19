@@ -76,6 +76,10 @@ public sealed class ContractsBoundaryTests
         "ISemanticCache",
         "SemanticExampleDefinition",
         "ISemanticExampleProvider",
+        "IChatModelProvider",
+        "ChatModelRequest",
+        "ChatModelResponse",
+        "LlmClassificationJson",
     ];
 
     [Fact]

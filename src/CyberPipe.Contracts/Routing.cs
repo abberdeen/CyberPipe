@@ -190,3 +190,22 @@ public interface IChatModelProvider
         ChatModelRequest request,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Схема структурированного ответа классификации LLM-роутера (TASK-032).
+/// </summary>
+public sealed record LlmClassificationJson
+{
+    /// <summary>Распознанное намерение.</summary>
+    public string? Intent { get; init; }
+
+    /// <summary>Оценка уверенности классификации от 0.0 до 1.0.</summary>
+    public double Confidence { get; init; }
+
+    /// <summary>Извлечённые параметры намерения.</summary>
+    public IReadOnlyDictionary<string, string> Parameters { get; init; } =
+        new Dictionary<string, string>();
+
+    /// <summary>Объяснение решения или причина неуверенности.</summary>
+    public string? Reason { get; init; }
+}

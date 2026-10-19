@@ -248,6 +248,15 @@ public sealed record RouterOptions
 
     /// <summary>Пользовательские эталонные примеры для Tier 1 семантического роутера (TASK-031).</summary>
     public IReadOnlyList<SemanticExampleDefinition> Tier1Examples { get; init; } = [];
+
+    /// <summary>Порог уверенности лёгкой модели Tier 2 для принятия решения.</summary>
+    public double Tier2ConfidenceThreshold { get; init; } = 0.70;
+
+    /// <summary>Порог уверенности тяжёлой модели Tier 3 для принятия решения.</summary>
+    public double Tier3ConfidenceThreshold { get; init; } = 0.60;
+
+    /// <summary>Максимальное число повторов при транзиентных ошибках модели.</summary>
+    public int LlmMaxRetries { get; init; } = 2;
 }
 
 /// <summary>
