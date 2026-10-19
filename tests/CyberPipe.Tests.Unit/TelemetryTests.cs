@@ -12,13 +12,13 @@ namespace CyberPipe.Tests.Unit;
 public sealed class TelemetryTests
 {
     [Fact]
-    public void TelemetryOptions_DefaultsToDisabledLocalhostGrpc()
+    public void TelemetryOptions_DefaultsToDisabledLocalhostBinary()
     {
         var options = new TelemetryOptions();
 
         Assert.False(options.Enabled);
         Assert.Equal("http://localhost:4317", options.OtlpEndpoint);
-        Assert.Equal("Grpc", options.OtlpProtocol);
+        Assert.False(options.OtlpHttp);
         Assert.Equal("local", options.Environment);
         Assert.Equal(1.0, options.SampleRatio);
     }
@@ -46,14 +46,19 @@ public sealed class TelemetryTests
     }
 
     [Fact]
-    public void Validate_UnknownProtocolIsNamed()
+    public void Validate_HttpTransportFlag_HasNoTelemetryErrors()
     {
         var options = new CyberPipeOptions
         {
-            Telemetry = new TelemetryOptions { Enabled = true, OtlpProtocol = "Kafka" },
+            Telemetry = new TelemetryOptions
+            {
+                Enabled = true,
+                OtlpEndpoint = "http://localhost:4318",
+                OtlpHttp = true,
+            },
         };
 
-        Assert.Contains(options.Validate(), e => e == "Telemetry:OtlpProtocol must be Grpc or HttpProtobuf.");
+        Assert.DoesNotContain(options.Validate(), e => e.StartsWith("Telemetry:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -76,7 +81,7 @@ public sealed class TelemetryTests
             {
                 Enabled = true,
                 OtlpEndpoint = "http://localhost:4318",
-                OtlpProtocol = "HttpProtobuf",
+                OtlpHttp = true,
                 SampleRatio = 0.25,
             },
         };

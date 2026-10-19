@@ -154,9 +154,6 @@ public sealed record CyberPipeOptions
             if (!Uri.TryCreate(Telemetry.OtlpEndpoint, UriKind.Absolute, out Uri? otlpUri)
                 || (otlpUri.Scheme != Uri.UriSchemeHttp && otlpUri.Scheme != Uri.UriSchemeHttps))
                 errors.Add("Telemetry:OtlpEndpoint must be an absolute http(s) URI.");
-            if (!Telemetry.OtlpProtocol.Equals("Grpc", StringComparison.OrdinalIgnoreCase)
-                && !Telemetry.OtlpProtocol.Equals("HttpProtobuf", StringComparison.OrdinalIgnoreCase))
-                errors.Add("Telemetry:OtlpProtocol must be Grpc or HttpProtobuf.");
             if (Telemetry.SampleRatio is < 0 or > 1)
                 errors.Add("Telemetry:SampleRatio must be between 0 and 1.");
         }
@@ -409,11 +406,14 @@ public sealed record TelemetryOptions
     /// <summary>Включить экспорт телеметрии; при false провайдеры не создаются.</summary>
     public bool Enabled { get; init; }
 
-    /// <summary>OTLP-эндпоинт приёмника (SigNoz: http://localhost:4317 gRPC или :4318 HTTP).</summary>
+    /// <summary>OTLP-эндпоинт приёмника (SigNoz: :4317 бинарный OTLP или :4318 OTLP/HTTP).</summary>
     public string OtlpEndpoint { get; init; } = "http://localhost:4317";
 
-    /// <summary>OTLP-протокол: Grpc или HttpProtobuf.</summary>
-    public string OtlpProtocol { get; init; } = "Grpc";
+    /// <summary>
+    /// Транспорт OTLP: false — бинарный OTLP (порт 4317 приёмника), true — OTLP/HTTP protobuf
+    /// (порт 4318 приёмника; эндпоинт тогда должен указывать на :4318).
+    /// </summary>
+    public bool OtlpHttp { get; init; }
 
     /// <summary>Окружение для resource-атрибута deployment.environment.</summary>
     public string Environment { get; init; } = "local";

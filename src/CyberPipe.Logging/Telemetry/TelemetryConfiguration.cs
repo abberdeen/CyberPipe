@@ -29,7 +29,7 @@ internal static class TelemetryConfiguration
             .AddAttributes(new[] { new KeyValuePair<string, object>("deployment.environment", environment) });
 
     internal static OtlpExportProtocol MapProtocol(TelemetryOptions options) =>
-        options.OtlpProtocol.Equals("HttpProtobuf", StringComparison.OrdinalIgnoreCase)
+        options.OtlpHttp
             ? OtlpExportProtocol.HttpProtobuf
             : OtlpExportProtocol.Grpc;
 
