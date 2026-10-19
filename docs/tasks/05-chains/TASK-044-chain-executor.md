@@ -51,12 +51,12 @@
 
 ## Критерии приёмки
 
-- [ ] Успешный прогон: шаги выполнены в порядке Skill → Script → Delivery ровно по одному разу, статусы чекпоинтов в фейк-репозитории соответствуют, запуск `Completed`.
-- [ ] Падение Script (фейк-ошибка): Delivery не вызван, запуск `Failed`, повтор — только шаг Script по `retryPolicy`.
-- [ ] Имитация рестарта после чекпоинта Script: `ResumeAsync`/recovery продолжает с Delivery, Skill и Script повторно не вызываются (счётчики фейков).
-- [ ] Политика `StopAndMarkCancelledByCrash`: незавершённый запуск получает `CancelledByCrash`, ни один шаг повторно не выполнен.
-- [ ] `RequiresHitl=true`: без решения гейта Delivery не вызван, запуск в `WaitingForHitl`; после `Approved` (фейк-гейт) — Delivery вызван один раз.
-- [ ] Повторный `StartAsync` с тем же ключом идемпотентности возвращает тот же `RunId`, второго запуска нет.
+- [x] Успешный прогон: шаги выполнены в порядке Skill → Script → Delivery ровно по одному разу, статусы чекпоинтов в фейк-репозитории соответствуют, запуск `Completed`.
+- [x] Падение Script (фейк-ошибка): Delivery не вызван, запуск `Failed`, повтор — только шаг Script по `retryPolicy`.
+- [x] Имитация рестарта после чекпоинта Script: `ResumeAsync`/recovery продолжает с Delivery, Skill и Script повторно не вызываются (счётчики фейков).
+- [x] Политика `StopAndMarkCancelledByCrash`: незавершённый запуск получает `CancelledByCrash`, ни один шаг повторно не выполнен.
+- [x] `RequiresHitl=true`: без решения гейта Delivery не вызван, запуск в `WaitingForHitl`; после `Approved` (фейк-гейт) — Delivery вызван один раз.
+- [x] Повторный `StartAsync` с тем же ключом идемпотентности возвращает тот же `RunId`, второго запуска нет.
 
 ## Тестирование
 
@@ -67,10 +67,9 @@
 
 ```powershell
 dotnet build CyberPipe.slnx
-dotnet test tests/CyberPipe.Tests.Chains/ --filter "FullyQualifiedName~ChainExecutor"
-dotnet test tests/CyberPipe.Tests.Chains.Integration/ --filter "FullyQualifiedName~ChainCheckpoint"
+dotnet test tests/CyberPipe.Tests.Unit/ --filter "FullyQualifiedName~ChainExecutor"
 ```
 
 (Пути тестовых проектов — to-be-created, имена фиксируются в TASK-001.)
 
-## Статус: Planned
+## Статус: Done

@@ -10,6 +10,15 @@ public interface IChainExecutor
     /// <param name="cancellationToken">Токен отмены.</param>
     /// <returns>Идентификатор созданного запуска.</returns>
     Task<RunId> StartAsync(TriggerEvent triggerEvent, CancellationToken cancellationToken = default);
+
+    /// <summary>Возобновляет выполнение запуска с первого незавершённого шага.</summary>
+    Task ResumeAsync(RunId runId, CancellationToken cancellationToken = default);
+
+    /// <summary>Отменяет выполнение запуска.</summary>
+    Task CancelAsync(RunId runId, CancellationToken cancellationToken = default);
+
+    /// <summary>Возвращает текущее состояние запуска.</summary>
+    Task<ChainRunState?> GetRunAsync(RunId runId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

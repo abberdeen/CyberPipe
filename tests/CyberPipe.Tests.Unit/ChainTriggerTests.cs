@@ -18,6 +18,15 @@ public sealed class ChainTriggerTests
             Events.Add(triggerEvent);
             return Task.FromResult(RunId.New());
         }
+
+        public Task ResumeAsync(RunId runId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task CancelAsync(RunId runId, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<ChainRunState?> GetRunAsync(RunId runId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ChainRunState?>(null);
     }
 
     private sealed class FakeCronTriggerRegistrar : ICronTriggerRegistrar

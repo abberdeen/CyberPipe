@@ -112,6 +112,13 @@ public sealed class ContractsBoundaryTests
         "IScriptRunnerRegistry",
         "ISchemaValidator",
         "ISandboxProvider",
+        "CrashRecoveryPolicy",
+        "ChainRunState",
+        "SkillInvocationRequest",
+        "SkillInvocationResult",
+        "ISkillInvoker",
+        "IDelayedResumeScheduler",
+        "IChainExecutionRepository",
     ];
 
     [Fact]
