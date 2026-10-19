@@ -157,15 +157,17 @@ public sealed class TelegramScenarioTests
             Router = new Tier0RegexRouter(new ConfigurationRegexRuleProvider(options));
             var governor = new TokenBudgetGovernor(new InMemoryBudgetStore(), options);
             var guard = new OwnerAuthorizerGuard(Authorizer, OwnerChannel.Telegram);
-            Channel = new TelegramChannelService(Adapter, guard, messageBus: Bus);
-            Assistant = new AssistantHarness(Authorizer, Router, governor, Skill, Channel);
-            Bus.Subscribe<IncomingMessage>(Assistant);
+            TelegramChannelService? channelService = null;
             Hitl = new HitlApprovalService(
                 HitlRepo,
-                [Channel],
+                [new ForwardingCardSender(() => channelService!)],
                 guard,
                 new StubExecutor(),
                 executions: new InMemoryChainExecutionRepository());
+            Channel = new TelegramChannelService(Adapter, guard, messageBus: Bus, hitlService: Hitl);
+            channelService = Channel;
+            Assistant = new AssistantHarness(Authorizer, Router, governor, Skill, Channel);
+            Bus.Subscribe<IncomingMessage>(Assistant);
             Gate = new HitlApprovalGate(Hitl);
         }
 
@@ -184,6 +186,14 @@ public sealed class TelegramScenarioTests
             await Channel.ProcessUpdateAsync(update, CancellationToken.None);
             await Task.Delay(300);
         }
+    }
+
+    private sealed class ForwardingCardSender(Func<TelegramChannelService> channel) : IHitlCardSender
+    {
+        public ChannelKind Channel => ChannelKind.Telegram;
+
+        public Task SendCardAsync(HitlApprovalRequest request, CancellationToken cancellationToken = default) =>
+            channel().SendCardAsync(request, cancellationToken);
     }
 
     private sealed class MutableWhitelist(OwnerWhitelistSnapshot snapshot) : IOwnerWhitelistProvider
