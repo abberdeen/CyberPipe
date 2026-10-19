@@ -29,6 +29,9 @@ public sealed record CyberPipeOptions
     /// <summary>Выбор моделей и пути к каталогам моделей.</summary>
     public ModelOptions Models { get; init; } = new();
 
+    /// <summary>Установщик локального рантайма и моделей (TASK-081).</summary>
+    public LocalModelInstallerOptions LocalModels { get; init; } = new();
+
     /// <summary>Лимиты песочницы; лимит памяти без жёсткого дефолта (Q9).</summary>
     public SandboxOptions Sandbox { get; init; } = new();
 

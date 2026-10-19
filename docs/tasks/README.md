@@ -72,10 +72,10 @@
 | TASK-071 | Эвристическая безопасность аудио и контента | TASK-002 | Done |
 | TASK-072 | Egress sanitizer | TASK-002 | Done |
 | TASK-073 | Owner auth whitelist | TASK-002 | Done |
-| TASK-080 | Каталоги моделей в JSON (15 локальных + 8 облачных) | TASK-002 | Ready |
-| TASK-081 | Инструмент установки и настройки локальных моделей (Ollama) | TASK-002, TASK-080 | Planned |
-| TASK-082 | Советник по железу и совместимости локальных моделей | TASK-002, TASK-080 | Planned |
-| TASK-090 | Композиционный корень и DI: сборка Service, Desktop, CLI и Brainstem в единую систему | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-073, TASK-080–TASK-082 (все 39 задач областей 01–09) | Planned |
+| TASK-080 | Каталоги моделей в JSON (15 локальных + 8 облачных) | TASK-002 | Done |
+| TASK-081 | Инструмент установки и настройки локальных моделей (Ollama) | TASK-002, TASK-080 | Done |
+| TASK-082 | Советник по железу и совместимости локальных моделей | TASK-002, TASK-080 | Done |
+| TASK-090 | Композиционный корень и DI: сборка Service, Desktop, CLI и Brainstem в единую систему | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-073, TASK-080–TASK-082 (все 39 задач областей 01–09) | Ready |
 | TASK-091 | Сквозной сценарий Telegram: сообщение Owner → ответ ассистента | TASK-060, TASK-073, TASK-090 | Planned |
 | TASK-092 | Сквозной сценарий цепочки Trigger → Skill → Script → Delivery на четырёх триггерах | TASK-040, TASK-041, TASK-042, TASK-043, TASK-044, TASK-045, TASK-046, TASK-090 | Planned |
 | TASK-093 | Полная сборка и ворота выпуска: build, тесты, публикация, дымовой прогон | TASK-090, TASK-091, TASK-092 | Planned |
@@ -263,13 +263,13 @@ graph TD
 
 | Статус | Количество | Задачи |
 |---|---:|---|
-| Done | 36 | TASK-001–TASK-004, TASK-010–TASK-013, TASK-020–TASK-023, TASK-030–TASK-034, TASK-040–TASK-046, TASK-050–TASK-053, TASK-060–TASK-063, TASK-070–TASK-073 |
+| Done | 39 | Все задачи областей 01–09 |
 | In Progress | 0 | — |
-| Ready | 1 | TASK-080 |
-| Planned | 6 | TASK-081, TASK-082, TASK-090–TASK-093 |
+| Ready | 1 | TASK-090 |
+| Planned | 3 | TASK-091–TASK-093 |
 | **Итого** | **43** |  |
 
-`Done` у 36 завершённых задач (области 01-foundation, 02-data-layer, 03-service-host, 04-router-tiers, 05-chains, 06-skills, 07-channels-ui целиком; TASK-070–TASK-073). `Ready` у 1 разблокированной задачи без незавершённых зависимостей (TASK-080).
+`Done` у 39 завершённых задач (все области 01–09 целиком). `Ready` у 1 разблокированной задачи без незавершённых зависимостей (TASK-090).
 
 Как обновлять: при смене статуса исполнитель меняет статус в файле своей задачи и в таблице выше одной правкой; раз в итерацию ответственный за индекс сверяет таблицу со сканированием папок (`TASK-*.md`, разделы «Зависимости» и «Статус») и исправляет расхождения.
 

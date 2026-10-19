@@ -7,6 +7,9 @@
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.1" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Курируемые каталоги TASK-080: публикуются как данные в models/ (пути по умолчанию ModelOptions). -->
     <Content Include="Catalogs\*.json" Link="models\%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

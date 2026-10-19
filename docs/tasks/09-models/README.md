@@ -10,9 +10,9 @@
 
 | ID | Задача | Назначение | Статус |
 |---|---|---|---|
-| TASK-080 | [TASK-080-model-catalogs-json.md](TASK-080-model-catalogs-json.md) | JSON-каталоги: 15 локальных + 8 облачных моделей, загрузчик и валидатор | Planned |
-| TASK-081 | [TASK-081-local-model-installer-ui.md](TASK-081-local-model-installer-ui.md) | UI-инструмент установки/настройки локальных моделей (Ollama, например Qwen3) и стандартного эмбеддинга | Planned |
-| TASK-082 | [TASK-082-hardware-model-advisor.md](TASK-082-hardware-model-advisor.md) | Проба железа ПК и советник совместимости локальных моделей | Planned |
+| TASK-080 | [TASK-080-model-catalogs-json.md](TASK-080-model-catalogs-json.md) | JSON-каталоги: 15 локальных + 8 облачных моделей, загрузчик и валидатор | Done |
+| TASK-081 | [TASK-081-local-model-installer-ui.md](TASK-081-local-model-installer-ui.md) | UI-инструмент установки/настройки локальных моделей (Ollama, например Qwen3) и стандартного эмбеддинга | Done |
+| TASK-082 | [TASK-082-hardware-model-advisor.md](TASK-082-hardware-model-advisor.md) | Проба железа ПК и советник совместимости локальных моделей | Done |
 
 ## Общие принципы
 
@@ -32,4 +32,4 @@
 
 ## Статус
 
-Все задачи области: `Planned` (у каждой есть зависимости, поэтому `Ready` не выставляется).
+Все задачи области: `Done` (у каждой есть зависимости, поэтому `Ready` не выставляется).

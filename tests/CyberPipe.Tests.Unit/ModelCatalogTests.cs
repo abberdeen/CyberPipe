@@ -246,6 +246,13 @@ public sealed class ModelCatalogTests
                 models.RemoveAt(models.Count - 1);
             }
 
+            while (models.Count < keep)
+            {
+                var extra = JsonNode.Parse(models[0]!.ToJsonString())!.AsObject();
+                extra["id"] = $"extra-model-{models.Count}";
+                models.Add(extra);
+            }
+
             return node;
         });
         try
