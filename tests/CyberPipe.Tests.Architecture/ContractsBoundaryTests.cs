@@ -122,6 +122,18 @@ public sealed class ContractsBoundaryTests
         "ScheduledChainInfo",
         "InvalidCronExpressionException",
         "IChainSchedulerService",
+        "HitlStatus",
+        "HitlApprovalRecord",
+        "IHitlApprovalRepository",
+        "IHitlCardSender",
+        "IOwnerGuard",
+        "IHitlApprovalService",
+        "HitlException",
+        "HitlAccessDeniedException",
+        "HitlAlreadyResolvedException",
+        "HitlExpiredException",
+        "HitlInvalidEditedPayloadException",
+        "HitlNotFoundException",
     ];
 
     [Fact]
