@@ -56,18 +56,22 @@ public sealed class TelegramScenarioTests
 
         public int RouterCalls { get; private set; }
 
+        private readonly ModelHostingType _hostingType;
+
         public AssistantHarness(
             IOwnerAuthorizer authorizer,
             Tier0RegexRouter router,
             TokenBudgetGovernor governor,
             CountingSkill skill,
-            TelegramChannelService channel)
+            TelegramChannelService channel,
+            ModelHostingType hostingType = ModelHostingType.Local)
         {
             _authorizer = authorizer;
             _router = router;
             _governor = governor;
             _skill = skill;
             _channel = channel;
+            _hostingType = hostingType;
         }
 
         public async Task HandleAsync(IncomingMessage message, CancellationToken cancellationToken = default)
@@ -93,9 +97,9 @@ public sealed class TelegramScenarioTests
                 new BudgetRequest
                 {
                     ModelId = "gpt-4o-mini",
-                    HostingType = ModelHostingType.RemoteCloud,
-                    EstimatedInputTokens = 100000,
-                    EstimatedOutputTokens = 50000,
+                    HostingType = _hostingType,
+                    EstimatedInputTokens = 100,
+                    EstimatedOutputTokens = 50,
                 },
                 cancellationToken).ConfigureAwait(false);
             if (!budget.IsAllowed)
@@ -142,7 +146,7 @@ public sealed class TelegramScenarioTests
 
         public InMemoryHitlApprovalRepository HitlRepo { get; } = new();
 
-        public Harness(decimal dailyCapUsd = 100m)
+        public Harness(decimal dailyCapUsd = 100m, ModelHostingType hostingType = ModelHostingType.Local)
         {
             var options = new CyberPipeOptions
             {
@@ -164,9 +168,14 @@ public sealed class TelegramScenarioTests
                 guard,
                 new StubExecutor(),
                 executions: new InMemoryChainExecutionRepository());
-            Channel = new TelegramChannelService(Adapter, guard, messageBus: Bus, hitlService: Hitl);
+            Channel = new TelegramChannelService(
+                Adapter,
+                guard,
+                new TelegramOptions { OwnerChatId = OwnerChatId },
+                messageBus: Bus,
+                hitlService: Hitl);
             channelService = Channel;
-            Assistant = new AssistantHarness(Authorizer, Router, governor, Skill, Channel);
+            Assistant = new AssistantHarness(Authorizer, Router, governor, Skill, Channel, hostingType);
             Bus.Subscribe<IncomingMessage>(Assistant);
             Gate = new HitlApprovalGate(Hitl);
         }
@@ -252,7 +261,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task BudgetExhausted_OwnerGetsRefusalWithoutSkillCall()
     {
-        var harness = new Harness(dailyCapUsd: 0.000001m);
+        var harness = new Harness(dailyCapUsd: 0.000001m, hostingType: ModelHostingType.RemoteCloud);
 
         await harness.FeedTextAsync(OwnerChatId, long.Parse(OwnerId), "громкость на 100");
 

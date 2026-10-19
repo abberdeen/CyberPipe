@@ -147,7 +147,7 @@ public sealed class ChainScenarioTests
                 {
                     Channel = ChannelKind.Telegram,
                     Target = "777001",
-                    MessageTemplate = "Done: {{scriptResult}}",
+                    MessageTemplate = "Done: {{script}}",
                 },
             };
             return definition;
