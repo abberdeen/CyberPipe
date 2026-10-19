@@ -56,6 +56,14 @@ dotnet run --project src/CyberPipe.Service/CyberPipe.Service.csproj -- --console
 
 В консольном режиме служба выводит цветные логи прямо в терминал и отвечает на команды через Named Pipe. Завершение работы: `Ctrl+C`.
 
+## Диагностика конфигурации (`--validate-config`, TASK-090)
+
+```powershell
+dotnet run --project src/CyberPipe.Service/CyberPipe.Service.csproj -- --validate-config
+```
+
+Проверяет связность DI-графа композиции, наличие каталогов моделей 15+8 и отсутствие запрещённых сервисов. Каналы не запускаются, запись в БД не выполняется. Код выхода 0 — конфигурация валидна, 1 — найдены ошибки (перечислены в выводе).
+
 ---
 
 ## Установка и удаление службы Windows
