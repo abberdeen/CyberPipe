@@ -2,6 +2,7 @@ using Avalonia.Threading;
 using CyberPipe.Contracts;
 using CyberPipe.Desktop.Common;
 using CyberPipe.Desktop.Localization;
+using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Desktop.ViewModels;
 
@@ -9,6 +10,7 @@ public sealed class ServiceViewModel : ViewModelBase
 {
     private readonly IServiceController _controller;
     private readonly LocalizationManager _localization;
+    private readonly ILogger? _logger;
 
     private string _state = "Stopped";
     private string _serviceVersion = "Unknown";
@@ -22,10 +24,12 @@ public sealed class ServiceViewModel : ViewModelBase
 
     public ServiceViewModel(
         IServiceController controller,
-        LocalizationManager? localization = null)
+        LocalizationManager? localization = null,
+        ILogger? logger = null)
     {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         _localization = localization ?? LocalizationManager.Instance;
+        _logger = logger;
         _desktopVersion = typeof(ServiceViewModel).Assembly.GetName().Version?.ToString() ?? "1.0.0";
 
         StartCommand = new AsyncRelayCommand(StartAsync, () => CanStart);
@@ -201,6 +205,7 @@ public sealed class ServiceViewModel : ViewModelBase
             ServiceControlResult result = await _controller.StartAsync();
             if (result.Outcome != ServiceControlOutcome.Ok)
             {
+                _logger?.LogError("Failed to start CyberPipe service: {Error}", result.Error ?? result.Outcome.ToString());
                 LastError = result.Error;
                 State = result.Outcome.ToString();
             }
@@ -211,6 +216,7 @@ public sealed class ServiceViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger?.LogError(ex, "Failed to start CyberPipe service.");
             State = "ServiceUnavailable";
             LastError = ex.Message;
         }
@@ -234,6 +240,7 @@ public sealed class ServiceViewModel : ViewModelBase
             ServiceControlResult result = await _controller.StopAsync();
             if (result.Outcome != ServiceControlOutcome.Ok)
             {
+                _logger?.LogError("Failed to stop CyberPipe service: {Error}", result.Error ?? result.Outcome.ToString());
                 LastError = result.Error;
                 State = result.Outcome.ToString();
             }
@@ -244,6 +251,7 @@ public sealed class ServiceViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger?.LogError(ex, "Failed to stop CyberPipe service.");
             State = "ServiceUnavailable";
             LastError = ex.Message;
         }
@@ -267,6 +275,7 @@ public sealed class ServiceViewModel : ViewModelBase
             ServiceControlResult result = await _controller.RestartAsync();
             if (result.Outcome != ServiceControlOutcome.Ok)
             {
+                _logger?.LogError("Failed to restart CyberPipe service: {Error}", result.Error ?? result.Outcome.ToString());
                 LastError = result.Error;
                 State = result.Outcome.ToString();
             }
@@ -277,6 +286,7 @@ public sealed class ServiceViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            _logger?.LogError(ex, "Failed to restart CyberPipe service.");
             State = "ServiceUnavailable";
             LastError = ex.Message;
         }

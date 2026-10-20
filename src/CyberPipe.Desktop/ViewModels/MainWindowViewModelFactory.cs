@@ -43,7 +43,7 @@ public static class MainWindowViewModelFactory
         var chat = new ChatViewModel(router, budgetGovernor, notifications);
         var chains = new ChainsViewModel(chainRepo, executionRepo, triggerInvoker, notifications);
         var hitl = new HitlViewModel(hitlService, notifications);
-        var service = new ServiceViewModel(serviceController);
+        var service = new ServiceViewModel(serviceController, logger: controlLogger);
         var schedules = new SchedulesViewModel(scheduler, notifications);
         var models = new ModelsViewModel(null, null, notifications);
 

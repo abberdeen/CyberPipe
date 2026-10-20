@@ -149,14 +149,8 @@ public sealed class ServiceControllerManager : IServiceController
         _logger?.LogInformation("Attempting to stop CyberPipe service.");
 
         string serviceName = _options.Hosting.ServiceName;
-        if (!_scm.IsServiceInstalled(serviceName))
-        {
-            return new ServiceControlResult(
-                ServiceControlOutcome.ServiceNotInstalled,
-                "CyberPipe service is not installed.");
-        }
 
-        // 1. Try stopping gracefully via Named Pipe channel
+        // Канал первый: процесс из Aspire запущен как консоль, а не как служба Windows.
         bool stopRequestedViaChannel = false;
         try
         {
@@ -166,7 +160,35 @@ public sealed class ServiceControllerManager : IServiceController
         }
         catch (Exception ex)
         {
-            _logger?.LogDebug(ex, "Channel RequestStopAsync failed or channel unavailable. Falling back to SCM stop.");
+            _logger?.LogWarning(ex, "Channel RequestStopAsync failed or channel unavailable. Falling back to SCM stop.");
+        }
+
+        bool installed;
+        try
+        {
+            installed = _scm.IsServiceInstalled(serviceName);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Windows service manager is unavailable.");
+            if (stopRequestedViaChannel)
+            {
+                return new ServiceControlResult(ServiceControlOutcome.Ok, null);
+            }
+
+            return new ServiceControlResult(ServiceControlOutcome.Faulted, ex.Message);
+        }
+
+        if (!installed)
+        {
+            if (stopRequestedViaChannel)
+            {
+                return new ServiceControlResult(ServiceControlOutcome.Ok, null);
+            }
+
+            return new ServiceControlResult(
+                ServiceControlOutcome.ServiceNotInstalled,
+                "CyberPipe service is not installed.");
         }
 
         // 2. If channel stop was requested, wait for service to stop
@@ -229,9 +251,26 @@ public sealed class ServiceControllerManager : IServiceController
         ServiceControlResult stopResult = await StopAsync(cancellationToken).ConfigureAwait(false);
         if (stopResult.Outcome != ServiceControlOutcome.Ok)
         {
+            _logger?.LogError("Restart failed during stop phase: {Error}", stopResult.Error ?? stopResult.Outcome.ToString());
             return new ServiceControlResult(
                 ServiceControlOutcome.Faulted,
                 $"Restart failed during stop phase: {stopResult.Error ?? stopResult.Outcome.ToString()}");
+        }
+
+        bool installed;
+        try
+        {
+            installed = _scm.IsServiceInstalled(_options.Hosting.ServiceName);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Windows service manager is unavailable after stop; console process was asked to exit.");
+            return stopResult;
+        }
+
+        if (!installed)
+        {
+            return stopResult;
         }
 
         ServiceControlResult startResult = await StartAsync(cancellationToken).ConfigureAwait(false);

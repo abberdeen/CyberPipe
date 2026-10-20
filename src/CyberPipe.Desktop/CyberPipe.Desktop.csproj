@@ -9,6 +9,8 @@
     <PackageReference Include="Avalonia" Version="12.1.2" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
+    <!-- Пакет лежит в runtimes/win и не протекает через ProjectReference в deps.json Desktop. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.13" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />

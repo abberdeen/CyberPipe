@@ -200,6 +200,20 @@ public sealed class ServiceControlTests
     }
 
     [Fact]
+    public async Task StopAsync_WhenNotInstalled_ButChannelAcceptsStop_ReturnsOk()
+    {
+        var channel = new FakeServiceControlChannel();
+        var scm = new FakeScmManager { IsInstalled = false };
+        var controller = new ServiceControllerManager(channel, scm, _options, NullLogger.Instance);
+
+        ServiceControlResult result = await controller.StopAsync();
+
+        Assert.Equal(ServiceControlOutcome.Ok, result.Outcome);
+        Assert.True(channel.RequestStopCalled);
+        Assert.False(scm.StopCalled);
+    }
+
+    [Fact]
     public async Task RestartAsync_WhenStopFails_ReturnsFaultedWithStopPhase()
     {
         var channel = new FakeServiceControlChannel
