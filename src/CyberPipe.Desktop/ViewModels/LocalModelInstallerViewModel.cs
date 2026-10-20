@@ -47,6 +47,7 @@ public sealed class LocalModelItemViewModel : ViewModelBase
     public AsyncRelayCommand? VerifyCommand { get; internal set; }
     public RelayCommand? CancelCommand { get; internal set; }
     public RelayCommand? ConfirmRiskCommand { get; internal set; }
+    public RelayCommand? AssignCommand { get; internal set; }
 
     public int ProgressPercent
     {
@@ -100,6 +101,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
     private string? _embeddingProgressText;
     private bool _embeddingNeedsRemoveConfirmation;
     private CancellationTokenSource? _embeddingCts;
+    private Action<ModelDescriptorDto>? _onAssignModel;
     private IReadOnlyDictionary<string, HardwareFitVerdict> _verdicts =
         new Dictionary<string, HardwareFitVerdict>(StringComparer.Ordinal);
 
@@ -211,6 +213,19 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
     {
         get => _embeddingNeedsRemoveConfirmation;
         set => SetProperty(ref _embeddingNeedsRemoveConfirmation, value);
+    }
+
+    public Action<ModelDescriptorDto>? OnAssignModel
+    {
+        get => _onAssignModel;
+        set
+        {
+            _onAssignModel = value;
+            foreach (LocalModelItemViewModel item in Items)
+            {
+                item.AssignCommand = value != null ? new RelayCommand(() => value(item.Model)) : null;
+            }
+        }
     }
 
     public AsyncRelayCommand RefreshCommand { get; }

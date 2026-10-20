@@ -280,4 +280,79 @@ public sealed class InstallerViewModelTests
         Assert.False(vm.IsEmbeddingInstalled);
         Assert.Contains("удалён", vm.EmbeddingStateText, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void ModelsViewModel_CatalogItems_ExposeAssignCommandDirectly()
+    {
+        var catalog = new List<ModelDescriptorDto>
+        {
+            new()
+            {
+                Id = "qwen2.5:7b",
+                Name = "Qwen 2.5 7B",
+                HostingType = ModelHostingType.Local,
+                RecommendedFor = ModelTaskCategory.LightFastTier2,
+                Provider = "Ollama",
+                ModelId = "qwen2.5:7b",
+                ParamsSummary = "7B",
+                LicenseOrPricing = "Apache-2.0",
+                BestFor = "Tier 2",
+            }
+        };
+
+        var vm = new ModelsViewModel(catalog: catalog);
+
+        Assert.Single(vm.CatalogItems);
+        var catalogItem = vm.CatalogItems[0];
+        Assert.Equal("Qwen 2.5 7B", catalogItem.Name);
+        Assert.NotNull(catalogItem.AssignCommand);
+
+        var tier2 = vm.Assignments.First(a => a.Tier == IntentTier.Tier2);
+        Assert.NotEqual("qwen2.5:7b", tier2.ModelId);
+
+        // Execute AssignCommand directly on the item view model (which is what XAML binds to now)
+        catalogItem.AssignCommand.Execute(null);
+
+        Assert.Equal("qwen2.5:7b", tier2.ModelId);
+    }
+
+    [Fact]
+    public void ModelsViewModel_InstallerItems_WireAssignCommand()
+    {
+        var localCatalog = new List<ModelDescriptorDto>
+        {
+            new()
+            {
+                Id = "deepseek-r1:8b",
+                Name = "DeepSeek R1 8B",
+                HostingType = ModelHostingType.Local,
+                RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+                Provider = "Ollama",
+                ModelId = "deepseek-r1:8b",
+                ParamsSummary = "8B",
+                LicenseOrPricing = "MIT",
+                BestFor = "Tier 3",
+            }
+        };
+
+        var installerVm = new LocalModelInstallerViewModel(
+            localCatalog,
+            new FakeInstaller(),
+            new FakeRuntime());
+
+        var vm = new ModelsViewModel(
+            installer: installerVm);
+
+        Assert.Single(installerVm.Items);
+        var item = installerVm.Items[0];
+        Assert.NotNull(item.AssignCommand);
+
+        var tier3 = vm.Assignments.First(a => a.Tier == IntentTier.Tier3);
+        Assert.NotEqual("deepseek-r1:8b", tier3.ModelId);
+
+        // Execute AssignCommand directly on the installer item view model
+        item.AssignCommand.Execute(null);
+
+        Assert.Equal("deepseek-r1:8b", tier3.ModelId);
+    }
 }

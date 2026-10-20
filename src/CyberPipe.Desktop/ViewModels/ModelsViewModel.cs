@@ -61,6 +61,18 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
     }
 }
 
+public sealed class CatalogItemViewModel : ViewModelBase
+{
+    public required ModelDescriptorDto Model { get; init; }
+    public required RelayCommand AssignCommand { get; init; }
+
+    public string Name => Model.Name;
+    public string ParamsSummary => Model.ParamsSummary;
+    public string BestFor => Model.BestFor;
+    public ModelHostingType HostingType => Model.HostingType;
+    public string Provider => Model.Provider;
+}
+
 public sealed class ModelsViewModel : ViewModelBase
 {
     private readonly IDesktopNotificationService? _notifications;
@@ -102,12 +114,23 @@ public sealed class ModelsViewModel : ViewModelBase
         AssignToTier2Command = new RelayCommand(param => AssignModelToTier(IntentTier.Tier2, param as string ?? ""));
         AssignToTier3Command = new RelayCommand(param => AssignModelToTier(IntentTier.Tier3, param as string ?? ""));
 
+        // Wire up installer assignment callback
+        if (Installer != null)
+        {
+            Installer.OnAssignModel = model => AssignCatalogModel(model);
+        }
+
         // Populate catalog
         if (catalog != null)
         {
             foreach (ModelDescriptorDto item in catalog)
             {
                 Catalog.Add(item);
+                CatalogItems.Add(new CatalogItemViewModel
+                {
+                    Model = item,
+                    AssignCommand = new RelayCommand(() => AssignCatalogModel(item)),
+                });
             }
         }
 
@@ -121,6 +144,7 @@ public sealed class ModelsViewModel : ViewModelBase
 
     public ObservableCollection<TierModelAssignmentViewModel> Assignments { get; } = [];
     public ObservableCollection<ModelDescriptorDto> Catalog { get; } = [];
+    public ObservableCollection<CatalogItemViewModel> CatalogItems { get; } = [];
 
     public string InstallerNotice
     {

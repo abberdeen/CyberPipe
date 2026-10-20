@@ -2,8 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:CyberPipe.Desktop.ViewModels"
              xmlns:contracts="using:CyberPipe.Contracts"
-             x:Class="CyberPipe.Desktop.Views.ModelsView"
-             x:Name="ModelsRootControl">
+             x:Class="CyberPipe.Desktop.Views.ModelsView">
 
   <ScrollViewer Margin="16">
     <StackPanel Spacing="16" MaxWidth="850" HorizontalAlignment="Left">
@@ -263,8 +262,7 @@
                                 Command="{Binding RemoveCommand}"
                                 IsVisible="{Binding IsInstalled}" />
                         <Button Content="Назначить на Tier"
-                                Command="{Binding #ModelsRootControl.((vm:ModelsViewModel)DataContext).AssignCatalogModelCommand}"
-                                CommandParameter="{Binding Model}"
+                                Command="{Binding AssignCommand}"
                                 IsVisible="{Binding IsInstalled}" />
                         <Button Content="Отмена"
                                 Command="{Binding CancelCommand}"
@@ -309,9 +307,9 @@
         <StackPanel Spacing="12">
           <TextBlock Text="Model Catalog" FontWeight="Bold" FontSize="16" />
 
-          <ItemsControl ItemsSource="{Binding Catalog}">
+          <ItemsControl ItemsSource="{Binding CatalogItems}">
             <ItemsControl.ItemTemplate>
-              <DataTemplate DataType="contracts:ModelDescriptorDto">
+              <DataTemplate DataType="vm:CatalogItemViewModel">
                 <Border Margin="0,4"
                         Padding="10"
                         CornerRadius="6"
@@ -326,8 +324,7 @@
                     <TextBlock Grid.Column="2" Text="{Binding Provider}" Opacity="0.6" Margin="0,0,12,0" VerticalAlignment="Center" />
                     <Button Grid.Column="3"
                             Content="Назначить"
-                            Command="{Binding #ModelsRootControl.((vm:ModelsViewModel)DataContext).AssignCatalogModelCommand}"
-                            CommandParameter="{Binding}"
+                            Command="{Binding AssignCommand}"
                             VerticalAlignment="Center" />
                   </Grid>
                 </Border>
