@@ -52,7 +52,7 @@ int exitCode;
 using (Activity? cliActivity = CyberPipeTelemetry.Cli.StartActivity("cli.invoke"))
 {
     cliActivity?.SetTag("cli.command", args.Length > 0 ? args[0] : string.Empty);
-    exitCode = await CliApp.RunAsync(args, ctx);
+    exitCode = await CliApp.RunAsync(args, ctx).ConfigureAwait(false);
 }
 
 return exitCode;
