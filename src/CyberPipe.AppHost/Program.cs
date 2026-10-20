@@ -57,8 +57,7 @@ builder.AddProject<Projects.CyberPipe_Service>("service")
     .WithEnvironment("CYBERPIPE_Telemetry__OtlpEndpoint", grafanaOtlpHttp)
     .WithEnvironment("CYBERPIPE_Telemetry__OtlpHttp", "true")
     .WithEnvironment("CYBERPIPE_Telemetry__Environment", "aspire")
-    .WaitFor(postgres)
-    .WaitFor(grafana);
+    .WaitFor(postgres);
 
 if (!string.Equals(
         Environment.GetEnvironmentVariable("CYBERPIPE_ASPIRE_NO_DESKTOP"),
@@ -71,8 +70,7 @@ if (!string.Equals(
         .WithEnvironment("CYBERPIPE_Telemetry__Enabled", "true")
         .WithEnvironment("CYBERPIPE_Telemetry__OtlpEndpoint", grafanaOtlpHttp)
         .WithEnvironment("CYBERPIPE_Telemetry__OtlpHttp", "true")
-        .WithEnvironment("CYBERPIPE_Telemetry__Environment", "aspire")
-        .WaitFor(grafana);
+        .WithEnvironment("CYBERPIPE_Telemetry__Environment", "aspire");
 }
 
 builder.Build().Run();
