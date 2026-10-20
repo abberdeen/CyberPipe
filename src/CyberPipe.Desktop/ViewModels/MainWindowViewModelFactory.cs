@@ -1,6 +1,5 @@
 using CyberPipe.Contracts;
 using CyberPipe.Desktop.Services;
-using CyberPipe.Models;
 using CyberPipe.ServiceControl;
 using Microsoft.Extensions.Logging;
 
@@ -49,61 +48,7 @@ public static class MainWindowViewModelFactory
         var hitl = new HitlViewModel(hitlService, notifications);
         var service = new ServiceViewModel(serviceController, logger: controlLogger);
         var schedules = new SchedulesViewModel(scheduler, notifications);
-        IModelCatalog? catalog = null;
-        ILocalModelInstaller? localModelInstaller = null;
-        ILocalRuntimeInstaller? localRuntimeInstaller = null;
-        IModelCompatibilityAdvisor? hardwareAdvisor = null;
-
-        try
-        {
-            string baseDir = AppContext.BaseDirectory;
-            string localPath = Path.Combine(baseDir, "models", "local-models.json");
-            string cloudPath = Path.Combine(baseDir, "models", "cloud-models.json");
-            string embeddingPath = Path.Combine(baseDir, "models", "embedding-models.json");
-
-            if (!File.Exists(localPath) || !File.Exists(cloudPath) || !File.Exists(embeddingPath))
-            {
-                string candidateDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models");
-                if (Directory.Exists(candidateDir))
-                {
-                    localPath = Path.Combine(candidateDir, "local-models.json");
-                    cloudPath = Path.Combine(candidateDir, "cloud-models.json");
-                    embeddingPath = Path.Combine(candidateDir, "embedding-models.json");
-                }
-            }
-
-            if (File.Exists(localPath) && File.Exists(cloudPath) && File.Exists(embeddingPath))
-            {
-                catalog = FileModelCatalog.Load(localPath, cloudPath, embeddingPath);
-                var httpClient = new HttpClient();
-                localRuntimeInstaller = new OllamaLocalRuntimeInstaller(httpClient);
-                localModelInstaller = new OllamaLocalModelInstaller(httpClient, catalog);
-                var hardwareProbe = new SystemHardwareProbe();
-                hardwareAdvisor = new ModelCompatibilityAdvisor(catalog, hardwareProbe);
-            }
-        }
-        catch (Exception ex)
-        {
-            controlLogger?.LogWarning(ex, "Failed to initialize local model catalog / installer in Desktop.");
-        }
-
-        LocalModelInstallerViewModel? localInstallerVm = null;
-        if (catalog is not null && localModelInstaller is not null && localRuntimeInstaller is not null)
-        {
-            IReadOnlyList<ModelDescriptorDto> localModels = catalog.Find(hostingType: ModelHostingType.Local);
-            localInstallerVm = new LocalModelInstallerViewModel(
-                localModels,
-                localModelInstaller,
-                localRuntimeInstaller,
-                hardwareAdvisor,
-                notifications);
-        }
-
-        var models = new ModelsViewModel(
-            assignments: null,
-            catalog: catalog?.Find(),
-            notifications: notifications,
-            installer: localInstallerVm);
+        ModelsViewModel models = DesktopModelScreen.Create(notifications, controlLogger);
         var hostSkills = HostSkillsTestViewModel.CreateProbe();
 
         return new MainWindowViewModel(
