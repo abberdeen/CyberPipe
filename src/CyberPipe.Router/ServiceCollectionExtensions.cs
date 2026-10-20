@@ -28,6 +28,7 @@ public static class RouterServiceCollectionExtensions
         services.TryAddSingleton<IBudgetStore, InMemoryBudgetStore>();
         services.TryAddSingleton<ITokenBudgetGovernor, TokenBudgetGovernor>();
         services.TryAddSingleton<Tier23LlmRouter>();
+        services.TryAddSingleton<IIntentRouter, CompositeIntentRouter>();
 
         return services;
     }

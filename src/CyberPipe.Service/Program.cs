@@ -102,7 +102,8 @@ public static class Program
                             }
                             return Task.CompletedTask;
                         },
-                        logger: serverLogger);
+                        logger: serverLogger,
+                        rpcHandler: PipeRpcHandler.Create(sp));
                 });
 
                 services.Configure<HostOptions>(hostOptions =>

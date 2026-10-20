@@ -18,6 +18,7 @@ public sealed class ServiceControlPipeServer : IAsyncDisposable
     private readonly ServiceStatusTracker _tracker;
     private readonly Func<Task>? _stopCallback;
     private readonly Func<Task>? _restartCallback;
+    private readonly Func<string, string, Task<string>>? _rpcHandler;
     private readonly ILogger? _logger;
     private readonly CancellationTokenSource _cts = new();
     private Task? _listenTask;
@@ -28,13 +29,15 @@ public sealed class ServiceControlPipeServer : IAsyncDisposable
         ServiceStatusTracker tracker,
         Func<Task>? stopCallback = null,
         Func<Task>? restartCallback = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        Func<string, string, Task<string>>? rpcHandler = null)
     {
         _pipeName = pipeName;
         _tracker = tracker;
         _stopCallback = stopCallback;
         _restartCallback = restartCallback;
         _logger = logger;
+        _rpcHandler = rpcHandler;
     }
 
     public string PipeName => _pipeName;
@@ -135,6 +138,7 @@ public sealed class ServiceControlPipeServer : IAsyncDisposable
     private async Task<string> ProcessCommandAsync(string line)
     {
         string command = string.Empty;
+        string payload = "{}";
         try
         {
             using var doc = JsonDocument.Parse(line);
@@ -143,11 +147,33 @@ public sealed class ServiceControlPipeServer : IAsyncDisposable
             {
                 command = cmdProp.GetString() ?? string.Empty;
             }
+            if (doc.RootElement.TryGetProperty("payload", out var payloadProp))
+            {
+                payload = payloadProp.ValueKind == JsonValueKind.String
+                    ? payloadProp.GetString() ?? "{}"
+                    : payloadProp.GetRawText();
+            }
         }
         catch (JsonException)
         {
             // Simple plain-text fallback
             command = line;
+        }
+
+        // RPC контрактов службы (route/budget/chain/hitl) — не служебные ping/stop/restart.
+        if (_rpcHandler is not null && command.ToLowerInvariant() is not ("ping" or "status" or "stop" or "restart"))
+        {
+            try
+            {
+                string resultJson = await _rpcHandler(command, payload).ConfigureAwait(false);
+                return JsonSerializer.Serialize(new ServiceControlResponse<string>(Success: true, Data: resultJson, Message: "OK"));
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Pipe RPC '{Command}' failed.", command);
+                return JsonSerializer.Serialize(new ServiceControlResponse<string>(
+                    Success: false, Data: null, Message: $"{ex.GetType().Name}: {ex.Message}"));
+            }
         }
 
         switch (command.ToLowerInvariant())

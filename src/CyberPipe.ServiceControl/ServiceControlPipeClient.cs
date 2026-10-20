@@ -63,7 +63,26 @@ public sealed class ServiceControlPipeClient : IServiceControlChannel
         }
     }
 
-    private async Task<string> SendCommandAsync(string command, CancellationToken ct)
+    /// <summary>
+    /// RPC-вызов контрактов службы по тому же каналу (route/budget/chain/hitl):
+    /// payload — JSON аргументов, результат — JSON возвращаемого DTO.
+    /// </summary>
+    public async Task<string> CallRpcAsync(string command, string payloadJson, CancellationToken cancellationToken = default)
+    {
+        string responseJson = await SendRequestAsync(new { command, payload = payloadJson }, cancellationToken).ConfigureAwait(false);
+        var response = JsonSerializer.Deserialize<ServiceControlResponse<string>>(responseJson);
+        if (response?.Success == true)
+        {
+            return response.Data ?? "null";
+        }
+
+        throw new InvalidOperationException(response?.Message ?? $"RPC '{command}' failed: unsuccessful response from service.");
+    }
+
+    private Task<string> SendCommandAsync(string command, CancellationToken ct) =>
+        SendRequestAsync(new { command }, ct);
+
+    private async Task<string> SendRequestAsync(object request, CancellationToken ct)
     {
         var clientStream = new NamedPipeClientStream(
             serverName: ".",
@@ -91,7 +110,7 @@ public sealed class ServiceControlPipeClient : IServiceControlChannel
                 AutoFlush = true
             };
 
-            string requestJson = JsonSerializer.Serialize(new { command });
+            string requestJson = JsonSerializer.Serialize(request);
             await writer.WriteLineAsync(requestJson.AsMemory(), ct).ConfigureAwait(false);
             await clientStream.FlushAsync(ct).ConfigureAwait(false);
 
