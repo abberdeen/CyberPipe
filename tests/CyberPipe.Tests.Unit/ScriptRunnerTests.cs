@@ -715,7 +715,7 @@ public sealed class ScriptRunnerTests : IDisposable
         });
 
         Assert.NotEqual(ScriptRunStatus.Succeeded, result.Status);
-        Assert.Contains("Anti-wipe", result.Error ?? result.Message ?? string.Empty);
+        Assert.Contains("Anti-wipe", result.ErrorMessage ?? string.Empty);
         Assert.Equal(0, fakeSandbox.InvocationsCount);
     }
 
