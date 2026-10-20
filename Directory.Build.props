@@ -7,7 +7,5 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- Общий выход Desktop, Service и воркера Brainstem. -->
-    <CyberPipeAppDir>$(MSBuildThisFileDirectory)artifacts\app\</CyberPipeAppDir>
   </PropertyGroup>
 </Project>
