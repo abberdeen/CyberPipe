@@ -322,6 +322,22 @@ public sealed class Tier23LlmRouter : IRouterTier
         ChatModelRequest request,
         CancellationToken cancellationToken)
     {
+        // Egress (TASK-072): текст пользователя уходит внешнему провайдеру — сначала санитизация.
+        // Blocked = fail-closed: вызов модели не выполняется вообще.
+        if (_egressSanitizer is not null)
+        {
+            EgressSanitizeResult sanitized = await _egressSanitizer.SanitizeAsync(
+                EgressPayload.Text(request.Prompt, EgressDestination.ExternalApi, "Tier23LlmRouter"), cancellationToken);
+            if (sanitized.Outcome == EgressSanitizeOutcome.Blocked)
+            {
+                throw new InvalidOperationException("Egress sanitizer blocked the model request.");
+            }
+            if (sanitized.SanitizedPayload?.TextContent is { } cleaned && cleaned != request.Prompt)
+            {
+                request = request with { Prompt = cleaned };
+            }
+        }
+
         int maxRetries = Math.Max(0, _options.Router.LlmMaxRetries);
         int attempts = 0;
 

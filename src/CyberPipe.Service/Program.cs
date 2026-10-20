@@ -94,7 +94,7 @@ public static class Program
                             lifetime.StopApplication();
                             if (!isConsole && OperatingSystem.IsWindows())
                             {
-                                _ = Task.Run(async () =>
+                                Task ignored = Task.Run(async () =>
                                 {
                                     await Task.Delay(1000).ConfigureAwait(false);
                                     Environment.Exit(1);

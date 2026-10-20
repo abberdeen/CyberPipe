@@ -250,6 +250,26 @@ public sealed class Tier23LlmRouterTests
 
     // --- Test Doubles ---
 
+    private sealed class BlockingSanitizer : IEgressSanitizer
+    {
+        public Task<EgressSanitizeResult> SanitizeAsync(EgressPayload payload, CancellationToken cancellationToken = default) =>
+            Task.FromResult(EgressSanitizeResult.Blocked("secret detected"));
+    }
+
+    [Fact]
+    public async Task Tier23_EgressBlocked_DoesNotCallModelProvider()
+    {
+        var modelProvider = new FakeChatModelProvider();
+        modelProvider.SetResponse(ChatModelClass.Light, """{"intent":"system.help","confidence":0.99,"parameters":{},"reason":"x"}""");
+        var router = new Tier23LlmRouter(modelProvider, new FakeBudgetGovernor(allowAll: true), egressSanitizer: new BlockingSanitizer());
+
+        RouteResult result = await router.TryRouteAsync(new RouteRequest { Text = "my password is hunter2", Channel = ChannelKind.Telegram });
+
+        Assert.NotEqual(RouteStatus.Matched, result.Status);
+        Assert.Equal(0, modelProvider.GetCallCount(ChatModelClass.Light));
+        Assert.Equal(0, modelProvider.GetCallCount(ChatModelClass.Heavy));
+    }
+
     private sealed class FakeChatModelProvider : IChatModelProvider
     {
         private readonly Dictionary<ChatModelClass, string> _responses = new();
