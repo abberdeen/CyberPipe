@@ -20,16 +20,22 @@ internal sealed class BrainstemHostedService : IHostedService
         _logger = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        try
+        // Не блокируем старт хоста: подключение воркера может занимать секунды и падать —
+        // супервизор с его restart-политикой работает в фоне, служба стартует без него.
+        _ = Task.Run(async () =>
         {
-            await _supervisor.StartAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "Brainstem supervisor failed to start; worker-dependent skills will report EngineUnavailable.");
-        }
+            try
+            {
+                await _supervisor.StartAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Brainstem supervisor failed to start; worker-dependent skills will report EngineUnavailable.");
+            }
+        }, cancellationToken);
+        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

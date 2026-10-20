@@ -16,13 +16,21 @@ public static class ChainCommand
         }
 
         string action = args[0].ToLowerInvariant();
-        return action switch
+        try
         {
-            "list" => await ListChainsAsync(ctx, ct).ConfigureAwait(false),
-            "runs" => await ListRunsAsync(ctx, args.Skip(1).ToArray(), ct).ConfigureAwait(false),
-            "run" => await RunChainAsync(ctx, args.Skip(1).ToArray(), ct).ConfigureAwait(false),
-            _ => await UnknownActionAsync(ctx, action).ConfigureAwait(false),
-        };
+            return action switch
+            {
+                "list" => await ListChainsAsync(ctx, ct).ConfigureAwait(false),
+                "runs" => await ListRunsAsync(ctx, args.Skip(1).ToArray(), ct).ConfigureAwait(false),
+                "run" => await RunChainAsync(ctx, args.Skip(1).ToArray(), ct).ConfigureAwait(false),
+                _ => await UnknownActionAsync(ctx, action).ConfigureAwait(false),
+            };
+        }
+        catch (Exception ex)
+        {
+            await ctx.Error.WriteLineAsync($"Error: {ex.Message}").ConfigureAwait(false);
+            return CliExitCodes.GeneralError;
+        }
     }
 
     private static async Task<int> ListChainsAsync(CliContext ctx, CancellationToken ct)
