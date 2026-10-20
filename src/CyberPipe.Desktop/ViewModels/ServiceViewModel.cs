@@ -147,14 +147,14 @@ public sealed class ServiceViewModel : ViewModelBase
 
     private void ApplyStatus(ServiceStatusDto status)
     {
-        if (TryPostToUi(() => ApplyStatusCore(status)))
-        {
-            return;
-        }
-
         if (_ui is null || SynchronizationContext.Current == _ui)
         {
             ApplyStatusCore(status);
+            return;
+        }
+
+        if (TryPostToUi(() => ApplyStatusCore(status)))
+        {
             return;
         }
 

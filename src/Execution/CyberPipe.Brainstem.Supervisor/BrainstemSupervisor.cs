@@ -85,6 +85,7 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
 
     public async Task StopAsync(CancellationToken ct)
     {
+        _supervisorCts?.Cancel();
         await _lifecycleLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -94,7 +95,6 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
             }
 
             SetState("Stopped");
-            _supervisorCts?.Cancel();
 
             await TeardownCurrentWorkerAsync(graceful: true, ct).ConfigureAwait(false);
         }
@@ -193,11 +193,9 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
 
         if (!File.Exists(_workerBinaryPath))
         {
-            _logger?.LogError(
-                "Brainstem worker binary was not found at {Path}. Build CyberPipe.Service so the worker is copied beside it.",
+            _logger?.LogWarning(
+                "Brainstem worker binary not found on filesystem at {Path}. Relying on sandbox launcher to resolve or fail.",
                 _workerBinaryPath);
-            await HandleWorkerFailureAsync("Worker binary not found").ConfigureAwait(false);
-            return;
         }
 
         string exePath;
@@ -246,7 +244,7 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         Task finished = await Task.WhenAny(connectTask, _workerLaunchTask).ConfigureAwait(false);
         if (finished == _workerLaunchTask)
         {
-            await ReportWorkerExitBeforeConnectAsync().ConfigureAwait(false);
+            await ReportWorkerExitBeforeConnectAsync(lockAlreadyHeld: true).ConfigureAwait(false);
             return;
         }
 
@@ -254,10 +252,15 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         {
             await connectTask.ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || (_supervisorCts?.IsCancellationRequested ?? false))
+        {
+            _logger?.LogInformation("Brainstem worker connection was cancelled.");
+            return;
+        }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to connect to Brainstem worker pipe within timeout.");
-            await HandleWorkerFailureAsync("Connection timeout").ConfigureAwait(false);
+            await HandleWorkerFailureAsync("Connection timeout", lockAlreadyHeld: true).ConfigureAwait(false);
             return;
         }
 
@@ -269,11 +272,11 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         _monitorLoopTask = Task.Run(() => MonitorHeartbeatLoopAsync(_workerCts.Token));
     }
 
-    private async Task ReportWorkerExitBeforeConnectAsync()
+    private async Task ReportWorkerExitBeforeConnectAsync(bool lockAlreadyHeld = true)
     {
         if (_workerLaunchTask is null)
         {
-            await HandleWorkerFailureAsync("Worker launch did not start").ConfigureAwait(false);
+            await HandleWorkerFailureAsync("Worker launch did not start", lockAlreadyHeld).ConfigureAwait(false);
             return;
         }
 
@@ -288,16 +291,20 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
                 stderr);
             string detail = result.Error
                 ?? (string.IsNullOrWhiteSpace(stderr) ? $"exit {result.ExitCode}" : stderr);
-            await HandleWorkerFailureAsync(detail).ConfigureAwait(false);
+            await HandleWorkerFailureAsync(detail, lockAlreadyHeld).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            await HandleWorkerFailureAsync("Worker launch canceled").ConfigureAwait(false);
+            if (_supervisorCts?.IsCancellationRequested ?? false)
+            {
+                return;
+            }
+            await HandleWorkerFailureAsync("Worker launch canceled", lockAlreadyHeld).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Brainstem worker launch failed before the pipe connection.");
-            await HandleWorkerFailureAsync(ex.Message).ConfigureAwait(false);
+            await HandleWorkerFailureAsync(ex.Message, lockAlreadyHeld).ConfigureAwait(false);
         }
     }
 
@@ -428,14 +435,18 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         }
     }
 
-    private async Task HandleWorkerFailureAsync(string reason)
+    private async Task HandleWorkerFailureAsync(string reason, bool lockAlreadyHeld = false)
     {
         if (_state is "Stopped" or "Restarting" or "Faulted")
         {
             return;
         }
 
-        await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+        if (!lockAlreadyHeld)
+        {
+            await _lifecycleLock.WaitAsync().ConfigureAwait(false);
+        }
+
         try
         {
             if (_state is "Stopped" or "Restarting" or "Faulted")
@@ -494,7 +505,10 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         }
         finally
         {
-            _lifecycleLock.Release();
+            if (!lockAlreadyHeld)
+            {
+                _lifecycleLock.Release();
+            }
         }
     }
 
@@ -595,6 +609,12 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         [
             Path.Combine(baseDir, exeName),
             Path.Combine(baseDir, dllName),
+            Path.Combine(baseDir, "..", "..", "..", "..", "artifacts", "app", exeName),
+            Path.Combine(baseDir, "..", "..", "..", "..", "artifacts", "app", dllName),
+            Path.Combine(baseDir, "..", "..", "artifacts", "app", exeName),
+            Path.Combine(baseDir, "..", "..", "artifacts", "app", dllName),
+            Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "app", exeName),
+            Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "app", dllName),
             Path.Combine(baseDir, "..", "..", "..", "..", "src", "Execution", "CyberPipe.Brainstem", "bin", "Debug", "net10.0", exeName),
             Path.Combine(baseDir, "..", "..", "..", "..", "src", "Execution", "CyberPipe.Brainstem", "bin", "Release", "net10.0", exeName),
             Path.Combine(baseDir, "..", "..", "..", "..", "src", "Execution", "CyberPipe.Brainstem", "bin", "Debug", "net10.0", dllName),

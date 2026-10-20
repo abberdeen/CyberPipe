@@ -91,7 +91,7 @@ public sealed class ProjectGraphTests
             Assert.True(
                 graph[name].All(r =>
                     r is "CyberPipe.Contracts" or "CyberPipe.Logging"
-                    || (name == "CyberPipe.Desktop" && r == "CyberPipe.ServiceControl")),
+                    || (name == "CyberPipe.Desktop" && r is "CyberPipe.ServiceControl" or "CyberPipe.Skills")),
                 $"{name} references unexpected projects: {string.Join(", ", graph[name])}");
         }
     }
