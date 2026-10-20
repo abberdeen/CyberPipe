@@ -132,9 +132,10 @@ public sealed class WindowsSandboxLauncher : ISandboxLauncher
             return new SandboxLaunchResult(null, false, false, "", "", $"LaunchFailed: SetInformationJobObject failed with error {err}.");
         }
 
-        // 3. Create Restricted Token
+        // 3. Create Restricted Token. Trusted workers opt out: DISABLE_MAX_PRIVILEGE
+        // removes traverse checking and the .NET host cannot load.
         SafeProcessTokenHandle? restrictedToken = null;
-        if (WindowsNative.OpenProcessToken(
+        if (request.RestrictToken && WindowsNative.OpenProcessToken(
             WindowsNative.GetCurrentProcess(),
             WindowsNative.TOKEN_DUPLICATE | WindowsNative.TOKEN_ASSIGN_PRIMARY | WindowsNative.TOKEN_QUERY | WindowsNative.TOKEN_ADJUST_DEFAULT,
             out SafeProcessTokenHandle primaryToken))

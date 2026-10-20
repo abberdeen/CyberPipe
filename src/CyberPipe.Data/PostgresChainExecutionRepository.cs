@@ -29,10 +29,14 @@ public sealed class PostgresChainExecutionRepository : IChainExecutionRepository
 
     public async Task<RunId?> FindRunByIdempotencyKeyAsync(ChainId chainId, string idempotencyKey, CancellationToken cancellationToken = default)
     {
-        PagedResult<ChainRunRecord> page = await _runs.ListAsync(
-            new PagedQuery { Offset = 0, Limit = 500, SortBy = "created_at", Descending = false }, chainId, cancellationToken).ConfigureAwait(false);
-        ChainRunRecord? found = page.Items.FirstOrDefault(r => string.Equals(r.IdempotencyKey, idempotencyKey, StringComparison.Ordinal));
-        return found?.Id;
+        await foreach (ChainRunRecord record in EnumerateRunsAsync(
+            new PagedQuery { SortBy = "created_at", Descending = false }, chainId, cancellationToken).ConfigureAwait(false))
+        {
+            if (string.Equals(record.IdempotencyKey, idempotencyKey, StringComparison.Ordinal))
+                return record.Id;
+        }
+
+        return null;
     }
 
     public async Task<ChainRunState> CreateRunAsync(RunId runId, ChainId chainId, TriggerEvent trigger, CancellationToken cancellationToken = default)
@@ -100,12 +104,39 @@ public sealed class PostgresChainExecutionRepository : IChainExecutionRepository
 
     public async Task<IReadOnlyList<RunId>> ListUnfinishedRunsAsync(CancellationToken cancellationToken = default)
     {
-        PagedResult<ChainRunRecord> page = await _runs.ListAsync(
-            new PagedQuery { Offset = 0, Limit = 500, SortBy = "started_at", Descending = true }, null, cancellationToken).ConfigureAwait(false);
-        return page.Items
-            .Where(r => r.Status is ChainRunStatus.Running or ChainRunStatus.WaitingForHitl or ChainRunStatus.WaitingForRetry)
-            .Select(r => r.Id)
-            .ToList();
+        var ids = new List<RunId>();
+        await foreach (ChainRunRecord record in EnumerateRunsAsync(
+            new PagedQuery { SortBy = "started_at", Descending = true }, chainId: null, cancellationToken).ConfigureAwait(false))
+        {
+            if (record.Status is ChainRunStatus.Running or ChainRunStatus.WaitingForHitl or ChainRunStatus.WaitingForRetry)
+                ids.Add(record.Id);
+        }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Читает запуски страницами не больше <see cref="RepositoryOptions.MaxPageLimit"/>.
+    /// Прямой Limit 500 отклоняется репозиторием и роняет обязательный шаг ChainRecovery.
+    /// </summary>
+    private async IAsyncEnumerable<ChainRunRecord> EnumerateRunsAsync(
+        PagedQuery query,
+        ChainId? chainId,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        const int pageSize = 200;
+        int offset = 0;
+        while (true)
+        {
+            PagedResult<ChainRunRecord> page = await _runs.ListAsync(
+                query with { Offset = offset, Limit = pageSize }, chainId, cancellationToken).ConfigureAwait(false);
+            foreach (ChainRunRecord record in page.Items)
+                yield return record;
+
+            offset += page.Items.Count;
+            if (page.Items.Count == 0 || offset >= page.TotalCount)
+                yield break;
+        }
     }
 
     private static ChainRunState ToState(ChainRunRecord record, IReadOnlyList<ChainCheckpointDto> checkpoints) => new()

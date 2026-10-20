@@ -29,7 +29,7 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
     private CancellationTokenSource? _supervisorCts;
     private CancellationTokenSource? _workerCts;
     private NamedPipeServerStream? _serverPipe;
-    private Task? _workerLaunchTask;
+    private Task<SandboxLaunchResult>? _workerLaunchTask;
     private Task? _readLoopTask;
     private Task? _monitorLoopTask;
     private long _lastHeartbeatTicks;
@@ -224,9 +224,10 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
             ExecutablePath: exePath,
             Arguments: args,
             WorkingDirectory: workingDir,
-            Environment: new Dictionary<string, string>(),
+            Environment: RuntimeEnvironment(),
             TimeoutMs: int.MaxValue,
-            MaxMemoryMb: (int?)(_options.Brainstem.MemoryLimitMb ?? _options.Sandbox.MemoryLimitMb));
+            MaxMemoryMb: (int?)(_options.Brainstem.MemoryLimitMb ?? _options.Sandbox.MemoryLimitMb),
+            RestrictToken: false);
 
         _logger?.LogInformation(
             "Launching Brainstem worker '{Role}' via sandbox. Exe: {Exe}, Pipe: {Pipe}",
@@ -236,13 +237,22 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
 
         _workerLaunchTask = _sandboxLauncher.RunAsync(launchRequest, _workerCts.Token);
 
-        // Wait for worker connection with timeout
+        // Wait for worker connection with timeout. If the process dies first, its
+        // stderr is the reason — do not wait out the whole connect timeout.
         using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _workerCts.Token);
         connectCts.CancelAfter(TimeSpan.FromSeconds(15));
 
+        Task connectTask = _serverPipe.WaitForConnectionAsync(connectCts.Token);
+        Task finished = await Task.WhenAny(connectTask, _workerLaunchTask).ConfigureAwait(false);
+        if (finished == _workerLaunchTask)
+        {
+            await ReportWorkerExitBeforeConnectAsync().ConfigureAwait(false);
+            return;
+        }
+
         try
         {
-            await _serverPipe.WaitForConnectionAsync(connectCts.Token).ConfigureAwait(false);
+            await connectTask.ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -257,6 +267,64 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
 
         _readLoopTask = Task.Run(() => ReadPipeLoopAsync(_workerCts.Token));
         _monitorLoopTask = Task.Run(() => MonitorHeartbeatLoopAsync(_workerCts.Token));
+    }
+
+    private async Task ReportWorkerExitBeforeConnectAsync()
+    {
+        if (_workerLaunchTask is null)
+        {
+            await HandleWorkerFailureAsync("Worker launch did not start").ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            SandboxLaunchResult result = await _workerLaunchTask.ConfigureAwait(false);
+            string stderr = result.Stderr.Trim();
+            _logger?.LogError(
+                "Brainstem worker exited before connecting to the pipe. ExitCode: {ExitCode}, Error: {Error}, Stderr: {Stderr}",
+                result.ExitCode,
+                result.Error,
+                stderr);
+            string detail = result.Error
+                ?? (string.IsNullOrWhiteSpace(stderr) ? $"exit {result.ExitCode}" : stderr);
+            await HandleWorkerFailureAsync(detail).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            await HandleWorkerFailureAsync("Worker launch canceled").ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Brainstem worker launch failed before the pipe connection.");
+            await HandleWorkerFailureAsync(ex.Message).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Переменные, без которых framework-dependent воркер не находит среду .NET.
+    /// Секреты родителя сюда не копируются.
+    /// </summary>
+    private static Dictionary<string, string> RuntimeEnvironment()
+    {
+        string[] names =
+        [
+            "SystemRoot", "WINDIR", "PATH", "PATHEXT",
+            "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+            "LOCALAPPDATA", "APPDATA", "PROGRAMDATA",
+            "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+            "COMPUTERNAME", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "NUMBER_OF_PROCESSORS",
+            "DOTNET_ROOT", "DOTNET_ROOT_X64", "DOTNET_MULTILEVEL_LOOKUP",
+        ];
+        var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in names)
+        {
+            string? value = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrEmpty(value))
+                environment[name] = value;
+        }
+
+        return environment;
     }
 
     private async Task MonitorHeartbeatLoopAsync(CancellationToken workerCt)

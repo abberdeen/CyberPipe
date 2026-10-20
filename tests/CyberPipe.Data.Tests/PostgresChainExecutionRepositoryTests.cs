@@ -12,12 +12,23 @@ public sealed class PostgresChainExecutionRepositoryTests
         public Task<ChainRunRecord?> GetAsync(RunId id, CancellationToken cancellationToken = default) =>
             Task.FromResult(Runs.TryGetValue(id, out ChainRunRecord? r) ? r : null);
 
+        public int MaxLimitSeen { get; private set; }
+
         public Task<PagedResult<ChainRunRecord>> ListAsync(PagedQuery query, ChainId? chainId = null, CancellationToken cancellationToken = default)
         {
-            List<ChainRunRecord> items = Runs.Values
+            query.Validate(200);
+            MaxLimitSeen = Math.Max(MaxLimitSeen, query.Limit);
+            List<ChainRunRecord> matched = Runs.Values
                 .Where(r => chainId is null || r.ChainId == chainId.Value)
-                .Skip(query.Offset).Take(query.Limit).ToList();
-            return Task.FromResult(new PagedResult<ChainRunRecord> { Items = items, TotalCount = items.Count, Offset = query.Offset, Limit = query.Limit });
+                .ToList();
+            List<ChainRunRecord> items = matched.Skip(query.Offset).Take(query.Limit).ToList();
+            return Task.FromResult(new PagedResult<ChainRunRecord>
+            {
+                Items = items,
+                TotalCount = matched.Count,
+                Offset = query.Offset,
+                Limit = query.Limit,
+            });
         }
 
         public Task<ChainRunRecord> AddAsync(ChainRunRecord run, CancellationToken cancellationToken = default)
@@ -107,5 +118,30 @@ public sealed class PostgresChainExecutionRepositoryTests
         Assert.Single(loaded.Checkpoints);
         Assert.Equal(ChainStepKind.Script, loaded.Checkpoints[0].Step);
         Assert.Empty(await repo.ListUnfinishedRunsAsync());
+    }
+
+    [Fact]
+    public async Task ListUnfinishedRuns_PagesWithinMaxLimit()
+    {
+        var runs = new FakeRunRepository();
+        var chainId = new ChainId(Guid.NewGuid());
+        for (int i = 0; i < 201; i++)
+        {
+            var id = new RunId(Guid.NewGuid());
+            runs.Runs[id] = new ChainRunRecord
+            {
+                Id = id,
+                ChainId = chainId,
+                IdempotencyKey = $"k{i}",
+                Status = ChainRunStatus.Running,
+                Source = "test",
+            };
+        }
+
+        var repo = new PostgresChainExecutionRepository(runs, new FakeCheckpointRepository());
+        IReadOnlyList<RunId> unfinished = await repo.ListUnfinishedRunsAsync();
+
+        Assert.Equal(201, unfinished.Count);
+        Assert.Equal(200, runs.MaxLimitSeen);
     }
 }

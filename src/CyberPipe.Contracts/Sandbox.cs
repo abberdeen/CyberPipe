@@ -10,13 +10,18 @@ namespace CyberPipe.Contracts;
 /// <param name="Environment">Разрешённые переменные окружения (allowlist, без секретов родителя).</param>
 /// <param name="TimeoutMs">Тайм-аут исполнения в миллисекундах.</param>
 /// <param name="MaxMemoryMb">Лимит памяти в мегабайтах (null = системное умолчание из конфигурации).</param>
+/// <param name="RestrictToken">
+/// Урезать токен процесса. Для недоверенных скриптов остаётся включённым.
+/// Доверенный воркер Brainstem запускается без этого: отключённые привилегии не дают загрузить среду .NET.
+/// </param>
 public sealed record SandboxLaunchRequest(
     string ExecutablePath,
     IReadOnlyList<string> Arguments,
     string WorkingDirectory,
     IReadOnlyDictionary<string, string> Environment,
     int TimeoutMs,
-    int? MaxMemoryMb);
+    int? MaxMemoryMb,
+    bool RestrictToken = true);
 
 /// <summary>
 /// Результат запуска процесса в песочнице (TASK-023).
