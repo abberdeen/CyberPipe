@@ -53,7 +53,7 @@ public static class AskCommand
                 return CliExitCodes.GeneralError;
             }
 
-            string answer = result.Intent ?? result.MatchedRuleName ?? "OK";
+            string answer = result.ResponseText ?? result.Intent ?? result.MatchedRuleName ?? "OK";
             await ctx.Out.WriteLineAsync(answer).ConfigureAwait(false);
             return CliExitCodes.Success;
         }

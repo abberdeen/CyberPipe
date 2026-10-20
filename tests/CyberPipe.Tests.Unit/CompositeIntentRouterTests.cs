@@ -60,11 +60,47 @@ public sealed class CompositeIntentRouterTests
             Task.FromResult(new BudgetStatusDto { Limits = new BudgetLimitsDto(), BudgetDate = DateOnly.FromDateTime(DateTime.UtcNow) });
     }
 
-    private static CompositeIntentRouter Create(IRegexRuleProvider rules, FakeChat chat) =>
+    private sealed class FakeSkillInvoker : ISkillInvoker
+    {
+        public List<SkillInvocationRequest> Invocations { get; } = [];
+
+        public Task<SkillInvocationResult> InvokeSkillAsync(SkillInvocationRequest request, CancellationToken cancellationToken = default)
+        {
+            Invocations.Add(request);
+            if (request.SkillId == "volume.get")
+            {
+                return Task.FromResult(new SkillInvocationResult
+                {
+                    IsSuccess = true,
+                    OutputJson = """{"volume":65,"isMuted":false}""",
+                    Message = "Host volume is 65%, muted: False."
+                });
+            }
+            if (request.SkillId == "volume.set")
+            {
+                return Task.FromResult(new SkillInvocationResult
+                {
+                    IsSuccess = true,
+                    OutputJson = request.PayloadJson,
+                    Message = "Volume set to target."
+                });
+            }
+
+            return Task.FromResult(new SkillInvocationResult
+            {
+                IsSuccess = true,
+                OutputJson = "{}",
+                Message = "Executed " + request.SkillId
+            });
+        }
+    }
+
+    private static CompositeIntentRouter Create(IRegexRuleProvider rules, FakeChat chat, ISkillInvoker? invoker = null) =>
         new(
             new Tier0RegexRouter(rules),
             new Tier1SemanticRouter(new FixedEmbeddingProvider(), new EmptyStore()),
-            new Tier23LlmRouter(chat, new AllowGovernor()));
+            new Tier23LlmRouter(chat, new AllowGovernor()),
+            invoker);
 
     [Fact]
     public async Task Composite_Tier0Match_ShortCircuitsLlm()
@@ -77,6 +113,39 @@ public sealed class CompositeIntentRouterTests
         Assert.Equal(RouteStatus.Matched, result.Status);
         Assert.Equal("system.help", result.Intent);
         Assert.Equal(0, chat.Calls);
+    }
+
+    [Fact]
+    public async Task Composite_Tier0VolumeGet_WithSkillInvoker_ExecutesSkillAndPopulatesResponseText()
+    {
+        var chat = new FakeChat();
+        var invoker = new FakeSkillInvoker();
+        var router = Create(new ConfigurationRegexRuleProvider(), chat, invoker);
+
+        RouteResult result = await router.RouteAsync(new RouteRequest { Text = "какая громкость", Channel = ChannelKind.Cli });
+
+        Assert.Equal(RouteStatus.Matched, result.Status);
+        Assert.Equal("volume.get", result.Intent);
+        Assert.Equal("Host volume is 65%, muted: False.", result.ResponseText);
+        Assert.Single(invoker.Invocations);
+        Assert.Equal("volume.get", invoker.Invocations[0].SkillId);
+    }
+
+    [Fact]
+    public async Task Composite_Tier0VolumeSet_TranslatesLevelAndExecutesSkill()
+    {
+        var chat = new FakeChat();
+        var invoker = new FakeSkillInvoker();
+        var router = Create(new ConfigurationRegexRuleProvider(), chat, invoker);
+
+        RouteResult result = await router.RouteAsync(new RouteRequest { Text = "громкость 75", Channel = ChannelKind.Cli });
+
+        Assert.Equal(RouteStatus.Matched, result.Status);
+        Assert.Equal("media.volume", result.Intent);
+        Assert.Equal("Volume set to target.", result.ResponseText);
+        Assert.Single(invoker.Invocations);
+        Assert.Equal("volume.set", invoker.Invocations[0].SkillId);
+        Assert.Contains("75", invoker.Invocations[0].PayloadJson);
     }
 
     [Fact]

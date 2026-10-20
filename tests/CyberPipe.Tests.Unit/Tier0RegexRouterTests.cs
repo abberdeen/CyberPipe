@@ -118,6 +118,52 @@ public sealed class Tier0RegexRouterTests
         Assert.Equal("media.stop", result.Intent);
     }
 
+    [Theory]
+    [InlineData("какая громкость")]
+    [InlineData("какая громкость?")]
+    [InlineData("текущая громкость")]
+    [InlineData("громкость")]
+    [InlineData("уровень звука")]
+    [InlineData("get volume")]
+    [InlineData("volume")]
+    public async Task Tier0_DefaultRules_MatchesVolumeGet(string input)
+    {
+        var request = CreateRequest(input);
+        RouteResult result = await _router.TryRouteAsync(request);
+
+        Assert.Equal(RouteStatus.Matched, result.Status);
+        Assert.Equal("volume.get", result.Intent);
+        Assert.Equal("VolumeGet", result.MatchedRuleName);
+    }
+
+    [Theory]
+    [InlineData("сделай громче", "volume.up")]
+    [InlineData("громче", "volume.up")]
+    [InlineData("прибавь громкость", "volume.up")]
+    [InlineData("увеличь громкость", "volume.up")]
+    [InlineData("volume up", "volume.up")]
+    [InlineData("сделай тише", "volume.down")]
+    [InlineData("тише", "volume.down")]
+    [InlineData("убавь громкость", "volume.down")]
+    [InlineData("уменьши громкость", "volume.down")]
+    [InlineData("volume down", "volume.down")]
+    [InlineData("выключи звук", "volume.mute")]
+    [InlineData("без звука", "volume.mute")]
+    [InlineData("mute", "volume.mute")]
+    [InlineData("включи звук", "volume.unmute")]
+    [InlineData("со звуком", "volume.unmute")]
+    [InlineData("unmute", "volume.unmute")]
+    [InlineData("переключи звук", "volume.toggle_mute")]
+    [InlineData("toggle mute", "volume.toggle_mute")]
+    public async Task Tier0_DefaultRules_MatchesVolumeControls(string input, string expectedIntent)
+    {
+        var request = CreateRequest(input);
+        RouteResult result = await _router.TryRouteAsync(request);
+
+        Assert.Equal(RouteStatus.Matched, result.Status);
+        Assert.Equal(expectedIntent, result.Intent);
+    }
+
     [Fact]
     public async Task Tier0_UnmatchedInput_ReturnsEscalateWithoutException()
     {

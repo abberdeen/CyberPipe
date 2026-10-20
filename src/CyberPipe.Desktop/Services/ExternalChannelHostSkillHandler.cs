@@ -36,13 +36,14 @@ public sealed class ExternalChannelHostSkillHandler(ISkillInvoker skills) : IMes
 
         if (result.IsSuccess)
         {
-            LastReply = new ExternalChannelReply(true, result.OutputJson, result.OutputJson, null);
+            string msg = !string.IsNullOrWhiteSpace(result.Message) ? result.Message : result.OutputJson;
+            LastReply = new ExternalChannelReply(true, msg, result.OutputJson, null);
             return;
         }
 
         LastReply = new ExternalChannelReply(
             false,
-            result.Error?.Message ?? "Host skill did not succeed.",
+            result.Message ?? result.Error?.Message ?? "Host skill did not succeed.",
             result.OutputJson,
             result.Error?.Code);
     }

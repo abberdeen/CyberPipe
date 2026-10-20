@@ -54,6 +54,45 @@ public static class DefaultSemanticExamples
         new() { Text = "вспомни документ", Intent = "knowledge.search" },
         new() { Text = "search notes", Intent = "knowledge.search" },
         new() { Text = "search knowledge base", Intent = "knowledge.search" },
+
+        // volume.get
+        new() { Text = "какая громкость", Intent = "volume.get" },
+        new() { Text = "текущая громкость", Intent = "volume.get" },
+        new() { Text = "уровень звука", Intent = "volume.get" },
+        new() { Text = "проверь громкость", Intent = "volume.get" },
+        new() { Text = "what is the volume", Intent = "volume.get" },
+        new() { Text = "current volume", Intent = "volume.get" },
+        new() { Text = "get volume", Intent = "volume.get" },
+
+        // volume.set
+        new() { Text = "установи громкость", Intent = "media.volume" },
+        new() { Text = "поставь звук", Intent = "media.volume" },
+        new() { Text = "измени громкость", Intent = "media.volume" },
+        new() { Text = "set volume", Intent = "media.volume" },
+
+        // volume.up
+        new() { Text = "сделай громче", Intent = "volume.up" },
+        new() { Text = "увеличь громкость", Intent = "volume.up" },
+        new() { Text = "прибавь звук", Intent = "volume.up" },
+        new() { Text = "make it louder", Intent = "volume.up" },
+        new() { Text = "turn up the volume", Intent = "volume.up" },
+
+        // volume.down
+        new() { Text = "сделай тише", Intent = "volume.down" },
+        new() { Text = "уменьши громкость", Intent = "volume.down" },
+        new() { Text = "убавь звук", Intent = "volume.down" },
+        new() { Text = "make it quieter", Intent = "volume.down" },
+        new() { Text = "turn down the volume", Intent = "volume.down" },
+
+        // volume.mute
+        new() { Text = "выключи звук", Intent = "volume.mute" },
+        new() { Text = "заглуши звук", Intent = "volume.mute" },
+        new() { Text = "mute audio", Intent = "volume.mute" },
+
+        // volume.unmute
+        new() { Text = "включи звук", Intent = "volume.unmute" },
+        new() { Text = "разглуши звук", Intent = "volume.unmute" },
+        new() { Text = "unmute audio", Intent = "volume.unmute" },
     ];
 }
 

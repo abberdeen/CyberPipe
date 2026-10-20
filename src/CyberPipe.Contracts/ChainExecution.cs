@@ -77,6 +77,9 @@ public sealed record SkillInvocationResult
     /// <summary>Выходные файлы навыка.</summary>
     public IReadOnlyList<string> OutputFiles { get; init; } = [];
 
+    /// <summary>Человекочитаемое сообщение или статус выполнения навыка.</summary>
+    public string? Message { get; init; }
+
     /// <summary>Ошибка при неудачном вызове.</summary>
     public ErrorDto? Error { get; init; }
 }

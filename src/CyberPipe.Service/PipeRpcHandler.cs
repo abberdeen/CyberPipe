@@ -22,6 +22,10 @@ public static class PipeRpcHandler
                     RouteRequest request = JsonSerializer.Deserialize<RouteRequest>(payload)
                         ?? throw new InvalidOperationException("Empty route request.");
                     RouteResult result = await services.GetRequiredService<IIntentRouter>().RouteAsync(request).ConfigureAwait(false);
+                    if (result.Status == RouteStatus.Matched && string.IsNullOrWhiteSpace(result.ResponseText))
+                    {
+                        result = await CyberPipe.Router.SkillIntentDispatcher.DispatchAsync(services.GetService<ISkillInvoker>(), result).ConfigureAwait(false);
+                    }
                     return JsonSerializer.Serialize(result);
                 }
                 case ServicePipeCommands.BudgetStatus:

@@ -91,7 +91,7 @@ public static class ChatCommand
                 RouteResult result = await ctx.Router.RouteAsync(request, linkedCts.Token).ConfigureAwait(false);
                 string answer = result.Status switch
                 {
-                    RouteStatus.Matched => result.Intent ?? result.MatchedRuleName ?? "OK",
+                    RouteStatus.Matched => result.ResponseText ?? result.Intent ?? result.MatchedRuleName ?? "OK",
                     RouteStatus.BudgetDenied => $"[Budget Denied: {result.Reason ?? "Exceeded"}]",
                     RouteStatus.Escalate => $"[Escalated: {result.Reason ?? "Unknown"}]",
                     _ => $"[Error: {result.Reason ?? "Failed"}]",

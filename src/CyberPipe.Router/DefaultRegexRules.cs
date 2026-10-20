@@ -22,9 +22,63 @@ public static class DefaultRegexRules
         new()
         {
             Name = "Volume",
-            Pattern = @"^(сделай\s+)?громкость\s+(на\s+)?(?<level>\d+)(%?)",
+            Pattern = @"^((сделай|поставь|установи)\s+)?громкость\s+(на\s+)?(?<level>\d+)(%?)$|^((set)\s+)?volume\s+(to\s+)?(?<level>\d+)(%?)$|^(сделай\s+)?громкость\s+(на\s+)?(?<level>\d+)(%?)",
             Intent = "media.volume",
             Priority = 50,
+            IgnoreCase = true,
+            TimeoutMs = 200
+        },
+        new()
+        {
+            Name = "VolumeGet",
+            Pattern = @"^(какая\s+)?(текущая\s+)?громкость(\s+системы)?(\s*\?)?$|^уровень\s+(громкости|звука)(\s*\?)?$|^(get\s+)?(current\s+)?volume(\s*\?)?$|^what\s+is\s+the\s+volume(\s*\?)?$",
+            Intent = "volume.get",
+            Priority = 45,
+            IgnoreCase = true,
+            TimeoutMs = 200
+        },
+        new()
+        {
+            Name = "VolumeUp",
+            Pattern = @"^((прибавь|увеличь|добавь|сделай)\s+)?громче$|^(прибавь|увеличь|добавь)\s+громкость(\s+на\s+(?<step>\d+)(%?))?$|^(volume\s+up|louder)$",
+            Intent = "volume.up",
+            Priority = 48,
+            IgnoreCase = true,
+            TimeoutMs = 200
+        },
+        new()
+        {
+            Name = "VolumeDown",
+            Pattern = @"^((убавь|уменьши|сделай)\s+)?тише$|^(убавь|уменьши)\s+громкость(\s+на\s+(?<step>\d+)(%?))?$|^(volume\s+down|quieter)$",
+            Intent = "volume.down",
+            Priority = 48,
+            IgnoreCase = true,
+            TimeoutMs = 200
+        },
+        new()
+        {
+            Name = "VolumeMute",
+            Pattern = @"^(выключи(ть)?\s+звук|без\s+звука|заглуши(ть)?|мут|mute(\s+sound)?)$",
+            Intent = "volume.mute",
+            Priority = 48,
+            IgnoreCase = true,
+            TimeoutMs = 200
+        },
+        new()
+        {
+            Name = "VolumeUnmute",
+            Pattern = @"^(включи(ть)?\s+звук|со\s+звуком|размут(ить)?|unmute(\s+sound)?)$",
+            Intent = "volume.unmute",
+            Priority = 48,
+            IgnoreCase = true,
+            TimeoutMs = 200
+        },
+        new()
+        {
+            Name = "VolumeToggleMute",
+            Pattern = @"^(переключи(ть)?\s+звук|toggle\s+mute)$",
+            Intent = "volume.toggle_mute",
+            Priority = 48,
             IgnoreCase = true,
             TimeoutMs = 200
         },

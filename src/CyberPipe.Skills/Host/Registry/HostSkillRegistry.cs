@@ -101,6 +101,7 @@ public sealed class HostSkillRegistry : IHostSkillRegistry
                     IsSuccess = true,
                     OutputJson = result.OutputJson,
                     OutputFiles = result.OutputFiles,
+                    Message = result.Message,
                 };
             }
 
@@ -109,6 +110,7 @@ public sealed class HostSkillRegistry : IHostSkillRegistry
                 IsSuccess = false,
                 OutputJson = result.OutputJson,
                 OutputFiles = result.OutputFiles,
+                Message = result.Message,
                 Error = new ErrorDto
                 {
                     Code = result.ErrorCode ?? $"HostSkill.{result.Status}",
