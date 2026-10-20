@@ -9,7 +9,7 @@ namespace CyberPipe.Skills.Host.Media;
 /// </summary>
 public sealed class WindowsMediaController : IHostMediaController
 {
-    private static readonly Guid EndpointVolumeIid = new("5BC64874-38B4-4B78-8B3A-30CD0B111F43");
+    private static readonly Guid EndpointVolumeIid = new("5CDF2C82-841E-4546-9722-0CF74078229A");
 
     private int _fallbackVolume = 50;
     private bool _fallbackIsMuted;
@@ -329,13 +329,20 @@ public sealed class WindowsMediaController : IHostMediaController
             }
 
             Guid iid = EndpointVolumeIid;
-            hr = device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out var iface);
-            if (hr != 0 || iface is null)
+            hr = device.Activate(ref iid, 1 /* CLSCTX_INPROC_SERVER */, IntPtr.Zero, out IntPtr pIface);
+            if (hr != 0 || pIface == IntPtr.Zero)
             {
                 return null;
             }
 
-            return (IAudioEndpointVolume)iface;
+            try
+            {
+                return (IAudioEndpointVolume)Marshal.GetObjectForIUnknown(pIface);
+            }
+            finally
+            {
+                Marshal.Release(pIface);
+            }
         }
         catch
         {
@@ -370,44 +377,44 @@ public sealed class WindowsMediaController : IHostMediaController
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IMMDeviceEnumerator
     {
-        int EnumAudioEndpoints(int dataFlow, int dwStateMask, out IntPtr ppDevices);
-        int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
-        int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string pwstrId, out IMMDevice ppDevice);
-        int RegisterEndpointNotificationCallback(IntPtr pClient);
-        int UnregisterEndpointNotificationCallback(IntPtr pClient);
+        [PreserveSig] int EnumAudioEndpoints(int dataFlow, int dwStateMask, out IntPtr ppDevices);
+        [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppDevice);
+        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string pwstrId, out IMMDevice ppDevice);
+        [PreserveSig] int RegisterEndpointNotificationCallback(IntPtr pClient);
+        [PreserveSig] int UnregisterEndpointNotificationCallback(IntPtr pClient);
     }
 
     [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IMMDevice
     {
-        int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
-        int OpenPropertyStore(int stgmAccess, out IntPtr ppProperties);
-        int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
-        int GetState(out int pdwState);
+        [PreserveSig] int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, out IntPtr ppInterface);
+        [PreserveSig] int OpenPropertyStore(int stgmAccess, out IntPtr ppProperties);
+        [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
+        [PreserveSig] int GetState(out int pdwState);
     }
 
-    [Guid("5BC64874-38B4-4B78-8B3A-30CD0B111F43")]
+    [Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IAudioEndpointVolume
     {
-        int RegisterControlChangeNotify(IntPtr pNotify);
-        int UnregisterControlChangeNotify(IntPtr pNotify);
-        int GetChannelCount(out uint pnChannelCount);
-        int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
-        int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
-        int GetMasterVolumeLevel(out float pfLevelDB);
-        int GetMasterVolumeLevelScalar(out float pfLevel);
-        int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);
-        int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);
-        int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
-        int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
-        int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
-        int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
-        int GetVolumeStepInfo(out uint pnStep, out uint pnStepCount);
-        int VolumeStepUp(ref Guid pguidEventContext);
-        int VolumeStepDown(ref Guid pguidEventContext);
-        int QueryHardwareSupport(out uint pdwHardwareSupportMask);
-        int GetVolumeRange(out float pflVolumeMindB, out float pflVolumeMaxdB, out float pflVolumeIncrementdB);
+        [PreserveSig] int RegisterControlChangeNotify(IntPtr pNotify);
+        [PreserveSig] int UnregisterControlChangeNotify(IntPtr pNotify);
+        [PreserveSig] int GetChannelCount(out uint pnChannelCount);
+        [PreserveSig] int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+        [PreserveSig] int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+        [PreserveSig] int GetMasterVolumeLevel(out float pfLevelDB);
+        [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);
+        [PreserveSig] int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);
+        [PreserveSig] int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);
+        [PreserveSig] int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
+        [PreserveSig] int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
+        [PreserveSig] int GetVolumeStepInfo(out uint pnStep, out uint pnStepCount);
+        [PreserveSig] int VolumeStepUp(ref Guid pguidEventContext);
+        [PreserveSig] int VolumeStepDown(ref Guid pguidEventContext);
+        [PreserveSig] int QueryHardwareSupport(out uint pdwHardwareSupportMask);
+        [PreserveSig] int GetVolumeRange(out float pflVolumeMindB, out float pflVolumeMaxdB, out float pflVolumeIncrementdB);
     }
 }

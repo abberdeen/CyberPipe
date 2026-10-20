@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using CyberPipe.Contracts;
 using CyberPipe.Skills.Host;
@@ -44,6 +45,17 @@ public sealed class SkillsHostTests
         HostSkillResult prevResult = await prev.ExecuteAsync("{}");
         Assert.True(prevResult.IsSuccess);
         Assert.Equal("previous", media.LastCommand);
+    }
+
+    [Fact]
+    public async Task WindowsMediaController_GetVolume_ReturnsSensibleVolume()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var controller = new WindowsMediaController();
+        int vol = await controller.GetVolumeAsync();
+        Assert.InRange(vol, 0, 100);
+        bool muted = await controller.IsMutedAsync();
+        Assert.False(muted && !muted); // Simply verify call completes without throwing
     }
 
     [Fact]

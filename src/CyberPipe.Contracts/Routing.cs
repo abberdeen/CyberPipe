@@ -68,6 +68,9 @@ public sealed record RouteResult
 
     /// <summary>Диагностическая причина эскалации или ошибки; может отсутствовать.</summary>
     public string? Reason { get; init; }
+
+    /// <summary>Человекочитаемый ответ или результат выполнения намерения/навыка.</summary>
+    public string? ResponseText { get; init; }
 }
 
 /// <summary>
