@@ -82,22 +82,22 @@ public sealed class AsyncRelayCommand : ICommand
         }
     }
 
-    public Task ExecuteAsync(object? parameter = null)
+    public async Task ExecuteAsync(object? parameter = null)
     {
         if (!CanExecute(parameter))
         {
-            return Task.CompletedTask;
+            return;
         }
 
-        return RunAsync(parameter);
-    }
-
-    private async Task RunAsync(object? parameter)
-    {
         try
         {
             IsExecuting = true;
-            await _executeAsync(parameter);
+            await _executeAsync(parameter).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError(ex.ToString());
+            throw;
         }
         finally
         {

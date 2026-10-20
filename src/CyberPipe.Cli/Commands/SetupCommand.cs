@@ -181,10 +181,10 @@ public static class SetupCommand
             if (state.CurrentStep == SetupStep.FirstChannel)
             {
                 await ctx.Out.WriteLineAsync("--- Step 5: First Communication Channel ---").ConfigureAwait(false);
-                await ctx.Out.WriteLineAsync("Select starting channel:");
-                await ctx.Out.WriteLineAsync("  1. CLI (Current terminal)");
-                await ctx.Out.WriteLineAsync("  2. Desktop UI");
-                await ctx.Out.WriteLineAsync("  3. Telegram Bot");
+                await ctx.Out.WriteLineAsync("Select starting channel:").ConfigureAwait(false);
+                await ctx.Out.WriteLineAsync("  1. CLI (Current terminal)").ConfigureAwait(false);
+                await ctx.Out.WriteLineAsync("  2. Desktop UI").ConfigureAwait(false);
+                await ctx.Out.WriteLineAsync("  3. Telegram Bot").ConfigureAwait(false);
                 await ctx.Out.WriteAsync("Choice [1]: ").ConfigureAwait(false);
 
                 string choice = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "1";
