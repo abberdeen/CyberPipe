@@ -8,7 +8,7 @@
 //   desktop   — CyberPipe.Desktop (пропускается при CYBERPIPE_ASPIRE_NO_DESKTOP=1, headless-режим).
 //
 // Grafana — зеркало eng/grafana/docker-compose.yml. Запускать либо compose,
-// либо AppHost, но не оба сразу (общие хост-порты 3000/4317/4318 и том).
+// либо AppHost, но не оба сразу (общие хост-порты 38473/4317/4318 и том).
 //
 // Что НЕ запускается и почему:
 //   CLI       — разовый инструмент (выполнил команду и вышел), не долгоживущий ресурс;
@@ -27,7 +27,7 @@ const string devDbName = "cyberpipe";
 const int devDbHostPort = 5434;
 
 // OTLP/HTTP, как в экспорте OpenTelemetry в Grafana: протокол http/protobuf, порт 4318.
-// UI Grafana — :3000 (admin/admin). Для Grafana Cloud тот же контракт, другой endpoint и заголовок Authorization.
+// UI Grafana — :38473 (admin/admin). Для Grafana Cloud тот же контракт, другой endpoint и заголовок Authorization.
 const string grafanaOtlpHttp = "http://localhost:4318";
 
 var postgres = builder.AddContainer("postgres", "pgvector/pgvector", "pg16")
@@ -39,7 +39,7 @@ var postgres = builder.AddContainer("postgres", "pgvector/pgvector", "pg16")
     .WithLifetime(Aspire.Hosting.ApplicationModel.ContainerLifetime.Persistent);
 
 var grafana = builder.AddContainer("grafana", "grafana/otel-lgtm", "0.37.0")
-    .WithEndpoint(port: 3000, targetPort: 3000, scheme: "http", name: "http", isProxied: false)
+    .WithEndpoint(port: 38473, targetPort: 3000, scheme: "http", name: "http", isProxied: false)
     .WithEndpoint(port: 4317, targetPort: 4317, scheme: "tcp", name: "otlp-grpc", isProxied: false)
     .WithEndpoint(port: 4318, targetPort: 4318, scheme: "tcp", name: "otlp-http", isProxied: false)
     .WithVolume("cyberpipe-grafana-lgtm", "/data")

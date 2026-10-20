@@ -9,7 +9,7 @@
 docker compose -f eng/grafana/docker-compose.yml up -d
 ```
 
-- UI: http://localhost:3000 (`admin` / `admin`) — Explore: Traces (Tempo), Logs (Loki), Metrics (Prometheus).
+- UI: http://localhost:38473 (`admin` / `admin`) — Explore: Traces (Tempo), Logs (Loki), Metrics (Prometheus).
 - OTLP: `4317` gRPC, `4318` HTTP. Локальный контур Aspire использует `http://localhost:4318` и `OtlpHttp=true`.
 - Данные лежат в томе `cyberpipe-grafana-lgtm`.
 

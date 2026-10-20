@@ -35,13 +35,13 @@ dotnet run --project src/CyberPipe.AppHost
 Порт PostgreSQL контура — `localhost:5434` (не пересекается с продом `:5432`
 и тестовой `cyberpipe-test-db` на `:5433`); том `cyberpipe-aspire-pgdata`
 переживает перезапуски. Телеметрия процессов включена в `aspire`-окружение
-и летит в локальный Grafana LGTM (OTLP/HTTP `:4318`, UI `:3000`, вход `admin`/`admin`).
+и летит в локальный Grafana LGTM (OTLP/HTTP `:4318`, UI `:38473`, вход `admin`/`admin`).
 
 ## Что не входит и почему
 
 - CLI — разовый инструмент, а не долгоживущий процесс.
 - Brainstem-воркер — требует `--pipe` супервизора, сам не стартует.
-- Отдельный compose Grafana нужен только без AppHost: `eng/grafana/docker-compose.yml`. Не поднимайте его вместе с AppHost: порты `3000`/`4317`/`4318` общие.
+- Отдельный compose Grafana нужен только без AppHost: `eng/grafana/docker-compose.yml`. Не поднимайте его вместе с AppHost: порты `38473`/`4317`/`4318` общие.
 - ServiceDefaults-проект отсутствует осознанно: логирование, OTLP и health
   уже централизованы в `CyberPipe.Logging`, а ссылка Service на новый проект
   нарушила бы контракт `ServiceComposition_MayReferenceFeatureProjectsOnly`.

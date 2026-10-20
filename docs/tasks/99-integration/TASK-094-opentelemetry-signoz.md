@@ -2,7 +2,7 @@
 
 ## Статус
 
-Done. Локальный стенд SigNoz позже заменён на Grafana LGTM: `eng/grafana/`, UI `:3000`, OTLP/HTTP `:4318`. Ниже — исходная проверка против SigNoz.
+Done. Локальный стенд SigNoz позже заменён на Grafana LGTM: `eng/grafana/`, UI `:38473`, OTLP/HTTP `:4318`. Ниже — исходная проверка против SigNoz.
 
 ## Зависимости
 
