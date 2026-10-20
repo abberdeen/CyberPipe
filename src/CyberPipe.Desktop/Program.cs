@@ -39,11 +39,46 @@ internal static class Program
 
         Options = options;
         _loggerFactory = CyberPipeLogging.CreateLoggerFactory("Desktop", options, writeToConsole: true);
-        _loggerFactory.CreateLogger("CyberPipe.Desktop").LogInformation("CyberPipe Desktop starting");
+        ILogger logger = _loggerFactory.CreateLogger("CyberPipe.Desktop");
+        logger.LogInformation("CyberPipe Desktop starting");
+
+        AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+        {
+            if (eventArgs.ExceptionObject is Exception exception)
+            {
+                LogFailure(exception, "Unhandled Desktop exception");
+            }
+        };
+        TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+        {
+            LogFailure(eventArgs.Exception, "Unobserved Desktop task exception");
+            eventArgs.SetObserved();
+        };
 
         using IDisposable? telemetry = TelemetryProviders.Start(options.Telemetry, "CyberPipe.Desktop");
 
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    /// <summary>Пишет сбой в лог процесса и в stderr, который показывает консоль Aspire.</summary>
+    internal static void LogFailure(Exception exception, string message)
+    {
+        try
+        {
+            LoggerFactory.CreateLogger("CyberPipe.Desktop").LogError(exception, "{Message}", message);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        try
+        {
+            Console.Error.WriteLine(message);
+            Console.Error.WriteLine(exception);
+        }
+        catch (IOException)
+        {
+        }
     }
 
     public static AppBuilder BuildAvaloniaApp()

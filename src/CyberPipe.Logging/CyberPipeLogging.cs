@@ -71,7 +71,9 @@ public static class CyberPipeLogging
                 shared: true);
 
         if (writeToConsole ?? logging.WriteToConsole)
-            configuration.WriteTo.Console(new JsonFormatter());
+            configuration.WriteTo.Console(
+                new JsonFormatter(),
+                standardErrorFromLevel: LogEventLevel.Error);
 
         if (inMemorySink is not null)
             configuration.WriteTo.Sink(inMemorySink);
