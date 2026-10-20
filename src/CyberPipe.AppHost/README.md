@@ -40,7 +40,7 @@ dotnet run --project src/CyberPipe.AppHost
 ## Что не входит и почему
 
 - CLI — разовый инструмент, а не долгоживущий процесс.
-- Brainstem-воркер — требует `--pipe` супервизора, сам не стартует.
+- Brainstem-воркер не отдельный ресурс Aspire. Сборка Service копирует `CyberPipe.Brainstem.exe` в свой выходной каталог, и супервизор запускает его с `--pipe`. Без этого аргумента процесс сразу завершается.
 - Отдельный compose Grafana нужен только без AppHost: `eng/grafana/docker-compose.yml`. Не поднимайте его вместе с AppHost: порты `38473`/`4317`/`4318` общие.
 - ServiceDefaults-проект отсутствует осознанно: логирование, OTLP и health
   уже централизованы в `CyberPipe.Logging`, а ссылка Service на новый проект

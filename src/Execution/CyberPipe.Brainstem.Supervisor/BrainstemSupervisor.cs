@@ -191,6 +191,15 @@ public sealed class BrainstemSupervisor : IBrainstemSupervisor, IHostedService, 
         _workerCts?.Dispose();
         _workerCts = CancellationTokenSource.CreateLinkedTokenSource(_supervisorCts?.Token ?? CancellationToken.None);
 
+        if (!File.Exists(_workerBinaryPath))
+        {
+            _logger?.LogError(
+                "Brainstem worker binary was not found at {Path}. Build CyberPipe.Service so the worker is copied beside it.",
+                _workerBinaryPath);
+            await HandleWorkerFailureAsync("Worker binary not found").ConfigureAwait(false);
+            return;
+        }
+
         string exePath;
         var args = new List<string>();
 
