@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using CyberPipe.Contracts;
 
 namespace CyberPipe.Skills.Host.Skills;
@@ -17,11 +16,14 @@ public sealed class MediaPlaySkill(IHostMediaController controller, IAudioConten
     {
         if (safetyEvaluator is not null)
         {
-            AudioSafetyDecision decision = await safetyEvaluator.EvaluateAsync(ParseSafetyRequest(payloadJson), cancellationToken).ConfigureAwait(false);
+            AudioSafetyDecision decision = await safetyEvaluator
+                .EvaluateAsync(ParseSafetyRequest(payloadJson), cancellationToken)
+                .ConfigureAwait(false);
             if (decision.Action == AudioSafetyAction.DeferOrDeny)
             {
                 return HostSkillResult.Failed($"Audio safety blocked playback: {decision.Explanation}", "AudioSafety.Blocked");
             }
+
             if (decision.Action == AudioSafetyAction.ReduceVolume && decision.RecommendedVolumeLevel is { } level)
             {
                 int percent = (int)Math.Round(Math.Clamp(level, 0.0, 1.0) * 100);
@@ -35,16 +37,19 @@ public sealed class MediaPlaySkill(IHostMediaController controller, IAudioConten
     private static AudioSafetyRequest ParseSafetyRequest(string payloadJson)
     {
         if (string.IsNullOrWhiteSpace(payloadJson))
+        {
             return new AudioSafetyRequest();
+        }
+
         try
         {
-            using var doc = JsonDocument.Parse(payloadJson);
+            using JsonDocument doc = JsonDocument.Parse(payloadJson);
             JsonElement root = doc.RootElement;
             return new AudioSafetyRequest
             {
-                Title = GetString(root, "title"),
-                Description = GetString(root, "description"),
-                Transcript = GetString(root, "transcript"),
+                Title = HostSkillJson.OptionalString(root, "title"),
+                Description = HostSkillJson.OptionalString(root, "description"),
+                Transcript = HostSkillJson.OptionalString(root, "transcript"),
             };
         }
         catch (JsonException)
@@ -52,9 +57,6 @@ public sealed class MediaPlaySkill(IHostMediaController controller, IAudioConten
             return new AudioSafetyRequest { Title = payloadJson };
         }
     }
-
-    private static string? GetString(JsonElement root, string name) =>
-        root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 }
 
 /// <summary>Навык паузы воспроизведения медиа (TASK-050).</summary>
@@ -118,7 +120,6 @@ public sealed class VolumeGetSkill(IHostMediaController controller) : IHostSkill
         {
             int volume = await controller.GetVolumeAsync(cancellationToken);
             bool isMuted = await controller.IsMutedAsync(cancellationToken);
-
             string json = $"{{\"volume\":{volume},\"isMuted\":{(isMuted ? "true" : "false")}}}";
             return HostSkillResult.Ok(json, $"Host volume is {volume}%, muted: {isMuted}.");
         }
@@ -138,97 +139,82 @@ public sealed class VolumeSetSkill(IHostMediaController controller) : IHostSkill
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        int? targetVolume = null;
-        bool force = false;
+        if (!TryReadRequest(payloadJson, out int targetVolume, out bool force, out HostSkillResult? error))
+        {
+            return error!;
+        }
 
+        int currentVolume = await controller.GetVolumeAsync(cancellationToken);
+        if (!force && IsDrasticChange(currentVolume, targetVolume))
+        {
+            return HostSkillResult.NeedsApproval(
+                $"Changing volume from {currentVolume}% to {targetVolume}% is a drastic change and requires confirmation.",
+                payloadJson);
+        }
+
+        return await controller.SetVolumeAsync(targetVolume, cancellationToken);
+    }
+
+    private static bool TryReadRequest(string payloadJson, out int targetVolume, out bool force, out HostSkillResult? error)
+    {
+        targetVolume = 0;
+        force = false;
+        error = null;
+
+        int? volume = null;
         if (!string.IsNullOrWhiteSpace(payloadJson))
         {
             try
             {
-                using var doc = JsonDocument.Parse(payloadJson);
+                using JsonDocument doc = JsonDocument.Parse(payloadJson);
                 JsonElement root = doc.RootElement;
-
                 if (root.ValueKind == JsonValueKind.Object)
                 {
-                    if (root.TryGetProperty("volume", out JsonElement volProp))
+                    if (!HostSkillJson.TryReadOptionalInt(root, "volume", out volume))
                     {
-                        if (volProp.ValueKind == JsonValueKind.Number && volProp.TryGetInt32(out int vol))
-                        {
-                            targetVolume = vol;
-                        }
-                        else if (volProp.ValueKind == JsonValueKind.String && int.TryParse(volProp.GetString(), out int sVol))
-                        {
-                            targetVolume = sVol;
-                        }
-                        else
-                        {
-                            return HostSkillResult.ValidationError("Invalid volume format in payload.");
-                        }
-                    }
-                    else if (root.TryGetProperty("volumePercent", out JsonElement pctProp))
-                    {
-                        if (pctProp.ValueKind == JsonValueKind.Number && pctProp.TryGetInt32(out int pct))
-                        {
-                            targetVolume = pct;
-                        }
-                        else if (pctProp.ValueKind == JsonValueKind.String && int.TryParse(pctProp.GetString(), out int sPct))
-                        {
-                            targetVolume = sPct;
-                        }
-                        else
-                        {
-                            return HostSkillResult.ValidationError("Invalid volumePercent format in payload.");
-                        }
+                        error = HostSkillResult.ValidationError("Invalid volume format in payload.");
+                        return false;
                     }
 
-                    if (root.TryGetProperty("force", out JsonElement forceProp) && forceProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    if (volume is null && !HostSkillJson.TryReadOptionalInt(root, "volumePercent", out volume))
                     {
-                        force = forceProp.GetBoolean();
+                        error = HostSkillResult.ValidationError("Invalid volumePercent format in payload.");
+                        return false;
                     }
-                    else if (root.TryGetProperty("isApproved", out JsonElement approvedProp) && approvedProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
-                    {
-                        force = approvedProp.GetBoolean();
-                    }
+
+                    force = HostSkillJson.ReadBool(root, "force") ?? HostSkillJson.ReadBool(root, "isApproved") ?? false;
                 }
-                else if (root.ValueKind == JsonValueKind.Number && root.TryGetInt32(out int directNum))
+                else if (root.ValueKind == JsonValueKind.Number && root.TryGetInt32(out int direct))
                 {
-                    targetVolume = directNum;
+                    volume = direct;
                 }
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
-                return HostSkillResult.ValidationError("Invalid JSON payload for volume.set.");
+                error = HostSkillResult.ValidationError("Invalid JSON payload for volume.set.");
+                return false;
             }
         }
 
-        if (targetVolume is null)
+        if (volume is null)
         {
-            return HostSkillResult.ValidationError("Missing volume or volumePercent in payload.");
+            error = HostSkillResult.ValidationError("Missing volume or volumePercent in payload.");
+            return false;
         }
 
-        if (targetVolume is < 0 or > 100)
+        if (volume is < 0 or > 100)
         {
-            return HostSkillResult.ValidationError($"Volume must be between 0 and 100. Received: {targetVolume}.");
+            error = HostSkillResult.ValidationError($"Volume must be between 0 and 100. Received: {volume}.");
+            return false;
         }
 
-        int currentVolume = await controller.GetVolumeAsync(cancellationToken);
-
-        // Ограничения и подтверждение (TASK-050): резкое изменение громкости требует HITL-подтверждения
-        if (!force)
-        {
-            int delta = Math.Abs(targetVolume.Value - currentVolume);
-            bool isDrasticJump = delta > 40 || (targetVolume.Value > 80 && currentVolume <= 40);
-
-            if (isDrasticJump)
-            {
-                return HostSkillResult.NeedsApproval(
-                    $"Changing volume from {currentVolume}% to {targetVolume.Value}% is a drastic change and requires confirmation.",
-                    payloadJson);
-            }
-        }
-
-        return await controller.SetVolumeAsync(targetVolume.Value, cancellationToken);
+        targetVolume = volume.Value;
+        return true;
     }
+
+    // Резкое изменение громкости требует подтверждения владельца (TASK-050).
+    private static bool IsDrasticChange(int current, int target) =>
+        Math.Abs(target - current) > 40 || (target > 80 && current <= 40);
 }
 
 /// <summary>Навык увеличения громкости на шаг (TASK-050).</summary>
@@ -240,47 +226,9 @@ public sealed class VolumeUpSkill(IHostMediaController controller) : IHostSkill
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        int step = 5;
-        bool force = false;
-
-        if (!string.IsNullOrWhiteSpace(payloadJson))
+        if (!HostSkillJson.TryReadVolumeStep(payloadJson, readForce: true, "volume.up", out int step, out bool force, out HostSkillResult? error))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(payloadJson);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object)
-                {
-                    if (doc.RootElement.TryGetProperty("step", out JsonElement stepProp))
-                    {
-                        if (stepProp.ValueKind == JsonValueKind.Number && stepProp.TryGetInt32(out int parsedStep))
-                        {
-                            step = parsedStep;
-                        }
-                        else if (stepProp.ValueKind == JsonValueKind.String && int.TryParse(stepProp.GetString(), out int sStep))
-                        {
-                            step = sStep;
-                        }
-                        else
-                        {
-                            return HostSkillResult.ValidationError("Invalid step format in payload.");
-                        }
-                    }
-
-                    if (doc.RootElement.TryGetProperty("force", out JsonElement forceProp) && forceProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
-                    {
-                        force = forceProp.GetBoolean();
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                return HostSkillResult.ValidationError("Invalid JSON payload for volume.up.");
-            }
-        }
-
-        if (step is <= 0 or > 100)
-        {
-            return HostSkillResult.ValidationError($"Volume step must be between 1 and 100. Received: {step}.");
+            return error!;
         }
 
         if (!force && step > 40)
@@ -301,39 +249,9 @@ public sealed class VolumeDownSkill(IHostMediaController controller) : IHostSkil
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        int step = 5;
-
-        if (!string.IsNullOrWhiteSpace(payloadJson))
+        if (!HostSkillJson.TryReadVolumeStep(payloadJson, readForce: false, "volume.down", out int step, out _, out HostSkillResult? error))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(payloadJson);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                    doc.RootElement.TryGetProperty("step", out JsonElement stepProp))
-                {
-                    if (stepProp.ValueKind == JsonValueKind.Number && stepProp.TryGetInt32(out int parsedStep))
-                    {
-                        step = parsedStep;
-                    }
-                    else if (stepProp.ValueKind == JsonValueKind.String && int.TryParse(stepProp.GetString(), out int sStep))
-                    {
-                        step = sStep;
-                    }
-                    else
-                    {
-                        return HostSkillResult.ValidationError("Invalid step format in payload.");
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                return HostSkillResult.ValidationError("Invalid JSON payload for volume.down.");
-            }
-        }
-
-        if (step is <= 0 or > 100)
-        {
-            return HostSkillResult.ValidationError($"Volume step must be between 1 and 100. Received: {step}.");
+            return error!;
         }
 
         return await controller.VolumeDownAsync(step, cancellationToken);
@@ -391,8 +309,7 @@ public sealed class SystemStatusSkill(ISystemStatusProvider provider) : IHostSki
         try
         {
             SystemStatusDto status = await provider.GetStatusAsync(cancellationToken);
-            string json = JsonSerializer.Serialize(status, JsonOpts);
-            return HostSkillResult.Ok(json, "System status retrieved.");
+            return HostSkillResult.Ok(JsonSerializer.Serialize(status, JsonOpts), "System status retrieved.");
         }
         catch (Exception ex)
         {
@@ -414,52 +331,17 @@ public sealed class TimerSetSkill(ITimerService timerService) : IHostSkill
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        TimeSpan? duration = null;
-        string title = "Timer";
-        string extraPayload = "{}";
-
         if (string.IsNullOrWhiteSpace(payloadJson))
         {
             return HostSkillResult.ValidationError("Payload is required for timer.set.");
         }
 
+        TimeSpan? duration;
+        string title;
+        string extraPayload;
         try
         {
-            using var doc = JsonDocument.Parse(payloadJson);
-            JsonElement root = doc.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Object)
-            {
-                if (root.TryGetProperty("durationSeconds", out JsonElement secProp) && secProp.TryGetDouble(out double sec))
-                {
-                    duration = TimeSpan.FromSeconds(sec);
-                }
-                else if (root.TryGetProperty("seconds", out JsonElement sProp) && sProp.TryGetDouble(out double s))
-                {
-                    duration = TimeSpan.FromSeconds(s);
-                }
-                else if (root.TryGetProperty("duration", out JsonElement durProp))
-                {
-                    if (durProp.ValueKind == JsonValueKind.String && TimeSpan.TryParse(durProp.GetString(), out TimeSpan parsed))
-                    {
-                        duration = parsed;
-                    }
-                    else if (durProp.TryGetDouble(out double durNum))
-                    {
-                        duration = TimeSpan.FromSeconds(durNum);
-                    }
-                }
-
-                if (root.TryGetProperty("title", out JsonElement titleProp) && !string.IsNullOrWhiteSpace(titleProp.GetString()))
-                {
-                    title = titleProp.GetString()!;
-                }
-
-                if (root.TryGetProperty("payload", out JsonElement payloadProp))
-                {
-                    extraPayload = payloadProp.GetRawText();
-                }
-            }
+            (duration, title, extraPayload) = ReadRequest(payloadJson);
         }
         catch (JsonException)
         {
@@ -474,8 +356,9 @@ public sealed class TimerSetSkill(ITimerService timerService) : IHostSkill
         try
         {
             TimerRecord record = await timerService.SetTimerAsync(duration.Value, title, extraPayload, cancellationToken);
-            string json = JsonSerializer.Serialize(record);
-            return HostSkillResult.Ok(json, $"Timer '{title}' set for {duration.Value.TotalSeconds} seconds.");
+            return HostSkillResult.Ok(
+                JsonSerializer.Serialize(record),
+                $"Timer '{title}' set for {duration.Value.TotalSeconds} seconds.");
         }
         catch (ArgumentException ex)
         {
@@ -485,6 +368,21 @@ public sealed class TimerSetSkill(ITimerService timerService) : IHostSkill
         {
             return HostSkillResult.Failed($"Failed to set timer: {ex.Message}");
         }
+    }
+
+    private static (TimeSpan? Duration, string Title, string ExtraPayload) ReadRequest(string payloadJson)
+    {
+        using JsonDocument doc = JsonDocument.Parse(payloadJson);
+        JsonElement root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return (null, "Timer", "{}");
+        }
+
+        string extraPayload = root.TryGetProperty("payload", out JsonElement payloadProp)
+            ? payloadProp.GetRawText()
+            : "{}";
+        return (HostSkillJson.ReadTimerDuration(root), HostSkillJson.ReadTitle(root, "Timer"), extraPayload);
     }
 }
 
@@ -497,41 +395,23 @@ public sealed class TimerCancelSkill(ITimerService timerService) : IHostSkill
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        Guid? timerId = null;
-
-        if (!string.IsNullOrWhiteSpace(payloadJson))
+        if (!HostSkillJson.TryReadId(
+                payloadJson,
+                "timerId",
+                "Invalid JSON payload for timer.cancel.",
+                "Invalid or missing timerId in payload.",
+                out Guid timerId,
+                out HostSkillResult? error))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(payloadJson);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                    doc.RootElement.TryGetProperty("timerId", out JsonElement idProp) &&
-                    Guid.TryParse(idProp.GetString(), out Guid parsedId))
-                {
-                    timerId = parsedId;
-                }
-                else if (doc.RootElement.ValueKind == JsonValueKind.String &&
-                         Guid.TryParse(doc.RootElement.GetString(), out Guid directId))
-                {
-                    timerId = directId;
-                }
-            }
-            catch (JsonException)
-            {
-                return HostSkillResult.ValidationError("Invalid JSON payload for timer.cancel.");
-            }
-        }
-
-        if (timerId is null)
-        {
-            return HostSkillResult.ValidationError("Invalid or missing timerId in payload.");
+            return error!;
         }
 
         try
         {
-            bool cancelled = await timerService.CancelTimerAsync(timerId.Value, cancellationToken);
-            string json = $"{{\"timerId\":\"{timerId.Value}\",\"cancelled\":{(cancelled ? "true" : "false")}}}";
-            return HostSkillResult.Ok(json, cancelled ? "Timer successfully cancelled." : "Timer was not found or already completed.");
+            bool cancelled = await timerService.CancelTimerAsync(timerId, cancellationToken);
+            return HostSkillResult.Ok(
+                HostSkillJson.Cancelled("timerId", timerId, cancelled),
+                cancelled ? "Timer successfully cancelled." : "Timer was not found or already completed.");
         }
         catch (Exception ex)
         {
@@ -552,8 +432,7 @@ public sealed class TimerListSkill(ITimerService timerService) : IHostSkill
         try
         {
             IReadOnlyList<TimerRecord> timers = await timerService.ListActiveTimersAsync(cancellationToken);
-            string json = JsonSerializer.Serialize(timers);
-            return HostSkillResult.Ok(json, $"Found {timers.Count} active timer(s).");
+            return HostSkillResult.Ok(JsonSerializer.Serialize(timers), $"Found {timers.Count} active timer(s).");
         }
         catch (Exception ex)
         {
@@ -575,53 +454,17 @@ public sealed class AlarmSetSkill(IAlarmService alarmService) : IHostSkill
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        TimeOnly? timeOfDay = null;
-        string title = "Alarm";
-        List<DayOfWeek>? daysOfWeek = null;
-
         if (string.IsNullOrWhiteSpace(payloadJson))
         {
             return HostSkillResult.ValidationError("Payload is required for alarm.set.");
         }
 
+        TimeOnly? timeOfDay;
+        string title;
+        List<DayOfWeek>? daysOfWeek;
         try
         {
-            using var doc = JsonDocument.Parse(payloadJson);
-            JsonElement root = doc.RootElement;
-
-            if (root.ValueKind == JsonValueKind.Object)
-            {
-                if (root.TryGetProperty("time", out JsonElement timeProp) &&
-                    timeProp.ValueKind == JsonValueKind.String &&
-                    TimeOnly.TryParse(timeProp.GetString(), out TimeOnly parsedTime))
-                {
-                    timeOfDay = parsedTime;
-                }
-                else if (root.TryGetProperty("timeOfDay", out JsonElement todProp) &&
-                         todProp.ValueKind == JsonValueKind.String &&
-                         TimeOnly.TryParse(todProp.GetString(), out TimeOnly parsedTod))
-                {
-                    timeOfDay = parsedTod;
-                }
-
-                if (root.TryGetProperty("title", out JsonElement titleProp) && !string.IsNullOrWhiteSpace(titleProp.GetString()))
-                {
-                    title = titleProp.GetString()!;
-                }
-
-                if (root.TryGetProperty("daysOfWeek", out JsonElement daysProp) && daysProp.ValueKind == JsonValueKind.Array)
-                {
-                    daysOfWeek = [];
-                    foreach (JsonElement dayElem in daysProp.EnumerateArray())
-                    {
-                        if (dayElem.ValueKind == JsonValueKind.String &&
-                            Enum.TryParse<DayOfWeek>(dayElem.GetString(), ignoreCase: true, out DayOfWeek parsedDay))
-                        {
-                            daysOfWeek.Add(parsedDay);
-                        }
-                    }
-                }
-            }
+            (timeOfDay, title, daysOfWeek) = ReadRequest(payloadJson);
         }
         catch (JsonException)
         {
@@ -636,8 +479,7 @@ public sealed class AlarmSetSkill(IAlarmService alarmService) : IHostSkill
         try
         {
             AlarmRecord record = await alarmService.SetAlarmAsync(timeOfDay.Value, title, daysOfWeek, cancellationToken);
-            string json = JsonSerializer.Serialize(record);
-            return HostSkillResult.Ok(json, $"Alarm '{title}' set for {timeOfDay.Value}.");
+            return HostSkillResult.Ok(JsonSerializer.Serialize(record), $"Alarm '{title}' set for {timeOfDay.Value}.");
         }
         catch (ArgumentException ex)
         {
@@ -647,6 +489,18 @@ public sealed class AlarmSetSkill(IAlarmService alarmService) : IHostSkill
         {
             return HostSkillResult.Failed($"Failed to set alarm: {ex.Message}");
         }
+    }
+
+    private static (TimeOnly? Time, string Title, List<DayOfWeek>? Days) ReadRequest(string payloadJson)
+    {
+        using JsonDocument doc = JsonDocument.Parse(payloadJson);
+        JsonElement root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return (null, "Alarm", null);
+        }
+
+        return (HostSkillJson.ReadTimeOfDay(root), HostSkillJson.ReadTitle(root, "Alarm"), HostSkillJson.ReadDaysOfWeek(root));
     }
 }
 
@@ -659,41 +513,23 @@ public sealed class AlarmCancelSkill(IAlarmService alarmService) : IHostSkill
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
-        Guid? alarmId = null;
-
-        if (!string.IsNullOrWhiteSpace(payloadJson))
+        if (!HostSkillJson.TryReadId(
+                payloadJson,
+                "alarmId",
+                "Invalid JSON payload for alarm.cancel.",
+                "Invalid or missing alarmId in payload.",
+                out Guid alarmId,
+                out HostSkillResult? error))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(payloadJson);
-                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                    doc.RootElement.TryGetProperty("alarmId", out JsonElement idProp) &&
-                    Guid.TryParse(idProp.GetString(), out Guid parsedId))
-                {
-                    alarmId = parsedId;
-                }
-                else if (doc.RootElement.ValueKind == JsonValueKind.String &&
-                         Guid.TryParse(doc.RootElement.GetString(), out Guid directId))
-                {
-                    alarmId = directId;
-                }
-            }
-            catch (JsonException)
-            {
-                return HostSkillResult.ValidationError("Invalid JSON payload for alarm.cancel.");
-            }
-        }
-
-        if (alarmId is null)
-        {
-            return HostSkillResult.ValidationError("Invalid or missing alarmId in payload.");
+            return error!;
         }
 
         try
         {
-            bool cancelled = await alarmService.CancelAlarmAsync(alarmId.Value, cancellationToken);
-            string json = $"{{\"alarmId\":\"{alarmId.Value}\",\"cancelled\":{(cancelled ? "true" : "false")}}}";
-            return HostSkillResult.Ok(json, cancelled ? "Alarm cancelled." : "Alarm not found or already disabled.");
+            bool cancelled = await alarmService.CancelAlarmAsync(alarmId, cancellationToken);
+            return HostSkillResult.Ok(
+                HostSkillJson.Cancelled("alarmId", alarmId, cancelled),
+                cancelled ? "Alarm cancelled." : "Alarm not found or already disabled.");
         }
         catch (Exception ex)
         {
@@ -714,8 +550,7 @@ public sealed class AlarmListSkill(IAlarmService alarmService) : IHostSkill
         try
         {
             IReadOnlyList<AlarmRecord> alarms = await alarmService.ListAlarmsAsync(cancellationToken);
-            string json = JsonSerializer.Serialize(alarms);
-            return HostSkillResult.Ok(json, $"Found {alarms.Count} alarm(s).");
+            return HostSkillResult.Ok(JsonSerializer.Serialize(alarms), $"Found {alarms.Count} alarm(s).");
         }
         catch (Exception ex)
         {
@@ -725,3 +560,244 @@ public sealed class AlarmListSkill(IAlarmService alarmService) : IHostSkill
 }
 
 #endregion
+
+/// <summary>Общий разбор JSON-нагрузки навыков хоста. Виден только этому файлу.</summary>
+file static class HostSkillJson
+{
+    public static string? OptionalString(JsonElement root, string name) =>
+        root.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    public static string ReadTitle(JsonElement root, string fallback)
+    {
+        if (root.TryGetProperty("title", out JsonElement title) && !string.IsNullOrWhiteSpace(title.GetString()))
+        {
+            return title.GetString()!;
+        }
+
+        return fallback;
+    }
+
+    public static bool? ReadBool(JsonElement root, string name)
+    {
+        if (root.TryGetProperty(name, out JsonElement value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            return value.GetBoolean();
+        }
+
+        return null;
+    }
+
+    /// <summary>true — свойства нет или оно прочитано. false — свойство есть, но это не целое число.</summary>
+    public static bool TryReadOptionalInt(JsonElement root, string name, out int? value)
+    {
+        value = null;
+        if (!root.TryGetProperty(name, out JsonElement property))
+        {
+            return true;
+        }
+
+        if (!TryReadInt(property, out int number))
+        {
+            return false;
+        }
+
+        value = number;
+        return true;
+    }
+
+    public static bool TryReadVolumeStep(
+        string payloadJson,
+        bool readForce,
+        string skillId,
+        out int step,
+        out bool force,
+        out HostSkillResult? error)
+    {
+        step = 5;
+        force = false;
+        error = null;
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            return ValidateStep(step, out error);
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(payloadJson);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                if (root.TryGetProperty("step", out JsonElement stepProperty))
+                {
+                    if (!TryReadInt(stepProperty, out step))
+                    {
+                        error = HostSkillResult.ValidationError("Invalid step format in payload.");
+                        return false;
+                    }
+                }
+
+                if (readForce)
+                {
+                    force = ReadBool(root, "force") ?? false;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            error = HostSkillResult.ValidationError($"Invalid JSON payload for {skillId}.");
+            return false;
+        }
+
+        return ValidateStep(step, out error);
+    }
+
+    public static TimeSpan? ReadTimerDuration(JsonElement root)
+    {
+        if (root.TryGetProperty("durationSeconds", out JsonElement seconds) && seconds.TryGetDouble(out double durationSeconds))
+        {
+            return TimeSpan.FromSeconds(durationSeconds);
+        }
+
+        if (root.TryGetProperty("seconds", out JsonElement shortSeconds) && shortSeconds.TryGetDouble(out double secondsValue))
+        {
+            return TimeSpan.FromSeconds(secondsValue);
+        }
+
+        if (!root.TryGetProperty("duration", out JsonElement duration))
+        {
+            return null;
+        }
+
+        if (duration.ValueKind == JsonValueKind.String && TimeSpan.TryParse(duration.GetString(), out TimeSpan parsed))
+        {
+            return parsed;
+        }
+
+        return duration.TryGetDouble(out double numericDuration)
+            ? TimeSpan.FromSeconds(numericDuration)
+            : null;
+    }
+
+    public static TimeOnly? ReadTimeOfDay(JsonElement root)
+    {
+        if (TryReadTime(root, "time", out TimeOnly time))
+        {
+            return time;
+        }
+
+        return TryReadTime(root, "timeOfDay", out TimeOnly timeOfDay) ? timeOfDay : null;
+    }
+
+    public static List<DayOfWeek>? ReadDaysOfWeek(JsonElement root)
+    {
+        if (!root.TryGetProperty("daysOfWeek", out JsonElement days) || days.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var result = new List<DayOfWeek>();
+        foreach (JsonElement day in days.EnumerateArray())
+        {
+            if (day.ValueKind == JsonValueKind.String &&
+                Enum.TryParse(day.GetString(), ignoreCase: true, out DayOfWeek parsed))
+            {
+                result.Add(parsed);
+            }
+        }
+
+        return result;
+    }
+
+    public static bool TryReadId(
+        string payloadJson,
+        string propertyName,
+        string invalidJsonMessage,
+        string missingIdMessage,
+        out Guid id,
+        out HostSkillResult? error)
+    {
+        id = default;
+        error = null;
+        if (string.IsNullOrWhiteSpace(payloadJson))
+        {
+            error = HostSkillResult.ValidationError(missingIdMessage);
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(payloadJson);
+            if (TryReadGuid(doc.RootElement, propertyName, out id))
+            {
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+            error = HostSkillResult.ValidationError(invalidJsonMessage);
+            return false;
+        }
+
+        error = HostSkillResult.ValidationError(missingIdMessage);
+        return false;
+    }
+
+    public static string Cancelled(string idName, Guid id, bool cancelled) =>
+        $"{{\"{idName}\":\"{id}\",\"cancelled\":{(cancelled ? "true" : "false")}}}";
+
+    private static bool TryReadInt(JsonElement value, out int number)
+    {
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out number))
+        {
+            return true;
+        }
+
+        if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number))
+        {
+            return true;
+        }
+
+        number = 0;
+        return false;
+    }
+
+    private static bool TryReadGuid(JsonElement root, string propertyName, out Guid id)
+    {
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty(propertyName, out JsonElement property) &&
+            Guid.TryParse(property.GetString(), out id))
+        {
+            return true;
+        }
+
+        if (root.ValueKind == JsonValueKind.String && Guid.TryParse(root.GetString(), out id))
+        {
+            return true;
+        }
+
+        id = default;
+        return false;
+    }
+
+    private static bool TryReadTime(JsonElement root, string name, out TimeOnly time)
+    {
+        time = default;
+        return root.TryGetProperty(name, out JsonElement value) &&
+               value.ValueKind == JsonValueKind.String &&
+               TimeOnly.TryParse(value.GetString(), out time);
+    }
+
+    private static bool ValidateStep(int step, out HostSkillResult? error)
+    {
+        if (step is <= 0 or > 100)
+        {
+            error = HostSkillResult.ValidationError($"Volume step must be between 1 and 100. Received: {step}.");
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+}
