@@ -151,6 +151,9 @@ public sealed record ChatModelRequest
     /// <summary>Класс запрашиваемой модели.</summary>
     public required ChatModelClass ModelClass { get; init; }
 
+    /// <summary>Идентификатор или тег запрашиваемой модели (из каталога или рантайма).</summary>
+    public string? ModelId { get; init; }
+
     /// <summary>Системная инструкция; может отсутствовать.</summary>
     public string? SystemPrompt { get; init; }
 

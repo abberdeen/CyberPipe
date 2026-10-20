@@ -1,6 +1,8 @@
 using CyberPipe.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CyberPipe.Models;
 
@@ -22,7 +24,12 @@ public static class ModelsServiceCollectionExtensions
         string embeddingPath = Path.Combine(baseDirectory, "models", "embedding-models.json");
 
         services.AddSingleton<IModelCatalog>(sp => FileModelCatalog.Load(localPath, cloudPath, embeddingPath));
-        services.TryAddSingleton<IChatModelProvider, OllamaChatModelProvider>();
+        services.TryAddSingleton<IChatModelProvider>(sp => new OllamaChatModelProvider(
+            sp.GetRequiredService<HttpClient>(),
+            sp.GetRequiredService<IModelCatalog>(),
+            sp.GetService<IOptions<LocalModelInstallerOptions>>(),
+            sp.GetService<CyberPipeOptions>() ?? options,
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<OllamaChatModelProvider>>()));
         services.TryAddSingleton(sp => new HttpClient());
         services.TryAddSingleton<IDiskSpaceProbe, DriveDiskSpaceProbe>();
         services.TryAddSingleton<ILocalRuntimeInstaller, OllamaLocalRuntimeInstaller>();

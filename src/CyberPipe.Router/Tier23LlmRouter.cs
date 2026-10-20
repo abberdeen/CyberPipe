@@ -145,6 +145,7 @@ public sealed class Tier23LlmRouter : IRouterTier
                 new ChatModelRequest
                 {
                     ModelClass = ChatModelClass.Light,
+                    ModelId = modelId,
                     SystemPrompt = DefaultSystemPrompt,
                     Prompt = request.Text
                 },
@@ -253,6 +254,7 @@ public sealed class Tier23LlmRouter : IRouterTier
                 new ChatModelRequest
                 {
                     ModelClass = ChatModelClass.Heavy,
+                    ModelId = modelId,
                     SystemPrompt = DefaultSystemPrompt,
                     Prompt = request.Text
                 },
