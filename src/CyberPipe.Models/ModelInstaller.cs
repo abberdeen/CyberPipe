@@ -393,7 +393,7 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
                 "CyberPipe", "embeddings", "multilingual-e5-small");
         string sentinel = Path.Combine(directory, "model.onnx");
 
-        if (File.Exists(sentinel) && new FileInfo(sentinel).Length > 0)
+        if (IsUsableEmbeddingFile(sentinel))
         {
             return Result<EmbeddingInstallResult>.Success(new EmbeddingInstallResult
             {
@@ -453,6 +453,7 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
                     count,
                     cumulativeBytesDownloaded,
                     totalBundleBytes,
+                    fileSizes.TryGetValue(file, out long knownSize) ? knownSize : 0,
                     progress,
                     cancellationToken).ConfigureAwait(false);
 
@@ -470,7 +471,7 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
                 "Embedding.DownloadFailed", $"Embedding download failed: {ex.Message}");
         }
 
-        if (!File.Exists(sentinel) || new FileInfo(sentinel).Length == 0)
+        if (!IsUsableEmbeddingFile(sentinel))
         {
             return Result<EmbeddingInstallResult>.Failure(
                 "Embedding.Incomplete", "Embedding files are missing after download.");
@@ -605,6 +606,33 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
         return null;
     }
 
+    private static bool IsUsableEmbeddingFile(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        var info = new FileInfo(path);
+        if (info.Length <= 0)
+        {
+            return false;
+        }
+
+        // Указатель Git LFS — это не модель. Его нельзя считать установленным файлом,
+        // иначе повторная загрузка больше не запускается, а ONNX-сессия не открывается.
+        if (info.Length < 512)
+        {
+            string head = File.ReadAllText(path);
+            if (head.StartsWith("version https://git-lfs.github.com/spec/v1", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private async Task<long> DownloadFileAsync(
         string url,
         string destination,
@@ -613,9 +641,25 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
         int count,
         long cumulativeBytesBefore,
         long totalBundleBytes,
+        long knownSize,
         IProgress<ModelInstallProgress>? progress,
         CancellationToken ct)
     {
+        if (knownSize > 0 && File.Exists(destination) && new FileInfo(destination).Length == knownSize)
+        {
+            progress?.Report(new ModelInstallProgress
+            {
+                ModelId = count > 1 ? $"{fileName} ({index + 1}/{count})" : fileName,
+                Percent = totalBundleBytes > 0
+                    ? (int)Math.Min(100L, (cumulativeBytesBefore + knownSize) * 100L / totalBundleBytes)
+                    : 100,
+                DownloadedBytes = cumulativeBytesBefore + knownSize,
+                TotalBytes = totalBundleBytes > 0 ? totalBundleBytes : knownSize,
+                Stage = "present",
+            });
+            return knownSize;
+        }
+
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
         {
@@ -672,11 +716,17 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
                 }
             }
 
+            // Старый файл удаляется только вместе с успешной подменой.
+            // Сбой Move/Replace оставляет уже скачанную модель на месте.
             if (File.Exists(destination))
             {
-                File.Delete(destination);
+                File.SetAttributes(destination, FileAttributes.Normal);
+                File.Replace(tempDestination, destination, destinationBackupFileName: null);
             }
-            File.Move(tempDestination, destination);
+            else
+            {
+                File.Move(tempDestination, destination);
+            }
         }
         catch
         {

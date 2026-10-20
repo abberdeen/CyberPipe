@@ -109,11 +109,15 @@ public sealed class ModelTestService : IModelTestService
 
         try
         {
+            string runtimeModelId = hostingType == ModelHostingType.RemoteCloud
+                ? trimmedModelId
+                : await ResolveInstalledTagAsync(trimmedModelId, cancellationToken).ConfigureAwait(false);
+
             using var response = await _http.PostAsync(
                 $"{_ollamaBaseUrl}/api/chat",
                 JsonContent.Create(new
                 {
-                    model = trimmedModelId,
+                    model = runtimeModelId,
                     stream = false,
                     messages = new object[]
                     {
@@ -217,7 +221,7 @@ public sealed class ModelTestService : IModelTestService
                 LatencyMs = latencyMs,
                 InputTokens = inputTokens,
                 OutputTokens = outputTokens,
-                ModelUsed = modelUsed ?? trimmedModelId,
+                ModelUsed = modelUsed ?? runtimeModelId,
             };
         }
         catch (HttpRequestException ex)
@@ -262,6 +266,60 @@ public sealed class ModelTestService : IModelTestService
                 LatencyMs = sw.ElapsedMilliseconds,
             };
         }
+    }
+
+    /// <summary>
+    /// Каталог хранит id вроде <c>qwen3-0.6b</c>, а <c>ollama list</c> показывает тег <c>qwen3:0.6b</c>.
+    /// Если тег уже установлен, вызываем его, а не каталожный id.
+    /// </summary>
+    private async Task<string> ResolveInstalledTagAsync(string requested, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using HttpResponseMessage response = await _http.GetAsync($"{_ollamaBaseUrl}/api/tags", cancellationToken)
+                .ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return requested;
+            }
+
+            using JsonDocument doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            if (!doc.RootElement.TryGetProperty("models", out JsonElement models) || models.ValueKind != JsonValueKind.Array)
+            {
+                return requested;
+            }
+
+            foreach (JsonElement model in models.EnumerateArray())
+            {
+                if (model.TryGetProperty("name", out JsonElement nameElement) &&
+                    nameElement.ValueKind == JsonValueKind.String &&
+                    nameElement.GetString() is string installed &&
+                    SameOllamaModel(installed, requested))
+                {
+                    return installed;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        {
+        }
+
+        return requested;
+    }
+
+    private static bool SameOllamaModel(string installed, string requested) =>
+        string.Equals(CanonicalOllamaName(installed), CanonicalOllamaName(requested), StringComparison.OrdinalIgnoreCase);
+
+    private static string CanonicalOllamaName(string tag)
+    {
+        string value = tag.Trim();
+        const string latest = ":latest";
+        if (value.EndsWith(latest, StringComparison.OrdinalIgnoreCase))
+        {
+            value = value[..^latest.Length];
+        }
+
+        return value.Replace(':', '-');
     }
 
     private static string? TryExtractErrorMessage(string json)

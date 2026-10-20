@@ -278,7 +278,11 @@ public sealed class ModelsViewModel : ViewModelBase
         if (tierItem.Tier == IntentTier.Tier1) provider = "ONNX";
         if (tierItem.Tier == IntentTier.Tier0) provider = "Regex";
 
-        OpenTestForModelId(modelId, hosting, provider, $"{tierItem.TierName}: {modelId}");
+        ModelDescriptorDto? descriptor = Catalog.FirstOrDefault(m =>
+            string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(m.ModelId, modelId, StringComparison.OrdinalIgnoreCase));
+        string runtimeId = string.IsNullOrWhiteSpace(descriptor?.ModelId) ? modelId : descriptor.ModelId;
+        OpenTestForModelId(runtimeId, hosting, provider, $"{tierItem.TierName}: {descriptor?.Name ?? runtimeId}");
     }
 
     private void InitializeTierAssignments(

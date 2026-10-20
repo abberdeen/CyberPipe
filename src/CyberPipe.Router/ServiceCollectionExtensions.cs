@@ -1,7 +1,7 @@
 using CyberPipe.Contracts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Router;
 
@@ -22,7 +22,7 @@ public static class RouterServiceCollectionExtensions
         services.TryAddSingleton<IEmbeddingProvider>(sp =>
             new OnnxEmbeddingProvider(
                 (sp.GetService<CyberPipeOptions>() ?? options).Models.EmbeddingModelPath,
-                NullLogger.Instance));
+                sp.GetService<ILogger<OnnxEmbeddingProvider>>()));
         services.TryAddSingleton<Tier1SemanticRouter>();
         services.TryAddSingleton<ISemanticCache, SemanticCache>();
         services.TryAddSingleton<IBudgetStore, InMemoryBudgetStore>();

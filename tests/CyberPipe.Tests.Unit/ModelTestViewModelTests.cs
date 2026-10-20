@@ -303,4 +303,49 @@ public sealed class ModelTestViewModelTests
         Assert.False(response.Success);
         Assert.Contains("пустым", response.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task ModelTestService_CatalogId_CallsInstalledOllamaTag()
+    {
+        var handler = new OllamaTagHandler("qwen3:0.6b");
+        var service = new ModelTestService(new HttpClient(handler));
+
+        ModelTestResponse response = await service.TestModelAsync(
+            "qwen3-0.6b",
+            ModelHostingType.Local,
+            "привет",
+            "Ollama");
+
+        Assert.True(response.Success);
+        Assert.Equal("qwen3:0.6b", handler.RequestedModel);
+        Assert.Equal("работает", response.ResponseText);
+    }
+
+    private sealed class OllamaTagHandler(string installedName) : HttpMessageHandler
+    {
+        public string? RequestedModel { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/api/tags")
+            {
+                string json = $$"""{"models":[{"name":"{{installedName}}"}]}""";
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+                };
+            }
+
+            string body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            RequestedModel = doc.RootElement.GetProperty("model").GetString();
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """{"message":{"role":"assistant","content":"работает"},"model":"qwen3:0.6b"}""",
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            };
+        }
+    }
 }

@@ -39,7 +39,9 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
         {
             var sessionOptions = new SessionOptions
             {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+                // BASIC не пишет оптимизированную модель обратно в model.onnx.
+                // ORT_ENABLE_ALL на части сборок затирал файл при каждом старте службы.
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_BASIC
             };
             _session = new InferenceSession(resolvedPath, sessionOptions);
             _ownsSession = true;
@@ -129,7 +131,7 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
                 {
                     var sessionOptions = new SessionOptions
                     {
-                        GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+                        GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_BASIC
                     };
                     _session = new InferenceSession(resolvedPath, sessionOptions);
                     _ownsSession = true;

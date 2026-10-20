@@ -376,13 +376,21 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
             {
                 string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string directory = Path.Combine(localAppData, "CyberPipe", "embeddings", "multilingual-e5-small");
-                string sentinel = Path.Combine(directory, "model.onnx");
-                if (Directory.Exists(directory) && (!File.Exists(sentinel) || new FileInfo(sentinel).Length == 0))
+                if (Directory.Exists(directory))
                 {
-                    Directory.Delete(directory, recursive: true);
+                    foreach (string temporary in Directory.EnumerateFiles(directory, "*.tmp"))
+                    {
+                        try
+                        {
+                            File.Delete(temporary);
+                        }
+                        catch (IOException)
+                        {
+                        }
+                    }
                 }
             }
-            catch
+            catch (IOException)
             {
             }
 

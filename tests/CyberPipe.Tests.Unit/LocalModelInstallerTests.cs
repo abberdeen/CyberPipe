@@ -376,6 +376,37 @@ public sealed class LocalModelInstallerTests
     }
 
     [Fact]
+    public async Task EnsureEmbedding_FailedRedownload_KeepsExistingFile()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"cyberpipe-emb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        string modelPath = Path.Combine(dir, "model.onnx");
+        const string pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 1\n";
+        await File.WriteAllTextAsync(modelPath, pointer);
+        try
+        {
+            var options = new LocalModelInstallerOptions
+            {
+                EmbeddingDataDirectory = dir,
+                EmbeddingSourceBaseUrl = "http://localhost/files",
+            };
+            (OllamaLocalModelInstaller installer, _) = CreateInstaller(options: options);
+
+            Result<EmbeddingInstallResult> result = await installer.EnsureEmbeddingAsync();
+
+            Assert.False(result.IsSuccess);
+            Assert.Equal(pointer, await File.ReadAllTextAsync(modelPath));
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task EnsureEmbedding_ReportsByteWeightedCumulativeProgress()
     {
         string dir = Path.Combine(Path.GetTempPath(), $"cyberpipe-emb-{Guid.NewGuid():N}");
