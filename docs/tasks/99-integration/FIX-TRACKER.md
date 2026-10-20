@@ -6,8 +6,8 @@
 
 | ID | Разрыв | Задачи | Статус |
 |---|---|---|---|
-| FIX-01 | CLI: `service` подключён к реальному pipe+SCM (проверено живым запуском: `ServiceNotInstalled`, exit 0). Router/Chain/Hitl/Setup всё ещё null — нужен транспорт к Service (расширение pipe-протокола TASK-020 командами route/budget/chain/hitl) + клиент в CLI | TASK-062, TASK-093 (F-CLI-SERVICE-CONTROL — частично снят) | PARTIAL |
-| FIX-02 | Desktop боевой вход `CreateDefault()` на Standalone* (эхо-роутер, захардкоженный бюджет, no-op HITL/планировщик). Нужен тот же транспорт, что FIX-01 | TASK-061 | TODO (зависит от FIX-01) |
+| FIX-01 | CLI: ГОТОВО и проверено вживую — pipe-RPC (route/budget/chain/hitl/scheduler) в Service + адаптеры в ServiceControl; живой прогон со службой и Postgres: status=Running, budget из PG, chain list, ask доходит до губернатора. Остался только SetupWizard в CLI (null) | TASK-062, TASK-093 (F-CLI-SERVICE-CONTROL снят) | DONE (кроме setup) |
+| FIX-02 | Desktop: ГОТОВО по коду — `CreateDefault()` на Pipe* адаптерах, Standalone* классы удалены из production-пути. GUI вживую не открывался | TASK-061 | DONE (код), BLOCKED-ENV (GUI) |
 | FIX-03 | Персистентность: Budget — ГОТОВО (`PostgresBudgetStore` поверх `ITokenBudgetRepository`, регистрация в Data DI раньше Router TryAdd). Осталось: ChainExecution/PackageRegistry=in-memory, личные репозитории=in-memory | TASK-033 (done), 042, 044, 051 | PARTIAL |
 | FIX-04 | Voice: ГОТОВО в композиции — реестр строится от `IBrainstemWorker` (Brainstem STT + ffmpeg), Service регистрирует супервизор. Живой Whisper не проверен (нет бинаря воркера в среде) | TASK-052 | DONE (код), BLOCKED-ENV (live) |
 | FIX-05 | Security: EgressSanitizer подключён в Tier23 (Blocked = модель не вызывается, тест есть). Осталось: AntiWipeGuard / AudioContentSafety без вызывающих | TASK-072 (done), 070, 071 | PARTIAL |
@@ -31,7 +31,7 @@
 
 | ID | Проверка | Статус |
 |---|---|---|
-| FIX-16 | Живой Postgres+pgvector: интеграционные тесты Data/E2E (gated по env) | BLOCKED-ENV |
+| FIX-16 | Живой Postgres+pgvector: Data интеграция ГОТОВО — 75/75 тестов против контейнера pgvector:5434 (CYBERPIPE_TEST_POSTGRES). E2E-сценарии служб вживую прогнаны через CLI (см. FIX-01) | PARTIAL (E2E suite не гонялась целиком) |
 | FIX-17 | Живые Telegram + LLM в E2E (сейчас фейки по дизайну), HITL live-path дефекты из TASK-092 | BLOCKED-ENV |
 | FIX-18 | Windows: установка службы/перезагрузка, реальная ONNX e5, observability-стек (SigNoz заменён Grafana LGTM) | BLOCKED-ENV |
 | FIX-19 | TASK-093: clean-install smoke, ручной чек-лист, dirtyTree в манифесте | BLOCKED-ENV |
@@ -39,3 +39,9 @@
 ## Порядок выполнения
 
 FIX-07, FIX-08 (изолированные дефекты с юнит-тестами) → FIX-09 → FIX-04 → FIX-03 → FIX-05 → FIX-06 → FIX-01 (транспорт) → FIX-02 → FIX-11..15 → FIX-19.
+
+## Найдено при доводке (не было в аудите)
+
+- Production-композита `IIntentRouter` не существовало: каскад Tier0→Tier1→Tier23 жил только в E2E-харнессе. Добавлен `CompositeIntentRouter` в Router + регистрация в DI.
+- `BrainstemSupervisor.StartAsync` блокировал старт хоста ожиданием воркера (15+ с) — hosted-обёртка переведена на фоновый запуск.
+- CLI `chain` падал необработанным исключением при недоступном репозитории — добавлен try/catch с честной ошибкой.
