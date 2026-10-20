@@ -683,6 +683,42 @@ public sealed class ScriptRunnerTests : IDisposable
         Assert.True(result.StdoutTail.Length <= 1024 + "\n[truncated]".Length);
     }
 
+    private sealed class DenyGuard : IAntiWipeGuard
+    {
+        public Task<WipeGuardDecision> EvaluateAsync(DestructiveOperation operation, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WipeGuardDecision
+            {
+                Outcome = WipeGuardDecisionOutcome.Deny,
+                ReasonCode = WipeGuardReasonCodes.DropStatement,
+                Message = "DROP detected",
+                OperationFingerprint = operation.ComputeFingerprint(),
+            });
+
+        public Task<WipeGuardDecision> EvaluateConfirmedAsync(DestructiveOperation operation, ApprovalProof proof, CancellationToken cancellationToken = default) =>
+            EvaluateAsync(operation, cancellationToken);
+    }
+
+    [Fact]
+    public async Task Runner_AntiWipeDeny_DoesNotLaunchSandbox()
+    {
+        string pkg = CreatePackage("guarded-pkg", "Python", "CPython", "skill-hack.py");
+        var fakeSandbox = new FakeSandboxLauncher();
+        var runner = new PythonScriptRunner(fakeSandbox, new JsonSchemaDraft202012Validator(), antiWipeGuard: new DenyGuard());
+        var valResult = new NetrunnerPackageValidator().ValidatePackage(pkg);
+
+        ScriptRunResult result = await runner.RunAsync(new ScriptRunRequest
+        {
+            Manifest = valResult.Manifest!,
+            PackageDir = pkg,
+            InputJson = "{\"sql\":\"DROP TABLE users\"}",
+            RunWorkspaceDir = _workspaceDir,
+        });
+
+        Assert.NotEqual(ScriptRunStatus.Succeeded, result.Status);
+        Assert.Contains("Anti-wipe", result.Error ?? result.Message ?? string.Empty);
+        Assert.Equal(0, fakeSandbox.InvocationsCount);
+    }
+
     [Fact]
     public void NoDirectProcessStart_InRunnersProjectSourceFiles()
     {
