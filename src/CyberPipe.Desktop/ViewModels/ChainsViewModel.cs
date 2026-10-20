@@ -39,7 +39,19 @@ public sealed class ChainsViewModel : ViewModelBase
             TriggerFunctionCallAsync,
             () => SelectedChain != null && !IsExecuting);
 
-        _ = LoadChainsAsync();
+        _ = SafeInitializeAsync();
+    }
+
+    private async Task SafeInitializeAsync()
+    {
+        try
+        {
+            await LoadChainsAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to load chains: {ex.Message}";
+        }
     }
 
     public ObservableCollection<ChainItemViewModel> Chains { get; } = [];
@@ -103,7 +115,7 @@ public sealed class ChainsViewModel : ViewModelBase
         StatusMessage = null;
         try
         {
-            IReadOnlyList<ChainDefinitionDto> definitions = await _chainRepo.ListEnabledAsync().ConfigureAwait(false);
+            IReadOnlyList<ChainDefinitionDto> definitions = await _chainRepo.ListEnabledAsync().ConfigureAwait(true);
             Chains.Clear();
             foreach (ChainDefinitionDto def in definitions)
             {
@@ -138,7 +150,7 @@ public sealed class ChainsViewModel : ViewModelBase
         {
             RunId runId = await _triggerInvoker.InvokeFunctionCallAsync(
                 SelectedChain.Id,
-                FunctionCallPayload).ConfigureAwait(false);
+                FunctionCallPayload).ConfigureAwait(true);
 
             StatusMessage = $"Chain triggered successfully. RunId: {runId.Value}";
             _notifications?.ShowNotification(
@@ -146,7 +158,7 @@ public sealed class ChainsViewModel : ViewModelBase
                 $"Run {runId.Value} initiated for chain {SelectedChain.Name}",
                 NotificationSeverity.Success);
 
-            await LoadRunsForSelectedChainAsync().ConfigureAwait(false);
+            await LoadRunsForSelectedChainAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -172,11 +184,11 @@ public sealed class ChainsViewModel : ViewModelBase
 
         try
         {
-            IReadOnlyList<RunId> unfinished = await _executionRepo.ListUnfinishedRunsAsync().ConfigureAwait(false);
+            IReadOnlyList<RunId> unfinished = await _executionRepo.ListUnfinishedRunsAsync().ConfigureAwait(true);
             Runs.Clear();
             foreach (RunId runId in unfinished)
             {
-                ChainRunState? state = await _executionRepo.GetRunAsync(runId).ConfigureAwait(false);
+                ChainRunState? state = await _executionRepo.GetRunAsync(runId).ConfigureAwait(true);
                 if (state != null && state.ChainId == SelectedChain.Id)
                 {
                     Runs.Add(ChainRunStateViewModel.FromDto(state));

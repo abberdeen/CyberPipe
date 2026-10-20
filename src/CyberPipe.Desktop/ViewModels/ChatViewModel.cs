@@ -138,7 +138,7 @@ public sealed class ChatViewModel : ViewModelBase
                 Metadata = metadata,
             };
 
-            RouteResult result = await _router.RouteAsync(request, _cts.Token).ConfigureAwait(false);
+            RouteResult result = await _router.RouteAsync(request, _cts.Token).ConfigureAwait(true);
             CurrentTier = result.Tier;
 
             string replyText = result.Status switch
@@ -189,7 +189,7 @@ public sealed class ChatViewModel : ViewModelBase
             IsProcessing = false;
             _cts?.Dispose();
             _cts = null;
-            await RefreshBudgetAsync().ConfigureAwait(false);
+            await RefreshBudgetAsync().ConfigureAwait(true);
         }
     }
 
@@ -207,7 +207,7 @@ public sealed class ChatViewModel : ViewModelBase
 
         try
         {
-            BudgetStatus = await _budgetGovernor.GetStatusAsync().ConfigureAwait(false);
+            BudgetStatus = await _budgetGovernor.GetStatusAsync().ConfigureAwait(true);
         }
         catch (Exception ex)
         {

@@ -116,15 +116,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
         if (_executions is not null)
         {
-            await _executions.SaveCheckpointAsync(new ChainCheckpointDto
+            ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+            if (existingRun is not null)
             {
-                RunId = record.RunId,
-                ChainId = record.ChainId,
-                Step = ChainStepKind.Hitl,
-                State = ChainStepState.Completed,
-                OutputJson = record.PayloadJson,
-                CheckpointAtUtc = DateTimeOffset.UtcNow,
-            }, cancellationToken).ConfigureAwait(false);
+                await _executions.SaveCheckpointAsync(new ChainCheckpointDto
+                {
+                    RunId = record.RunId,
+                    ChainId = record.ChainId,
+                    Step = ChainStepKind.Hitl,
+                    State = ChainStepState.Completed,
+                    OutputJson = record.PayloadJson,
+                    CheckpointAtUtc = DateTimeOffset.UtcNow,
+                }, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await _executor.ResumeAsync(record.RunId, cancellationToken).ConfigureAwait(false);
@@ -202,15 +206,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
         if (_executions is not null)
         {
-            await _executions.SaveCheckpointAsync(new ChainCheckpointDto
+            ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+            if (existingRun is not null)
             {
-                RunId = record.RunId,
-                ChainId = record.ChainId,
-                Step = ChainStepKind.Hitl,
-                State = ChainStepState.Completed,
-                OutputJson = editedPayloadJson,
-                CheckpointAtUtc = DateTimeOffset.UtcNow,
-            }, cancellationToken).ConfigureAwait(false);
+                await _executions.SaveCheckpointAsync(new ChainCheckpointDto
+                {
+                    RunId = record.RunId,
+                    ChainId = record.ChainId,
+                    Step = ChainStepKind.Hitl,
+                    State = ChainStepState.Completed,
+                    OutputJson = editedPayloadJson,
+                    CheckpointAtUtc = DateTimeOffset.UtcNow,
+                }, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await _executor.ResumeAsync(record.RunId, cancellationToken).ConfigureAwait(false);
@@ -254,19 +262,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
         if (_executions is not null)
         {
-            await _executions.SaveCheckpointAsync(new ChainCheckpointDto
-            {
-                RunId = record.RunId,
-                ChainId = record.ChainId,
-                Step = ChainStepKind.Hitl,
-                State = ChainStepState.Failed,
-                Error = new ErrorDto { Code = "HitlRejected", Message = rejectionReason },
-                CheckpointAtUtc = DateTimeOffset.UtcNow,
-            }, cancellationToken).ConfigureAwait(false);
-
             ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
             if (existingRun is not null)
             {
+                await _executions.SaveCheckpointAsync(new ChainCheckpointDto
+                {
+                    RunId = record.RunId,
+                    ChainId = record.ChainId,
+                    Step = ChainStepKind.Hitl,
+                    State = ChainStepState.Failed,
+                    Error = new ErrorDto { Code = "HitlRejected", Message = rejectionReason },
+                    CheckpointAtUtc = DateTimeOffset.UtcNow,
+                }, cancellationToken).ConfigureAwait(false);
+
                 await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
                 {
                     Code = "HitlRejected",
@@ -305,19 +313,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
                 if (_executions is not null)
                 {
-                    await _executions.SaveCheckpointAsync(new ChainCheckpointDto
-                    {
-                        RunId = record.RunId,
-                        ChainId = record.ChainId,
-                        Step = ChainStepKind.Hitl,
-                        State = ChainStepState.Failed,
-                        Error = new ErrorDto { Code = "HitlTimeout", Message = "HITL approval timed out." },
-                        CheckpointAtUtc = nowUtc,
-                    }, cancellationToken).ConfigureAwait(false);
-
                     ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
                     if (existingRun is not null)
                     {
+                        await _executions.SaveCheckpointAsync(new ChainCheckpointDto
+                        {
+                            RunId = record.RunId,
+                            ChainId = record.ChainId,
+                            Step = ChainStepKind.Hitl,
+                            State = ChainStepState.Failed,
+                            Error = new ErrorDto { Code = "HitlTimeout", Message = "HITL approval timed out." },
+                            CheckpointAtUtc = nowUtc,
+                        }, cancellationToken).ConfigureAwait(false);
+
                         await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
                         {
                             Code = "HitlTimeout",

@@ -35,7 +35,19 @@ public sealed class SchedulesViewModel : ViewModelBase
         UnscheduleCommand = new AsyncRelayCommand(UnscheduleAsync, () => SelectedSchedule != null && !IsBusy);
         TriggerNowCommand = new AsyncRelayCommand(TriggerNowAsync, () => SelectedSchedule != null && !IsBusy);
 
-        _ = LoadSchedulesAsync();
+        _ = SafeInitializeAsync();
+    }
+
+    private async Task SafeInitializeAsync()
+    {
+        try
+        {
+            await LoadSchedulesAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load schedules: {ex.Message}";
+        }
     }
 
     public ObservableCollection<ScheduledChainItemViewModel> Schedules { get; } = [];
@@ -120,7 +132,7 @@ public sealed class SchedulesViewModel : ViewModelBase
         ErrorMessage = null;
         try
         {
-            IReadOnlyList<ScheduledChainInfo> items = await _scheduler.ListScheduledAsync().ConfigureAwait(false);
+            IReadOnlyList<ScheduledChainInfo> items = await _scheduler.ListScheduledAsync().ConfigureAwait(true);
             Schedules.Clear();
             foreach (ScheduledChainInfo item in items)
             {
@@ -157,9 +169,9 @@ public sealed class SchedulesViewModel : ViewModelBase
         try
         {
             var chainId = new ChainId(guid);
-            await _scheduler.ScheduleChainAsync(chainId, CronExpressionInput.Trim()).ConfigureAwait(false);
+            await _scheduler.ScheduleChainAsync(chainId, CronExpressionInput.Trim()).ConfigureAwait(true);
             StatusMessage = $"Scheduled chain {guid} with expression '{CronExpressionInput}'";
-            await LoadSchedulesAsync().ConfigureAwait(false);
+            await LoadSchedulesAsync().ConfigureAwait(true);
         }
         catch (InvalidCronExpressionException ex)
         {
@@ -185,7 +197,7 @@ public sealed class SchedulesViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            await _scheduler.PauseChainAsync(SelectedSchedule.ChainId).ConfigureAwait(false);
+            await _scheduler.PauseChainAsync(SelectedSchedule.ChainId).ConfigureAwait(true);
             SelectedSchedule.IsPaused = true;
             PauseCommand.RaiseCanExecuteChanged();
             ResumeCommand.RaiseCanExecuteChanged();
@@ -211,7 +223,7 @@ public sealed class SchedulesViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            await _scheduler.ResumeChainAsync(SelectedSchedule.ChainId).ConfigureAwait(false);
+            await _scheduler.ResumeChainAsync(SelectedSchedule.ChainId).ConfigureAwait(true);
             SelectedSchedule.IsPaused = false;
             PauseCommand.RaiseCanExecuteChanged();
             ResumeCommand.RaiseCanExecuteChanged();
@@ -237,7 +249,7 @@ public sealed class SchedulesViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            await _scheduler.UnscheduleChainAsync(SelectedSchedule.ChainId).ConfigureAwait(false);
+            await _scheduler.UnscheduleChainAsync(SelectedSchedule.ChainId).ConfigureAwait(true);
             Schedules.Remove(SelectedSchedule);
             SelectedSchedule = Schedules.FirstOrDefault();
             StatusMessage = "Schedule removed.";
@@ -262,7 +274,7 @@ public sealed class SchedulesViewModel : ViewModelBase
         IsBusy = true;
         try
         {
-            await _scheduler.TriggerChainNowAsync(SelectedSchedule.ChainId).ConfigureAwait(false);
+            await _scheduler.TriggerChainNowAsync(SelectedSchedule.ChainId).ConfigureAwait(true);
             StatusMessage = $"Chain {SelectedSchedule.ChainId.Value} triggered immediately.";
             _notifications?.ShowNotification(
                 "Chain Triggered",

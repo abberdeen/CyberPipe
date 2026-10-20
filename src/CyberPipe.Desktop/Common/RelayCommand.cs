@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Avalonia.Threading;
 
 namespace CyberPipe.Desktop.Common;
 
@@ -27,7 +28,30 @@ public sealed class RelayCommand : ICommand
 
     public void Execute(object? parameter) => _execute(parameter);
 
-    public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    public void RaiseCanExecuteChanged()
+    {
+        EventHandler? handler = CanExecuteChanged;
+        if (handler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Dispatcher dispatcher = Dispatcher.UIThread;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                dispatcher.Post(() => handler.Invoke(this, EventArgs.Empty));
+                return;
+            }
+        }
+        catch
+        {
+            // Unit tests or environments without Avalonia UIThread dispatcher
+        }
+
+        handler.Invoke(this, EventArgs.Empty);
+    }
 }
 
 /// <summary>
@@ -105,5 +129,28 @@ public sealed class AsyncRelayCommand : ICommand
         }
     }
 
-    public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    public void RaiseCanExecuteChanged()
+    {
+        EventHandler? handler = CanExecuteChanged;
+        if (handler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Dispatcher dispatcher = Dispatcher.UIThread;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                dispatcher.Post(() => handler.Invoke(this, EventArgs.Empty));
+                return;
+            }
+        }
+        catch
+        {
+            // Unit tests or environments without Avalonia UIThread dispatcher
+        }
+
+        handler.Invoke(this, EventArgs.Empty);
+    }
 }

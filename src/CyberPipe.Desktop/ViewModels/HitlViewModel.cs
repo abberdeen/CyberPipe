@@ -127,7 +127,7 @@ public sealed class HitlViewModel : ViewModelBase
             HitlApprovalResult result = await _approvalService.ApproveAsync(
                 current.ApprovalId,
                 ownerId: "Owner",
-                channel: ChannelKind.Desktop).ConfigureAwait(false);
+                channel: ChannelKind.Desktop).ConfigureAwait(true);
 
             StatusMessage = $"Approved: {result.ApprovalId}";
             RemoveApproval(current);
@@ -158,7 +158,7 @@ public sealed class HitlViewModel : ViewModelBase
                 current.ApprovalId,
                 ownerId: "Owner",
                 channel: ChannelKind.Desktop,
-                reason: string.IsNullOrWhiteSpace(RejectReason) ? null : RejectReason).ConfigureAwait(false);
+                reason: string.IsNullOrWhiteSpace(RejectReason) ? null : RejectReason).ConfigureAwait(true);
 
             StatusMessage = $"Rejected: {result.ApprovalId}";
             RemoveApproval(current);
@@ -189,7 +189,7 @@ public sealed class HitlViewModel : ViewModelBase
                 current.ApprovalId,
                 ownerId: "Owner",
                 editedPayloadJson: EditedPayloadJson,
-                channel: ChannelKind.Desktop).ConfigureAwait(false);
+                channel: ChannelKind.Desktop).ConfigureAwait(true);
 
             StatusMessage = $"Edited & Approved: {result.ApprovalId}";
             RemoveApproval(current);

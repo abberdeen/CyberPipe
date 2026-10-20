@@ -129,7 +129,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
 
     public async Task RefreshAsync()
     {
-        LocalRuntimeInfo runtime = await _runtime.GetStatusAsync().ConfigureAwait(false);
+        LocalRuntimeInfo runtime = await _runtime.GetStatusAsync().ConfigureAwait(true);
         RuntimeStatusText = runtime.State == LocalRuntimeState.Ready
             ? $"Ollama ready{(runtime.Version is null ? string.Empty : $" ({runtime.Version})")}."
             : "Ollama is not installed.";
@@ -137,7 +137,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
         IReadOnlyList<InstalledLocalModel> installed;
         try
         {
-            installed = await _installer.ListInstalledAsync().ConfigureAwait(false);
+            installed = await _installer.ListInstalledAsync().ConfigureAwait(true);
         }
         catch (Exception)
         {
@@ -157,13 +157,13 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
                 : LocalModelInstallState.NotInstalled;
         }
 
-        await LoadVerdictsAsync().ConfigureAwait(false);
+        await LoadVerdictsAsync().ConfigureAwait(true);
     }
 
     public async Task EnsureRuntimeAsync()
     {
         RuntimeStatusText = "Installing Ollama.";
-        Result<LocalRuntimeInfo> result = await _runtime.EnsureInstalledAsync().ConfigureAwait(false);
+        Result<LocalRuntimeInfo> result = await _runtime.EnsureInstalledAsync().ConfigureAwait(true);
         if (result.IsSuccess)
         {
             RuntimeStatusText = $"Ollama ready{(result.Value!.Version is null ? string.Empty : $" ({result.Value.Version})")}.";
@@ -178,7 +178,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
     public async Task EnsureEmbeddingAsync()
     {
         EmbeddingStateText = "Downloading embedding.";
-        Result<EmbeddingInstallResult> result = await _installer.EnsureEmbeddingAsync().ConfigureAwait(false);
+        Result<EmbeddingInstallResult> result = await _installer.EnsureEmbeddingAsync().ConfigureAwait(true);
         if (result.IsSuccess)
         {
             EmbeddingStateText = result.Value!.AlreadyInstalled
@@ -221,7 +221,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
         try
         {
             Result<ModelProbeResult> result =
-                await _installer.InstallAsync(item.Model, progress, cts.Token).ConfigureAwait(false);
+                await _installer.InstallAsync(item.Model, progress, cts.Token).ConfigureAwait(true);
             if (result.IsSuccess)
             {
                 item.State = LocalModelInstallState.Installed;
@@ -263,7 +263,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
     public async Task RemoveModelAsync(LocalModelItemViewModel item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        Result result = await _installer.RemoveAsync(item.Model.ModelId).ConfigureAwait(false);
+        Result result = await _installer.RemoveAsync(item.Model.ModelId).ConfigureAwait(true);
         if (result.IsSuccess)
         {
             item.State = LocalModelInstallState.NotInstalled;
@@ -279,7 +279,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
     public async Task VerifyModelAsync(LocalModelItemViewModel item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        Result<ModelProbeResult> result = await _installer.VerifyAsync(item.Model).ConfigureAwait(false);
+        Result<ModelProbeResult> result = await _installer.VerifyAsync(item.Model).ConfigureAwait(true);
         item.StatusMessage = result.IsSuccess
             ? "Probe succeeded."
             : result.Error!.Message;
@@ -299,7 +299,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
         try
         {
             IReadOnlyList<ModelCompatibilityEvaluation> evaluations =
-                await _advisor.EvaluateLocalModelsAsync().ConfigureAwait(false);
+                await _advisor.EvaluateLocalModelsAsync().ConfigureAwait(true);
             _verdicts = evaluations.ToDictionary(e => e.Model.Id, e => e.Verdict, StringComparer.Ordinal);
             foreach (LocalModelItemViewModel item in Items)
             {
