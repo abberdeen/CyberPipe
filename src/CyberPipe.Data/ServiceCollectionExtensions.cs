@@ -44,6 +44,8 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<IKeyValueSettingsRepository, KeyValueSettingsRepository>();
         services.AddSingleton<IAuditLogRepository, AuditLogRepository>();
         services.AddSingleton<IHitlApprovalRepository, PostgresHitlApprovalRepository>();
+        // Бюджет губернатора — в PostgreSQL (Data регистрируется раньше Router, его TryAdd InMemory не сработает).
+        services.AddSingleton<IBudgetStore, PostgresBudgetStore>();
         services.TryAddSingleton<IEmbeddingStore, PgVectorEmbeddingStore>();
         services.TryAddSingleton<IDatabaseBootstrapService, SetupDatabaseBootstrapAdapter>();
 
