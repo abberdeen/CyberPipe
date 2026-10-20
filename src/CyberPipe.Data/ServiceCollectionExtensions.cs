@@ -46,6 +46,14 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<IHitlApprovalRepository, PostgresHitlApprovalRepository>();
         // Бюджет губернатора — в PostgreSQL (Data регистрируется раньше Router, его TryAdd InMemory не сработает).
         services.AddSingleton<IBudgetStore, PostgresBudgetStore>();
+        // FIX-03: запуски цепочек, реестр пакетов и личные данные — в PostgreSQL,
+        // in-memory реализации Chains/Skills остаются fallback-ом standalone-композиций.
+        services.AddSingleton<IChainExecutionRepository, PostgresChainExecutionRepository>();
+        services.AddSingleton<IPackageRegistryRepository, PostgresPackageRegistryRepository>();
+        services.AddSingleton<INoteRepository, PostgresNoteRepository>();
+        services.AddSingleton<IFinanceRepository, PostgresFinanceRepository>();
+        services.AddSingleton<IReminderRepository, PostgresReminderRepository>();
+        services.AddSingleton<IContactRepository, PostgresContactRepository>();
         services.TryAddSingleton<IEmbeddingStore, PgVectorEmbeddingStore>();
         services.TryAddSingleton<IDatabaseBootstrapService, SetupDatabaseBootstrapAdapter>();
 
