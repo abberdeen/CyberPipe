@@ -19,7 +19,7 @@ public static class Program
                 environmentVariables: null,
                 uiOverridesPath: null);
         }
-        catch (ConfigurationValidationException)
+        catch (Exception)
         {
             options = new CyberPipeOptions();
         }

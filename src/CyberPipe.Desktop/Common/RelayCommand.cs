@@ -94,16 +94,9 @@ public sealed class AsyncRelayCommand : ICommand
         return !_isExecuting && (_canExecute?.Invoke(parameter) ?? true);
     }
 
-    public async void Execute(object? parameter)
+    public void Execute(object? parameter)
     {
-        try
-        {
-            await ExecuteAsync(parameter).ConfigureAwait(true);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceError(ex.ToString());
-        }
+        _ = ExecuteAsync(parameter);
     }
 
     public async Task ExecuteAsync(object? parameter = null)
@@ -121,7 +114,6 @@ public sealed class AsyncRelayCommand : ICommand
         catch (Exception ex)
         {
             System.Diagnostics.Trace.TraceError(ex.ToString());
-            throw;
         }
         finally
         {

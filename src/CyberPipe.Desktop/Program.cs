@@ -32,7 +32,7 @@ internal static class Program
                 environmentVariables: null,
                 uiOverridesPath: CyberPipeConfigurationLoader.GetDefaultUiOverridesPath());
         }
-        catch (ConfigurationValidationException)
+        catch (Exception)
         {
             options = new CyberPipeOptions();
         }

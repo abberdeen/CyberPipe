@@ -48,8 +48,27 @@ public static class MainWindowViewModelFactory
         var hitl = new HitlViewModel(hitlService, notifications);
         var service = new ServiceViewModel(serviceController, logger: controlLogger);
         var schedules = new SchedulesViewModel(scheduler, notifications);
-        ModelsViewModel models = DesktopModelScreen.Create(notifications, controlLogger);
-        var hostSkills = HostSkillsTestViewModel.CreateProbe();
+        ModelsViewModel models;
+        try
+        {
+            models = DesktopModelScreen.Create(notifications, controlLogger);
+        }
+        catch (Exception ex)
+        {
+            controlLogger?.LogWarning(ex, "Failed to initialize models screen; using safe fallback.");
+            models = new ModelsViewModel(notifications: notifications);
+        }
+
+        HostSkillsTestViewModel hostSkills;
+        try
+        {
+            hostSkills = HostSkillsTestViewModel.CreateProbe();
+        }
+        catch (Exception ex)
+        {
+            controlLogger?.LogWarning(ex, "Failed to initialize host skills probe; using safe fallback.");
+            hostSkills = HostSkillsTestViewModel.CreateFallback();
+        }
 
         return new MainWindowViewModel(
             chat,
@@ -61,5 +80,35 @@ public static class MainWindowViewModelFactory
             notifications,
             themeService,
             hostSkills: hostSkills);
+    }
+
+    public static MainWindowViewModel CreateFallback(string? failureReason = null)
+    {
+        var notifications = new DesktopNotificationService();
+        if (!string.IsNullOrEmpty(failureReason))
+        {
+            notifications.ShowNotification("Предупреждение", failureReason, NotificationSeverity.Warning);
+        }
+
+        var pipeClient = new ServiceControlPipeClient();
+        var scm = new WindowsScmManager();
+        var controller = new ServiceControllerManager(pipeClient, scm, new CyberPipeOptions());
+        var router = new PipeIntentRouter(pipeClient);
+        var budget = new PipeBudgetGovernor(pipeClient);
+        var chainRepo = new PipeChainDefinitionRepository(pipeClient);
+        var execRepo = new PipeChainExecutionRepository(pipeClient);
+        var trigger = new PipeTriggerInvoker(pipeClient);
+        var hitl = new PipeHitlApprovalService(pipeClient);
+        var sched = new PipeChainSchedulerService(pipeClient);
+
+        return new MainWindowViewModel(
+            new ChatViewModel(router, budget, notifications),
+            new ChainsViewModel(chainRepo, execRepo, trigger, notifications),
+            new HitlViewModel(hitl, notifications),
+            new ServiceViewModel(controller),
+            new SchedulesViewModel(sched, notifications),
+            new ModelsViewModel(notifications: notifications),
+            notifications,
+            new ThemeService());
     }
 }

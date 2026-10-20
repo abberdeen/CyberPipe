@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace CyberPipe.Contracts;
 
 /// <summary>
@@ -115,6 +117,7 @@ public enum HitlDecision
 /// <summary>
 /// Размещение модели: локально или в облаке. Потребители: TASK-033 (бюджет), TASK-080..TASK-082 (модели).
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ModelHostingType
 {
     /// <summary>Локальная модель.</summary>
@@ -127,6 +130,7 @@ public enum ModelHostingType
 /// <summary>
 /// Категория задачи, для которой рекомендуется модель. Потребители: TASK-080..TASK-082, TASK-031..TASK-033.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ModelTaskCategory
 {
     /// <summary>Лёгкие и быстрые задачи яруса Tier2.</summary>

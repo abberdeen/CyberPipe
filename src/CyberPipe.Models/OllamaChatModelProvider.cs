@@ -61,18 +61,39 @@ public sealed class OllamaChatModelProvider : IChatModelProvider
             // Проверяем список установленных в Ollama моделей и выполняем fallback.
             IReadOnlyList<string> installed = await GetInstalledOllamaModelsAsync(cancellationToken).ConfigureAwait(false);
             string? fallbackTag = PickFallbackModel(installed, request.ModelClass, tag);
+
+            var candidatesToTry = new List<string>();
             if (fallbackTag is not null && !MatchesModelTag(fallbackTag, tag))
             {
-                _logger?.LogWarning(
-                    "Ollama model '{RequestedTag}' is not installed. Falling back to installed model '{FallbackTag}'.",
-                    tag, fallbackTag);
-
-                int fallbackCtx = ResolveNumCtxForTag(fallbackTag);
-                response = await SendChatRequestAsync(fallbackTag, fallbackCtx, request, cancellationToken).ConfigureAwait(false);
-                tag = fallbackTag;
+                candidatesToTry.Add(fallbackTag);
+            }
+            foreach (string inst in installed)
+            {
+                if (!MatchesModelTag(inst, tag) && !candidatesToTry.Any(c => MatchesModelTag(c, inst)))
+                {
+                    candidatesToTry.Add(inst);
+                }
             }
 
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            bool fallbackSuccess = false;
+            foreach (string candidateTag in candidatesToTry)
+            {
+                _logger?.LogWarning(
+                    "Ollama model '{RequestedTag}' is not installed. Trying installed candidate '{CandidateTag}'.",
+                    tag, candidateTag);
+
+                int fallbackCtx = ResolveNumCtxForTag(candidateTag);
+                response = await SendChatRequestAsync(candidateTag, fallbackCtx, request, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    tag = candidateTag;
+                    fallbackSuccess = true;
+                    break;
+                }
+                response.Dispose();
+            }
+
+            if (!fallbackSuccess)
             {
                 string installedList = installed.Count > 0
                     ? $" Установленные модели в Ollama: {string.Join(", ", installed)}."

@@ -56,7 +56,28 @@ public sealed class HostSkillsTestViewModel : ViewModelBase
     /// </summary>
     public static HostSkillsTestViewModel CreateProbe()
     {
-        var media = new WindowsMediaController();
+        try
+        {
+            var media = new WindowsMediaController();
+            var registry = new HostSkillRegistry(
+                media,
+                new WindowsSystemStatusProvider(),
+                new InMemoryTimerService(),
+                new InMemoryAlarmService());
+            var inbox = new ExternalChannelInbox();
+            var handler = new ExternalChannelHostSkillHandler(registry);
+            inbox.Subscribe(handler);
+            return new HostSkillsTestViewModel(inbox, handler, media, registry.GetAllSkills());
+        }
+        catch
+        {
+            return CreateFallback();
+        }
+    }
+
+    public static HostSkillsTestViewModel CreateFallback()
+    {
+        var media = new FakeMediaController();
         var registry = new HostSkillRegistry(
             media,
             new WindowsSystemStatusProvider(),
@@ -64,7 +85,6 @@ public sealed class HostSkillsTestViewModel : ViewModelBase
             new InMemoryAlarmService());
         var inbox = new ExternalChannelInbox();
         var handler = new ExternalChannelHostSkillHandler(registry);
-        inbox.Subscribe(handler);
         return new HostSkillsTestViewModel(inbox, handler, media, registry.GetAllSkills());
     }
 

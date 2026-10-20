@@ -376,6 +376,56 @@ public sealed class LocalModelInstallerTests
     }
 
     [Fact]
+    public async Task EnsureEmbedding_ReportsByteWeightedCumulativeProgress()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"cyberpipe-emb-{Guid.NewGuid():N}");
+        try
+        {
+            var options = new LocalModelInstallerOptions
+            {
+                EmbeddingDataDirectory = dir,
+                EmbeddingSourceBaseUrl = "http://localhost/files",
+            };
+            (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller(options: options);
+            handler.FileDownloads["/files/model.onnx"] = new byte[80];
+            handler.FileDownloads["/files/tokenizer.json"] = new byte[20];
+
+            var progressReports = new List<ModelInstallProgress>();
+            var progress = new SyncProgress<ModelInstallProgress>(p => progressReports.Add(p));
+
+            Result<EmbeddingInstallResult> result = await installer.EnsureEmbeddingAsync(progress);
+
+            Assert.True(result.IsSuccess);
+            Assert.NotEmpty(progressReports);
+
+            // Progress should never decrease in cumulative bytes
+            for (int i = 1; i < progressReports.Count; i++)
+            {
+                Assert.True(progressReports[i].DownloadedBytes >= progressReports[i - 1].DownloadedBytes,
+                    $"DownloadedBytes jumped backwards: {progressReports[i - 1].DownloadedBytes} -> {progressReports[i].DownloadedBytes}");
+            }
+
+            var last = progressReports[^1];
+            Assert.Contains("tokenizer.json (2/2)", last.ModelId, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(100, last.Percent);
+            Assert.Equal(100, last.DownloadedBytes); // 80 + 20 = 100 bytes total
+            Assert.Equal(100, last.TotalBytes);
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+        }
+    }
+
+    private sealed class SyncProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
+    }
+
+    [Fact]
     public async Task RuntimeStatus_ReadyWhenApiAnswers()
     {
         var handler = new FakeOllamaHandler();

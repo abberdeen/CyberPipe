@@ -158,6 +158,27 @@ public sealed class ConfigAndSecretsTests : IDisposable
         }
     }
 
+    [Fact]
+    public void LoadFromSources_DeserializesHostingTypeEnums_WithoutJsonException()
+    {
+        string ui = WriteJson("ui-hosting.json", """
+            {
+              "Router": {
+                "Tier2ModelId": "qwen2.5:3b",
+                "Tier3ModelId": "deepseek-r1:8b",
+                "Tier2HostingType": "Local",
+                "Tier3HostingType": "RemoteCloud"
+              }
+            }
+            """);
+
+        CyberPipeOptions options = CyberPipeConfigurationLoader.LoadFromSources(null, null, ui);
+        Assert.Equal("qwen2.5:3b", options.Router.Tier2ModelId);
+        Assert.Equal("deepseek-r1:8b", options.Router.Tier3ModelId);
+        Assert.Equal(ModelHostingType.Local, options.Router.Tier2HostingType);
+        Assert.Equal(ModelHostingType.RemoteCloud, options.Router.Tier3HostingType);
+    }
+
     private string WriteJson(string name, string json)
     {
         string path = Path.Combine(_dir, name);

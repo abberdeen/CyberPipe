@@ -11,7 +11,15 @@ public partial class MainWindow : Window
         InitializeComponent();
         if (DataContext == null)
         {
-            DataContext = MainWindowViewModelFactory.CreateDefault();
+            try
+            {
+                DataContext = MainWindowViewModelFactory.CreateDefault();
+            }
+            catch (Exception ex)
+            {
+                Program.LogFailure(ex, "Failed to create default MainWindowViewModel, using fallback");
+                DataContext = MainWindowViewModelFactory.CreateFallback($"Сбой инициализации: {ex.Message}");
+            }
         }
     }
 

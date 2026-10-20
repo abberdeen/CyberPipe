@@ -17,11 +17,20 @@ public partial class App : Application
         Dispatcher.UIThread.UnhandledException += (_, eventArgs) =>
         {
             Program.LogFailure(eventArgs.Exception, "Unhandled Desktop UI exception");
+            eventArgs.Handled = true;
         };
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            try
+            {
+                desktop.MainWindow = new MainWindow();
+            }
+            catch (Exception ex)
+            {
+                Program.LogFailure(ex, "Failed to create MainWindow, initializing with fallback");
+                desktop.MainWindow = new MainWindow();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();

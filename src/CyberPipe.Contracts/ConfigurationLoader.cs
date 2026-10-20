@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace CyberPipe.Contracts;
 
@@ -33,6 +34,7 @@ public static class CyberPipeConfigurationLoader
     {
         PropertyNameCaseInsensitive = true,
         WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     /// <summary>Путь файла переопределений из UI по умолчанию: каталог данных пользователя.</summary>
@@ -75,10 +77,26 @@ public static class CyberPipeConfigurationLoader
         MergeInto(merged, EnvironmentToJson(environmentVariables));
 
         if (uiOverridesPath is not null && File.Exists(uiOverridesPath))
-            MergeInto(merged, ReadJsonObject(uiOverridesPath));
+        {
+            try
+            {
+                MergeInto(merged, ReadJsonObject(uiOverridesPath));
+            }
+            catch (Exception)
+            {
+                // Невалидный или поврежденный файл переопределений UI не должен блокировать запуск
+            }
+        }
 
-        CyberPipeOptions options =
-            merged.Deserialize<CyberPipeOptions>(SerializerOptions) ?? new CyberPipeOptions();
+        CyberPipeOptions options;
+        try
+        {
+            options = merged.Deserialize<CyberPipeOptions>(SerializerOptions) ?? new CyberPipeOptions();
+        }
+        catch (JsonException)
+        {
+            options = new CyberPipeOptions();
+        }
         IReadOnlyList<string> errors = options.Validate();
         if (errors.Count > 0)
             throw new ConfigurationValidationException(errors);

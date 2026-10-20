@@ -27,7 +27,7 @@ public static class Program
                 };
             }
         }
-        catch (ConfigurationValidationException ex)
+        catch (Exception ex)
         {
             Console.Error.WriteLine($"Configuration error: {ex.Message}");
             return 1;

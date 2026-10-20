@@ -355,6 +355,7 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
         {
             EmbeddingStateText = "Загрузка эмбеддинга отменена.";
             EmbeddingProgressText = "Отменено пользователем.";
+            EmbeddingProgressPercent = 0;
 
             try
             {

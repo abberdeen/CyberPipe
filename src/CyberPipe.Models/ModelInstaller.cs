@@ -376,6 +376,12 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
         }
     }
 
+    private static readonly Dictionary<string, long> DefaultHuggingFaceEmbeddingSizes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["model.onnx"] = 470_268_510L,
+        ["tokenizer.json"] = 17_082_730L,
+    };
+
     /// <inheritdoc />
     public async Task<Result<EmbeddingInstallResult>> EnsureEmbeddingAsync(
         IProgress<ModelInstallProgress>? progress = null,
@@ -398,20 +404,59 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
         }
 
         Directory.CreateDirectory(directory);
+
+        // Pre-determine file sizes for smooth byte-weighted cumulative progress
+        Dictionary<string, long> fileSizes = new(StringComparer.OrdinalIgnoreCase);
+        bool isHuggingFaceOrE5 = _options.EmbeddingSourceBaseUrl.Contains("multilingual-e5-small", StringComparison.OrdinalIgnoreCase) ||
+                                _options.EmbeddingSourceBaseUrl.Contains("huggingface.co", StringComparison.OrdinalIgnoreCase);
+
+        foreach (string file in _options.EmbeddingFiles)
+        {
+            if (isHuggingFaceOrE5 && DefaultHuggingFaceEmbeddingSizes.TryGetValue(file, out long knownSize))
+            {
+                fileSizes[file] = knownSize;
+            }
+        }
+
+        // For any unknown file sizes, attempt a quick HEAD request
+        foreach (string file in _options.EmbeddingFiles)
+        {
+            if (!fileSizes.ContainsKey(file))
+            {
+                string fileUrl = $"{_options.EmbeddingSourceBaseUrl.TrimEnd('/')}/{file}";
+                long? probedLength = await TryGetContentLengthAsync(fileUrl, cancellationToken).ConfigureAwait(false);
+                if (probedLength.HasValue && probedLength.Value > 0)
+                {
+                    fileSizes[file] = probedLength.Value;
+                }
+            }
+        }
+
+        long totalBundleBytes = fileSizes.Values.Sum();
+        long cumulativeBytesDownloaded = 0;
+
         try
         {
             int index = 0;
+            int count = _options.EmbeddingFiles.Count;
             foreach (string file in _options.EmbeddingFiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await DownloadFileAsync(
-                    $"{_options.EmbeddingSourceBaseUrl.TrimEnd('/')}/{file}",
-                    Path.Combine(directory, file),
+                string destination = Path.Combine(directory, file);
+                string fileUrl = $"{_options.EmbeddingSourceBaseUrl.TrimEnd('/')}/{file}";
+
+                long fileDownloadedBytes = await DownloadFileAsync(
+                    fileUrl,
+                    destination,
                     file,
                     index,
-                    _options.EmbeddingFiles.Count,
+                    count,
+                    cumulativeBytesDownloaded,
+                    totalBundleBytes,
                     progress,
                     cancellationToken).ConfigureAwait(false);
+
+                cumulativeBytesDownloaded += fileDownloadedBytes;
                 index++;
             }
         }
@@ -516,12 +561,58 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
         }
     }
 
-    private async Task DownloadFileAsync(
+    private async Task<long?> TryGetContentLengthAsync(string url, CancellationToken ct)
+    {
+        try
+        {
+            using var headCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            headCts.CancelAfter(TimeSpan.FromSeconds(3));
+
+            using var request = new HttpRequestMessage(HttpMethod.Head, url);
+            if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
+            {
+                request.Headers.TryAddWithoutValidation("User-Agent", "CyberPipe/1.0 (Windows NT 10.0; Win64; x64)");
+            }
+
+            using HttpResponseMessage response = await _http.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, headCts.Token).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode && response.Content.Headers.ContentLength.HasValue && response.Content.Headers.ContentLength.Value > 0)
+            {
+                return response.Content.Headers.ContentLength.Value;
+            }
+
+            // If HEAD was rejected (e.g. 404/405 on simple test servers), probe with GET ResponseHeadersRead without reading body
+            if (!response.IsSuccessStatusCode)
+            {
+                using var getRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
+                {
+                    getRequest.Headers.TryAddWithoutValidation("User-Agent", "CyberPipe/1.0 (Windows NT 10.0; Win64; x64)");
+                }
+
+                using HttpResponseMessage getResponse = await _http.SendAsync(
+                    getRequest, HttpCompletionOption.ResponseHeadersRead, headCts.Token).ConfigureAwait(false);
+                if (getResponse.IsSuccessStatusCode && getResponse.Content.Headers.ContentLength.HasValue && getResponse.Content.Headers.ContentLength.Value > 0)
+                {
+                    return getResponse.Content.Headers.ContentLength.Value;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return null;
+    }
+
+    private async Task<long> DownloadFileAsync(
         string url,
         string destination,
         string fileName,
         int index,
         int count,
+        long cumulativeBytesBefore,
+        long totalBundleBytes,
         IProgress<ModelInstallProgress>? progress,
         CancellationToken ct)
     {
@@ -535,26 +626,67 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
             request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        long? total = response.Content.Headers.ContentLength;
-        await using Stream source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await using FileStream target = File.Create(destination);
-        var buffer = new byte[81920];
-        long downloaded = 0;
-        int read;
-        while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+        long? fileContentLength = response.Content.Headers.ContentLength;
+        if (totalBundleBytes <= 0 && fileContentLength.HasValue && fileContentLength.Value > 0)
         {
-            await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-            downloaded += read;
-            long filePercent = total.GetValueOrDefault() > 0 ? downloaded * 100 / total!.Value : 0;
-            int percent = (int)Math.Min(100L, (index * 100L + filePercent) / Math.Max(1, count));
-            progress?.Report(new ModelInstallProgress
-            {
-                ModelId = fileName,
-                Percent = percent,
-                DownloadedBytes = downloaded,
-                TotalBytes = total,
-                Stage = "downloading",
-            });
+            totalBundleBytes = fileContentLength.Value;
         }
+
+        await using Stream source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        string tempDestination = destination + ".tmp";
+        long downloaded = 0;
+
+        try
+        {
+            await using (FileStream target = File.Create(tempDestination))
+            {
+                var buffer = new byte[81920];
+                int read;
+                while ((read = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                {
+                    await target.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                    downloaded += read;
+
+                    long overallDownloaded = cumulativeBytesBefore + downloaded;
+                    int percent;
+                    if (totalBundleBytes > 0)
+                    {
+                        percent = (int)Math.Min(100L, overallDownloaded * 100L / totalBundleBytes);
+                    }
+                    else
+                    {
+                        long filePercent = fileContentLength.GetValueOrDefault() > 0
+                            ? downloaded * 100 / fileContentLength!.Value
+                            : 0;
+                        percent = (int)Math.Min(100L, (index * 100L + filePercent) / Math.Max(1, count));
+                    }
+
+                    progress?.Report(new ModelInstallProgress
+                    {
+                        ModelId = count > 1 ? $"{fileName} ({index + 1}/{count})" : fileName,
+                        Percent = percent,
+                        DownloadedBytes = overallDownloaded,
+                        TotalBytes = totalBundleBytes > 0 ? totalBundleBytes : fileContentLength,
+                        Stage = "downloading",
+                    });
+                }
+            }
+
+            if (File.Exists(destination))
+            {
+                File.Delete(destination);
+            }
+            File.Move(tempDestination, destination);
+        }
+        catch
+        {
+            if (File.Exists(tempDestination))
+            {
+                try { File.Delete(tempDestination); } catch { }
+            }
+            throw;
+        }
+
+        return downloaded;
     }
 }

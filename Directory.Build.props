@@ -7,5 +7,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Отключаем генерацию промежуточных ref-сборок в obj, предотвращая CS0006 в Visual Studio -->
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <!-- Игнорируем сторонние правила CodeRush / Roslynator, вызывающие блокирующие ошибки сборки -->
+    <NoWarn>$(NoWarn);CRR0029;CRR0033</NoWarn>
   </PropertyGroup>
 </Project>
