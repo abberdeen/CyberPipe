@@ -20,7 +20,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         IDesktopNotificationService? notifications = null,
         IThemeService? themeService = null,
         LocalizationManager? localization = null,
-        bool isFirstRun = false)
+        bool isFirstRun = false,
+        HostSkillsTestViewModel? hostSkills = null)
     {
         Chat = chat ?? throw new ArgumentNullException(nameof(chat));
         Chains = chains ?? throw new ArgumentNullException(nameof(chains));
@@ -28,6 +29,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         Service = service ?? throw new ArgumentNullException(nameof(service));
         Schedules = schedules ?? throw new ArgumentNullException(nameof(schedules));
         Models = models ?? throw new ArgumentNullException(nameof(models));
+        HostSkills = hostSkills ?? HostSkillsTestViewModel.CreateProbe();
         Notifications = notifications ?? new DesktopNotificationService();
         ThemeService = themeService ?? new ThemeService();
         Localization = localization ?? LocalizationManager.Instance;
@@ -56,6 +58,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ServiceViewModel Service { get; }
     public SchedulesViewModel Schedules { get; }
     public ModelsViewModel Models { get; }
+    public HostSkillsTestViewModel HostSkills { get; }
     public IDesktopNotificationService Notifications { get; }
     public IThemeService ThemeService { get; }
     public LocalizationManager Localization { get; }

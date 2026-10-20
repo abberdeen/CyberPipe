@@ -17,5 +17,6 @@
     <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
     <!-- TASK-021: панель Service работает через реальный клиент управляющего канала. -->
     <ProjectReference Include="..\CyberPipe.ServiceControl\CyberPipe.ServiceControl.csproj" />
+    <ProjectReference Include="..\CyberPipe.Skills\CyberPipe.Skills.csproj" />
   </ItemGroup>
 </Project>

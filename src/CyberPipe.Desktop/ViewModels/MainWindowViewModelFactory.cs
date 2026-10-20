@@ -49,6 +49,7 @@ public static class MainWindowViewModelFactory
         var service = new ServiceViewModel(serviceController, logger: controlLogger);
         var schedules = new SchedulesViewModel(scheduler, notifications);
         var models = new ModelsViewModel(null, null, notifications);
+        var hostSkills = HostSkillsTestViewModel.CreateProbe();
 
         return new MainWindowViewModel(
             chat,
@@ -58,6 +59,7 @@ public static class MainWindowViewModelFactory
             schedules,
             models,
             notifications,
-            themeService);
+            themeService,
+            hostSkills: hostSkills);
     }
 }

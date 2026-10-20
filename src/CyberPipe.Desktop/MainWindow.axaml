@@ -99,6 +99,10 @@
       <TabItem Header="Models">
         <views:ModelsView DataContext="{Binding Models}" />
       </TabItem>
+
+      <TabItem Header="Host skills">
+        <views:HostSkillsTestView DataContext="{Binding HostSkills}" />
+      </TabItem>
     </TabControl>
 
     <!-- In-App Notification Overlay / Toast Bar -->

@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             x:Class="CyberPipe.Desktop.Views.HostSkillsTestView">
+
+  <Grid ColumnDefinitions="360,*" Margin="16">
+    <ScrollViewer Grid.Column="0" Margin="0,0,16,0">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Host skills" FontWeight="Bold" FontSize="18" />
+        <TextBlock Text="The command is delivered as a message from the external channel."
+                   TextWrapping="Wrap"
+                   Opacity="0.8" />
+
+        <TextBlock Text="Skill" FontWeight="SemiBold" />
+        <ComboBox ItemsSource="{Binding Skills}"
+                  SelectedItem="{Binding SelectedSkill}"
+                  HorizontalAlignment="Stretch">
+          <ComboBox.ItemTemplate>
+            <DataTemplate DataType="vm:HostSkillChoice">
+              <TextBlock Text="{Binding SkillId}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock Text="{Binding SelectedSkill.Name}" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding SelectedSkill.Description}" TextWrapping="Wrap" Opacity="0.8" />
+
+        <TextBlock Text="Payload" FontWeight="SemiBold" />
+        <TextBox Text="{Binding PayloadJson}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MinHeight="120"
+                 FontFamily="Consolas" />
+
+        <Button Content="Send from external channel"
+                Command="{Binding SendCommand}"
+                HorizontalAlignment="Left" />
+        <ProgressBar IsIndeterminate="True" Height="4" IsVisible="{Binding IsBusy}" />
+
+        <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+                CornerRadius="8"
+                Padding="12">
+          <StackPanel Spacing="4">
+            <TextBlock Text="Host state" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding HostState}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Grid Grid.Column="1" RowDefinitions="*,Auto">
+      <Border Grid.Row="0"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="12">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Text="{Binding ChannelName}" FontWeight="Bold" Margin="0,0,0,8" />
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding Transcript}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:ChannelTranscriptLine">
+                  <StackPanel Margin="0,0,0,10">
+                    <TextBlock Text="{Binding Source}" FontWeight="SemiBold" FontSize="12" />
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontFamily="Consolas" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+
+      <Border Grid.Row="1"
+              Margin="0,12,0,0"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="12">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Skill output" FontWeight="SemiBold" />
+          <TextBlock Text="{Binding ResultText}" TextWrapping="Wrap" FontFamily="Consolas" />
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>
