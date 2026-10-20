@@ -89,13 +89,15 @@ public static class ChatCommand
             try
             {
                 RouteResult result = await ctx.Router.RouteAsync(request, linkedCts.Token).ConfigureAwait(false);
-                string answer = result.Status switch
-                {
-                    RouteStatus.Matched => result.ResponseText ?? result.Intent ?? result.MatchedRuleName ?? "OK",
-                    RouteStatus.BudgetDenied => $"[Budget Denied: {result.Reason ?? "Exceeded"}]",
-                    RouteStatus.Escalate => $"[Escalated: {result.Reason ?? "Unknown"}]",
-                    _ => $"[Error: {result.Reason ?? "Failed"}]",
-                };
+                string answer = !string.IsNullOrWhiteSpace(result.ResponseText)
+                    ? result.ResponseText
+                    : result.Status switch
+                    {
+                        RouteStatus.Matched => result.Intent ?? result.MatchedRuleName ?? "OK",
+                        RouteStatus.BudgetDenied => $"[Budget Denied: {result.Reason ?? "Exceeded"}]",
+                        RouteStatus.Escalate => $"[Escalated: {result.Reason ?? "Unknown"}]",
+                        _ => $"[Error: {result.Reason ?? "Failed"}]",
+                    };
 
                 await ctx.Out.WriteLineAsync($"Assistant [{result.Tier}]: {answer}").ConfigureAwait(false);
             }

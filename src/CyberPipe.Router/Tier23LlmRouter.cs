@@ -25,6 +25,11 @@ public sealed class Tier23LlmRouter : IRouterTier
         Never use system.*, volume.*, or media.* for those.
         """;
 
+    private const string AnswerSystemPrompt = """
+        You are CyberPipe, a local assistant. Answer the user directly in the same language.
+        Do not output JSON, intent names, confidence scores, or routing notes.
+        """;
+
     private readonly IChatModelProvider _chatModelProvider;
     private readonly ITokenBudgetGovernor _budgetGovernor;
     private readonly CyberPipeOptions _options;
@@ -168,6 +173,12 @@ public sealed class Tier23LlmRouter : IRouterTier
 
         // 4. Parse structured JSON
         LlmClassificationJson? classification = TryParseJson(response.Text);
+        if (classification is not null && IsChatIntent(classification.Intent))
+        {
+            return await AnswerAsync(
+                request, requestId, modelId, hosting, ChatModelClass.Light, IntentTier.Tier2, cancellationToken);
+        }
+
         if (classification is null)
         {
             _logger?.LogWarning("Tier 2 model returned invalid JSON response: '{Text}'", response.Text);
@@ -275,41 +286,34 @@ public sealed class Tier23LlmRouter : IRouterTier
         // 3. Record actual usage
         await RecordUsageAsync(modelId, hosting, response, requestId, cancellationToken);
 
-        // 4. Parse structured JSON
+        // 4. Parse structured JSON. Обычный вопрос не остаётся служебной строкой про порог уверенности.
         LlmClassificationJson? classification = TryParseJson(response.Text);
-        if (classification is null)
-        {
-            _logger?.LogWarning("Tier 3 model returned invalid JSON response: '{Text}'", response.Text);
-            return new RouteResult
-            {
-                Status = RouteStatus.Failed,
-                Tier = IntentTier.Tier3,
-                Reason = "Tier 3 heavy model returned non-JSON or invalid format."
-            };
-        }
+        bool hostCommand = classification is not null &&
+            !string.IsNullOrWhiteSpace(classification.Intent) &&
+            !IsChatIntent(classification.Intent) &&
+            classification.Confidence >= _options.Router.Tier3ConfidenceThreshold;
 
-        if (string.IsNullOrWhiteSpace(classification.Intent) ||
-            classification.Confidence < _options.Router.Tier3ConfidenceThreshold)
+        if (!hostCommand)
         {
-            _logger?.LogDebug(
-                "Tier 3 heavy model confidence {Confidence:F2} below threshold {Threshold:F2} for intent '{Intent}'",
-                classification.Confidence,
-                _options.Router.Tier3ConfidenceThreshold,
-                classification.Intent);
-
-            return new RouteResult
+            if (classification is null && !string.IsNullOrWhiteSpace(PresentAnswer(response.Text)))
             {
-                Status = RouteStatus.Escalate,
-                Tier = IntentTier.Tier3,
-                Reason = $"Tier 3 confidence {classification.Confidence:F2} below threshold {_options.Router.Tier3ConfidenceThreshold:F2}."
-            };
+                return ChatAnswer(IntentTier.Tier3, PresentAnswer(response.Text));
+            }
+
+            _logger?.LogInformation(
+                "Tier 3 did not classify a host command (intent '{Intent}', confidence {Confidence:F2}). Answering the user.",
+                classification?.Intent,
+                classification?.Confidence ?? 0);
+
+            return await AnswerAsync(
+                request, requestId, modelId, hosting, ChatModelClass.Heavy, IntentTier.Tier3, cancellationToken);
         }
 
         var matchedResult = new RouteResult
         {
             Status = RouteStatus.Matched,
             Tier = IntentTier.Tier3,
-            Intent = classification.Intent,
+            Intent = classification!.Intent,
             Parameters = classification.Parameters,
             Confidence = classification.Confidence,
             MatchedRuleName = $"Tier3:{classification.Intent}",
@@ -319,6 +323,104 @@ public sealed class Tier23LlmRouter : IRouterTier
         await TryCacheResultAsync(request.Text, matchedResult, cancellationToken);
 
         return matchedResult;
+    }
+
+    private async Task<RouteResult> AnswerAsync(
+        RouteRequest request,
+        string requestId,
+        string modelId,
+        ModelHostingType hosting,
+        ChatModelClass modelClass,
+        IntentTier tier,
+        CancellationToken cancellationToken)
+    {
+        var budgetRequest = new BudgetRequest
+        {
+            ModelId = modelId,
+            HostingType = hosting,
+            EstimatedInputTokens = 200 + (request.Text.Length / 3),
+            EstimatedOutputTokens = 200,
+            RequestId = requestId
+        };
+
+        BudgetDecision auth = await _budgetGovernor.TryAuthorizeAsync(budgetRequest, cancellationToken);
+        if (!auth.IsAllowed)
+        {
+            return new RouteResult
+            {
+                Status = RouteStatus.BudgetDenied,
+                Tier = tier,
+                Reason = $"Token budget denied: {auth.DenialReason} - {auth.Message}"
+            };
+        }
+
+        ChatModelResponse response;
+        try
+        {
+            response = await CallWithRetriesAsync(
+                new ChatModelRequest
+                {
+                    ModelClass = modelClass,
+                    ModelId = modelId,
+                    SystemPrompt = AnswerSystemPrompt,
+                    Prompt = request.Text
+                },
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Chat answer call failed.");
+            return new RouteResult
+            {
+                Status = RouteStatus.Failed,
+                Tier = tier,
+                Reason = $"Chat answer failure: {ex.Message}"
+            };
+        }
+
+        await RecordUsageAsync(modelId, hosting, response, requestId, cancellationToken);
+        string answer = PresentAnswer(response.Text);
+        if (string.IsNullOrWhiteSpace(answer))
+        {
+            return new RouteResult
+            {
+                Status = RouteStatus.Failed,
+                Tier = tier,
+                Reason = "Chat model returned an empty answer."
+            };
+        }
+
+        return ChatAnswer(tier, answer);
+    }
+
+    private static RouteResult ChatAnswer(IntentTier tier, string answer) =>
+        new()
+        {
+            Status = RouteStatus.Matched,
+            Tier = tier,
+            Intent = "chat.reply",
+            ResponseText = answer,
+            Confidence = 1,
+            MatchedRuleName = "chat.reply",
+            Reason = "Answered by the chat model"
+        };
+
+    private static bool IsChatIntent(string? intent) =>
+        string.Equals(intent, "chat.reply", StringComparison.OrdinalIgnoreCase);
+
+    private static string PresentAnswer(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        string withoutThought = System.Text.RegularExpressions.Regex.Replace(
+            raw,
+            "<think>.*?</think>",
+            string.Empty,
+            System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return withoutThought.Trim();
     }
 
     private async Task<ChatModelResponse> CallWithRetriesAsync(

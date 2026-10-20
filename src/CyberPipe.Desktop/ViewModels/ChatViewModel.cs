@@ -144,13 +144,15 @@ public sealed class ChatViewModel : ViewModelBase
             RouteResult result = await _router.RouteAsync(request, _cts.Token).ConfigureAwait(true);
             CurrentTier = result.Tier;
 
-            string replyText = result.Status switch
-            {
-                RouteStatus.Matched => result.ResponseText ?? result.Intent ?? $"[Matched: {result.MatchedRuleName ?? "Rule"}]",
-                RouteStatus.BudgetDenied => $"[Budget Denied: {result.Reason ?? "Exceeded"}]",
-                RouteStatus.Escalate => $"[Escalated: {result.Reason ?? "Unknown"}]",
-                _ => $"[Error: {result.Reason ?? "Routing failed"}]",
-            };
+            string replyText = !string.IsNullOrWhiteSpace(result.ResponseText)
+                ? result.ResponseText
+                : result.Status switch
+                {
+                    RouteStatus.Matched => result.Intent ?? $"[Matched: {result.MatchedRuleName ?? "Rule"}]",
+                    RouteStatus.BudgetDenied => $"[Budget Denied: {result.Reason ?? "Exceeded"}]",
+                    RouteStatus.Escalate => $"[Escalated: {result.Reason ?? "Unknown"}]",
+                    _ => $"[Error: {result.Reason ?? "Routing failed"}]",
+                };
 
             Messages.Add(new ChatMessageViewModel(_clipboard)
             {

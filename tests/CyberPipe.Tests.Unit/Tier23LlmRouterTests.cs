@@ -248,6 +248,71 @@ public sealed class Tier23LlmRouterTests
         Assert.Equal("system.status", result.Intent);
     }
 
+    [Fact]
+    public async Task Tier23_ChatReply_ReturnsModelAnswer_NotEscalation()
+    {
+        var modelProvider = new PromptAwareChatModel();
+        var router = new Tier23LlmRouter(modelProvider, new FakeBudgetGovernor(allowAll: true));
+
+        RouteResult result = await router.TryRouteAsync(new RouteRequest
+        {
+            Text = "Кто ты",
+            Channel = ChannelKind.Desktop
+        });
+
+        Assert.Equal(RouteStatus.Matched, result.Status);
+        Assert.Equal(IntentTier.Tier2, result.Tier);
+        Assert.Equal("chat.reply", result.Intent);
+        Assert.Equal("Я CyberPipe, локальный ассистент.", result.ResponseText);
+        Assert.Equal(0, modelProvider.HeavyCalls);
+    }
+
+    [Fact]
+    public async Task Tier23_ZeroConfidence_AnswersInsteadOfEscalationMessage()
+    {
+        var modelProvider = new PromptAwareChatModel { Tier2Intent = "volume.mute" };
+        var router = new Tier23LlmRouter(modelProvider, new FakeBudgetGovernor(allowAll: true));
+
+        RouteResult result = await router.TryRouteAsync(new RouteRequest
+        {
+            Text = "Кто ты",
+            Channel = ChannelKind.Desktop
+        });
+
+        Assert.Equal(RouteStatus.Matched, result.Status);
+        Assert.Equal("Я CyberPipe, локальный ассистент.", result.ResponseText);
+        Assert.DoesNotContain("threshold", result.ResponseText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class PromptAwareChatModel : IChatModelProvider
+    {
+        public string Tier2Intent { get; init; } = "chat.reply";
+        public int HeavyCalls { get; private set; }
+
+        public Task<ChatModelResponse> CompleteAsync(ChatModelRequest request, CancellationToken cancellationToken = default)
+        {
+            bool answering = request.SystemPrompt?.Contains("Answer the user", StringComparison.Ordinal) == true;
+            if (request.ModelClass == ChatModelClass.Heavy)
+            {
+                HeavyCalls++;
+            }
+
+            string text = answering
+                ? "Я CyberPipe, локальный ассистент."
+                : request.ModelClass == ChatModelClass.Light
+                    ? $$"""{"intent":"{{Tier2Intent}}","confidence":0}"""
+                    : """{"intent":"chat.reply","confidence":0}""";
+
+            return Task.FromResult(new ChatModelResponse
+            {
+                Text = text,
+                InputTokens = 10,
+                OutputTokens = 10,
+                ModelId = "qwen3:0.6b"
+            });
+        }
+    }
+
     // --- Test Doubles ---
 
     private sealed class BlockingSanitizer : IEgressSanitizer

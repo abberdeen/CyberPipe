@@ -145,6 +145,7 @@ public sealed class OllamaChatModelProvider : IChatModelProvider
             {
                 model = tag,
                 stream = false,
+                think = false,
                 messages = new object[]
                 {
                     new { role = "system", content = request.SystemPrompt ?? string.Empty },
