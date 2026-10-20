@@ -440,4 +440,94 @@ public sealed class LocalModelInstallerTests
         Assert.True(result.IsSuccess);
         Assert.Equal(LocalRuntimeState.Ready, result.Value!.State);
     }
+
+    private sealed class FakeLocalInstaller : ILocalModelInstaller
+    {
+        public bool EnsureEmbeddingCalled { get; set; }
+        public bool InstallCalled { get; set; }
+        public string? LastInstalledModelId { get; set; }
+        public List<InstalledLocalModel> InstalledModels { get; } = [];
+
+        public Task<IReadOnlyList<InstalledLocalModel>> ListInstalledAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<InstalledLocalModel>>(InstalledModels);
+
+        public Task<Result<ModelProbeResult>> InstallAsync(
+            ModelDescriptorDto model,
+            IProgress<ModelInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            InstallCalled = true;
+            LastInstalledModelId = model.Id;
+            return Task.FromResult(Result<ModelProbeResult>.Success(new ModelProbeResult
+            {
+                Succeeded = true,
+                SampleText = "pong",
+            }));
+        }
+
+        public Task<Result> RemoveAsync(string modelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success());
+
+        public Task<Result<ModelProbeResult>> VerifyAsync(ModelDescriptorDto model, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<ModelProbeResult>.Success(new ModelProbeResult
+            {
+                Succeeded = true,
+                SampleText = "pong",
+            }));
+
+        public Task<Result<EmbeddingInstallResult>> EnsureEmbeddingAsync(
+            IProgress<ModelInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureEmbeddingCalled = true;
+            return Task.FromResult(Result<EmbeddingInstallResult>.Success(new EmbeddingInstallResult
+            {
+                AlreadyInstalled = false,
+                InstallPath = "/fake/embeddings",
+                VectorDimensions = 384,
+            }));
+        }
+    }
+
+    [Fact]
+    public async Task SetupModelInstallerAdapter_RoutesEmbeddingModel_ToEnsureEmbeddingAsync()
+    {
+        var installerMock = new FakeLocalInstaller();
+        var catalog = new TestCatalog([]);
+        var adapter = new SetupModelInstallerAdapter(installerMock, catalog);
+
+        var result = await adapter.InstallModelAsync("multilingual-e5-small");
+
+        Assert.True(result.IsSuccess);
+        Assert.True(installerMock.EnsureEmbeddingCalled);
+        Assert.False(installerMock.InstallCalled);
+    }
+
+    [Fact]
+    public async Task SetupModelInstallerAdapter_RoutesLlmModel_ToInstallAsync()
+    {
+        var installerMock = new FakeLocalInstaller();
+        var catalog = new TestCatalog([
+            new ModelDescriptorDto
+            {
+                Id = "qwen2.5:3b",
+                Name = "Qwen 2.5 3B",
+                HostingType = ModelHostingType.Local,
+                RecommendedFor = ModelTaskCategory.LightFastTier2,
+                Provider = "Ollama",
+                ModelId = "qwen2.5:3b",
+                ParamsSummary = "3B",
+                LicenseOrPricing = "Apache-2.0",
+                BestFor = "General chat",
+            }
+        ]);
+        var adapter = new SetupModelInstallerAdapter(installerMock, catalog);
+
+        var result = await adapter.InstallModelAsync("qwen2.5:3b");
+
+        Assert.True(result.IsSuccess);
+        Assert.False(installerMock.EnsureEmbeddingCalled);
+        Assert.True(installerMock.InstallCalled);
+        Assert.Equal("qwen2.5:3b", installerMock.LastInstalledModelId);
+    }
 }

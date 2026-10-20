@@ -23,8 +23,30 @@ public sealed class LocalModelItemViewModel : ViewModelBase
     public LocalModelInstallState State
     {
         get => _state;
-        set => SetProperty(ref _state, value);
+        set
+        {
+            if (SetProperty(ref _state, value))
+            {
+                OnPropertyChanged(nameof(IsInstalled));
+                OnPropertyChanged(nameof(IsDownloading));
+                OnPropertyChanged(nameof(CanInstall));
+                InstallCommand?.RaiseCanExecuteChanged();
+                RemoveCommand?.RaiseCanExecuteChanged();
+                VerifyCommand?.RaiseCanExecuteChanged();
+                CancelCommand?.RaiseCanExecuteChanged();
+            }
+        }
     }
+
+    public bool IsInstalled => State == LocalModelInstallState.Installed;
+    public bool IsDownloading => State == LocalModelInstallState.Downloading;
+    public bool CanInstall => State != LocalModelInstallState.Downloading && State != LocalModelInstallState.Installed;
+
+    public AsyncRelayCommand? InstallCommand { get; internal set; }
+    public AsyncRelayCommand? RemoveCommand { get; internal set; }
+    public AsyncRelayCommand? VerifyCommand { get; internal set; }
+    public RelayCommand? CancelCommand { get; internal set; }
+    public RelayCommand? ConfirmRiskCommand { get; internal set; }
 
     public int ProgressPercent
     {
@@ -97,6 +119,16 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
                     ? "Tier 3 — сложные задачи"
                     : "Tier 2 — лёгкие задачи",
             };
+            item.InstallCommand = new AsyncRelayCommand(() => InstallModelAsync(item), () => item.CanInstall);
+            item.RemoveCommand = new AsyncRelayCommand(() => RemoveModelAsync(item), () => item.IsInstalled);
+            item.VerifyCommand = new AsyncRelayCommand(() => VerifyModelAsync(item), () => item.IsInstalled);
+            item.CancelCommand = new RelayCommand(() => CancelInstall(item), () => item.IsDownloading);
+            item.ConfirmRiskCommand = new RelayCommand(() =>
+            {
+                item.RiskConfirmed = true;
+                item.NeedsRiskConfirmation = false;
+                _ = InstallModelAsync(item);
+            });
             Items.Add(item);
         }
 

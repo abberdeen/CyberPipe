@@ -72,8 +72,8 @@ public sealed class SetupModelInstallerAdapter : IModelInstaller
     {
         if (string.Equals(modelId, "multilingual-e5-small", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(modelId, "intfloat/multilingual-e5-small", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(modelId, _catalog.EmbeddingModel?.Id, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(modelId, _catalog.EmbeddingModel?.ModelId, StringComparison.OrdinalIgnoreCase))
+            string.Equals(modelId, _catalog.EmbeddingModel?.Model?.Id, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(modelId, _catalog.EmbeddingModel?.Model?.ModelId, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -81,8 +81,7 @@ public sealed class SetupModelInstallerAdapter : IModelInstaller
         ModelDescriptorDto? descriptor = _catalog.GetById(modelId);
         return descriptor is not null &&
             (descriptor.RecommendedFor == ModelTaskCategory.EmbeddingTier1 ||
-             string.Equals(descriptor.Provider, "ONNX", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(descriptor.Runtime, "ONNX", StringComparison.OrdinalIgnoreCase));
+             string.Equals(descriptor.Provider, "ONNX", StringComparison.OrdinalIgnoreCase));
     }
 }
 

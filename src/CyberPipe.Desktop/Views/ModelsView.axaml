@@ -1,10 +1,10 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
-             x:Class="CyberPipe.Desktop.Views.ModelsView">
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+              x:Class="CyberPipe.Desktop.Views.ModelsView">
 
   <ScrollViewer Margin="16">
-    <StackPanel Spacing="16" MaxWidth="800" HorizontalAlignment="Left">
+    <StackPanel Spacing="16" MaxWidth="850" HorizontalAlignment="Left">
       <!-- Header Banner / Installer Entry Point -->
       <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
               CornerRadius="8"
@@ -15,12 +15,136 @@
             <TextBlock Text="{Binding InstallerNotice}" TextWrapping="Wrap" FontSize="12" Opacity="0.8" />
           </StackPanel>
           <Button Grid.Column="1"
-                  Content="Ollama &amp; Local Setup (TASK-081)"
+                  Content="Обновить состояние"
                   Command="{Binding LaunchInstallerCommand}"
                   Classes="accent"
                   VerticalAlignment="Center"
                   Margin="16,0,0,0" />
         </Grid>
+      </Border>
+
+      <!-- Ollama Runtime Status & Actions -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16"
+              IsVisible="{Binding HasInstaller}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Локальный рантайм (Ollama)" FontWeight="Bold" FontSize="16" />
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Installer.RuntimeStatusText}" FontSize="13" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="Установить Ollama"
+                    Command="{Binding Installer.EnsureRuntimeCommand}"
+                    Classes="accent"
+                    Margin="8,0" />
+            <Button Grid.Column="2"
+                    Content="Обновить статус"
+                    Command="{Binding Installer.RefreshCommand}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Tier 1 Semantic Embedding (multilingual-e5-small) -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16"
+              IsVisible="{Binding HasInstaller}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Tier 1 — Семантический эмбеддинг (multilingual-e5-small ONNX)" FontWeight="Bold" FontSize="16" />
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Installer.EmbeddingStateText}" FontSize="13" />
+              <TextBlock Text="Локальная ONNX-модель для семантической маршрутизации и кэша." FontSize="11" Opacity="0.7" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="Скачать и подключить эмбеддинг"
+                    Command="{Binding Installer.EnsureEmbeddingCommand}"
+                    Classes="accent"
+                    Margin="8,0" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Local AI Models Installer List -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16"
+              IsVisible="{Binding HasInstaller}">
+        <StackPanel Spacing="12">
+          <TextBlock Text="Локальные ИИ модели (Ollama)" FontWeight="Bold" FontSize="16" />
+
+          <ItemsControl ItemsSource="{Binding Installer.Items}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:LocalModelItemViewModel">
+                <Border Margin="0,4"
+                        Padding="12"
+                        CornerRadius="6"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                  <StackPanel Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                      <StackPanel Grid.Column="0" Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <TextBlock Text="{Binding Model.Name}" FontWeight="SemiBold" FontSize="14" />
+                          <TextBlock Text="{Binding GroupTitle}" FontSize="11" Opacity="0.7" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                          <TextBlock Text="{Binding Model.ModelId}" FontFamily="Consolas,Menlo,monospace" FontSize="12" Opacity="0.8" />
+                          <TextBlock Text="{Binding Model.Q4SizeGb, StringFormat='Размер: {0:F1} ГБ'}" FontSize="11" Opacity="0.7" />
+                          <TextBlock Text="{Binding VerdictText}" FontSize="11" FontWeight="SemiBold" />
+                        </StackPanel>
+                      </StackPanel>
+
+                      <!-- Status Badge -->
+                      <TextBlock Grid.Column="1" Text="{Binding State}" Margin="12,0" VerticalAlignment="Center" FontWeight="SemiBold" />
+
+                      <!-- Action Buttons -->
+                      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                        <Button Content="Установить"
+                                Command="{Binding InstallCommand}"
+                                IsVisible="{Binding CanInstall}"
+                                Classes="accent" />
+                        <Button Content="Проверить"
+                                Command="{Binding VerifyCommand}"
+                                IsVisible="{Binding IsInstalled}" />
+                        <Button Content="Удалить"
+                                Command="{Binding RemoveCommand}"
+                                IsVisible="{Binding IsInstalled}" />
+                        <Button Content="Отмена"
+                                Command="{Binding CancelCommand}"
+                                IsVisible="{Binding IsDownloading}" />
+                      </StackPanel>
+                    </Grid>
+
+                    <!-- Progress Bar during download -->
+                    <ProgressBar Value="{Binding ProgressPercent}"
+                                 Minimum="0" Maximum="100"
+                                 Height="4"
+                                 IsVisible="{Binding IsDownloading}" />
+
+                    <!-- Status or progress message -->
+                    <TextBlock Text="{Binding ProgressText}"
+                               FontSize="11" Opacity="0.8"
+                               IsVisible="{Binding IsDownloading}" />
+
+                    <TextBlock Text="{Binding StatusMessage}"
+                               FontSize="11" Opacity="0.8" />
+
+                    <!-- Risk confirmation prompt -->
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding NeedsRiskConfirmation}">
+                      <TextBlock Text="Мало RAM/VRAM для этой модели! Возможны фризы системы."
+                                 FontSize="11" Foreground="Red" VerticalAlignment="Center" />
+                      <Button Content="Всё равно установить"
+                              Command="{Binding ConfirmRiskCommand}"
+                              Classes="accent" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
       </Border>
 
       <!-- Tier Model Assignments -->
