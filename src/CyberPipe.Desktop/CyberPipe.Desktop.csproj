@@ -3,6 +3,8 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>CyberPipe.Desktop</AssemblyName>
     <RootNamespace>CyberPipe.Desktop</RootNamespace>
+    <OutputPath>$(CyberPipeAppDir)</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>

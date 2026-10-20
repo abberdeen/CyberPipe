@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>CyberPipe.Brainstem</AssemblyName>
     <RootNamespace>CyberPipe.Brainstem</RootNamespace>
+    <OutputPath>$(CyberPipeAppDir)</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
