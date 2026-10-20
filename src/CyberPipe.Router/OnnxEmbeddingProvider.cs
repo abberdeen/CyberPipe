@@ -78,6 +78,15 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
             return configuredPath;
         }
 
+        // If an explicit file path was specified but does not exist, do not silently load a different model
+        if (!string.IsNullOrWhiteSpace(configuredPath) &&
+            (configuredPath.Contains(Path.DirectorySeparatorChar) ||
+             configuredPath.Contains(Path.AltDirectorySeparatorChar) ||
+             configuredPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string[] candidates =
         [

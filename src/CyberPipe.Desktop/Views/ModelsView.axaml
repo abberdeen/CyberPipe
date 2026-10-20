@@ -1,7 +1,9 @@
 <UserControl xmlns="https://github.com/avaloniaui"
-              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-              xmlns:vm="using:CyberPipe.Desktop.ViewModels"
-              x:Class="CyberPipe.Desktop.Views.ModelsView">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             xmlns:contracts="using:CyberPipe.Contracts"
+             x:Class="CyberPipe.Desktop.Views.ModelsView"
+             x:Name="ModelsRootControl">
 
   <ScrollViewer Margin="16">
     <StackPanel Spacing="16" MaxWidth="850" HorizontalAlignment="Left">
@@ -21,6 +23,97 @@
                   VerticalAlignment="Center"
                   Margin="16,0,0,0" />
         </Grid>
+      </Border>
+
+      <!-- Tier Model Assignments Configuration (Editable) -->
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="16">
+        <StackPanel Spacing="12">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <StackPanel Grid.Column="0" Spacing="2">
+              <TextBlock Text="Назначение моделей по ярусам (Tier Model Assignments)" FontWeight="Bold" FontSize="16" />
+              <TextBlock Text="Выберите модели для обработки запросов. Изменения сохраняются в ui-overrides.json и вступают в силу немедленно." FontSize="11" Opacity="0.7" />
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    Content="По умолчанию"
+                    Command="{Binding ResetTierAssignmentsCommand}"
+                    Margin="8,0"
+                    VerticalAlignment="Center" />
+
+            <Button Grid.Column="2"
+                    Content="Сохранить назначения"
+                    Command="{Binding SaveTierAssignmentsCommand}"
+                    Classes="accent"
+                    VerticalAlignment="Center" />
+          </Grid>
+
+          <!-- Status / confirmation message -->
+          <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                  Padding="8,6"
+                  CornerRadius="4"
+                  IsVisible="{Binding HasStatusMessage}">
+            <TextBlock Text="{Binding StatusMessage}"
+                       FontWeight="SemiBold"
+                       FontSize="12"
+                       Foreground="{DynamicResource SystemAccentColor}" />
+          </Border>
+
+          <!-- Assignments list -->
+          <ItemsControl ItemsSource="{Binding Assignments}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:TierModelAssignmentViewModel">
+                <Border Margin="0,4"
+                        Padding="12"
+                        CornerRadius="6"
+                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                  <Grid ColumnDefinitions="190,*,Auto" VerticalAlignment="Center">
+                    <!-- Left: Tier title and description -->
+                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
+                      <TextBlock Text="{Binding TierName}" FontWeight="SemiBold" FontSize="13" />
+                      <TextBlock Text="{Binding Description}" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <!-- Middle: Selector / Editor -->
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                      <!-- For editable tiers: Dropdown + Textbox -->
+                      <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding IsEditable}">
+                        <ComboBox Grid.Column="0"
+                                  ItemsSource="{Binding AvailableModels}"
+                                  SelectedItem="{Binding SelectedModel}"
+                                  MinWidth="220"
+                                  Margin="0,0,8,0"
+                                  VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1"
+                                 Text="{Binding ModelId}"
+                                 PlaceholderText="ID модели"
+                                 FontFamily="Consolas,Menlo,monospace"
+                                 VerticalAlignment="Center" />
+                      </Grid>
+
+                      <!-- For non-editable tier (Tier 0): Static text -->
+                      <TextBlock Text="{Binding ModelId}"
+                                 FontFamily="Consolas,Menlo,monospace"
+                                 FontWeight="SemiBold"
+                                 VerticalAlignment="Center"
+                                 IsVisible="{Binding !IsEditable}" />
+                    </StackPanel>
+
+                    <!-- Right: Hosting Type badge -->
+                    <Border Grid.Column="2"
+                            Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                            CornerRadius="4"
+                            Padding="8,4"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding HostingType}" FontSize="11" FontWeight="SemiBold" Opacity="0.8" />
+                    </Border>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
       </Border>
 
       <!-- Ollama Runtime Status & Actions -->
@@ -111,6 +204,10 @@
                         <Button Content="Удалить"
                                 Command="{Binding RemoveCommand}"
                                 IsVisible="{Binding IsInstalled}" />
+                        <Button Content="Назначить на Tier"
+                                Command="{Binding #ModelsRootControl.((vm:ModelsViewModel)DataContext).AssignCatalogModelCommand}"
+                                CommandParameter="{Binding Model}"
+                                IsVisible="{Binding IsInstalled}" />
                         <Button Content="Отмена"
                                 Command="{Binding CancelCommand}"
                                 IsVisible="{Binding IsDownloading}" />
@@ -147,32 +244,6 @@
         </StackPanel>
       </Border>
 
-      <!-- Tier Model Assignments -->
-      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
-              CornerRadius="8"
-              Padding="16">
-        <StackPanel Spacing="12">
-          <TextBlock Text="Tier Model Assignments" FontWeight="Bold" FontSize="16" />
-
-          <ItemsControl ItemsSource="{Binding Assignments}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate DataType="vm:TierModelAssignmentViewModel">
-                <Border Margin="0,4"
-                        Padding="10"
-                        CornerRadius="6"
-                        Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-                  <Grid ColumnDefinitions="160,*,Auto">
-                    <TextBlock Grid.Column="0" Text="{Binding TierName}" FontWeight="SemiBold" />
-                    <TextBlock Grid.Column="1" Text="{Binding ModelId}" FontFamily="Consolas,Menlo,monospace" />
-                    <TextBlock Grid.Column="2" Text="{Binding HostingType}" Opacity="0.7" />
-                  </Grid>
-                </Border>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </Border>
-
       <!-- Catalog Overview -->
       <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
               CornerRadius="8"
@@ -182,19 +253,24 @@
 
           <ItemsControl ItemsSource="{Binding Catalog}">
             <ItemsControl.ItemTemplate>
-              <DataTemplate>
+              <DataTemplate DataType="contracts:ModelDescriptorDto">
                 <Border Margin="0,4"
                         Padding="10"
                         CornerRadius="6"
                         Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-                  <Grid ColumnDefinitions="*,Auto,Auto">
+                  <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                     <StackPanel Grid.Column="0" Spacing="2">
                       <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                       <TextBlock Text="{Binding ParamsSummary}" FontSize="11" Opacity="0.7" />
                       <TextBlock Text="{Binding BestFor}" FontSize="11" Opacity="0.7" />
                     </StackPanel>
                     <TextBlock Grid.Column="1" Text="{Binding HostingType}" Margin="12,0" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Text="{Binding Provider}" Opacity="0.6" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding Provider}" Opacity="0.6" Margin="0,0,12,0" VerticalAlignment="Center" />
+                    <Button Grid.Column="3"
+                            Content="Назначить"
+                            Command="{Binding #ModelsRootControl.((vm:ModelsViewModel)DataContext).AssignCatalogModelCommand}"
+                            CommandParameter="{Binding}"
+                            VerticalAlignment="Center" />
                   </Grid>
                 </Border>
               </DataTemplate>

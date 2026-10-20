@@ -14,7 +14,7 @@ internal static class Program
     private static ILoggerFactory? _loggerFactory;
 
     /// <summary>Опции процесса (TASK-003); фабрика ViewModel берёт имя pipe отсюда.</summary>
-    internal static CyberPipeOptions Options { get; private set; } = new CyberPipeOptions();
+    internal static CyberPipeOptions Options { get; set; } = new CyberPipeOptions();
 
     /// <summary>Фабрика логеров процесса.</summary>
     internal static ILoggerFactory LoggerFactory =>
@@ -30,7 +30,7 @@ internal static class Program
             options = CyberPipeConfigurationLoader.LoadFromSources(
                 appsettingsPath: null,
                 environmentVariables: null,
-                uiOverridesPath: null);
+                uiOverridesPath: CyberPipeConfigurationLoader.GetDefaultUiOverridesPath());
         }
         catch (ConfigurationValidationException)
         {

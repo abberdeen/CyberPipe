@@ -49,7 +49,9 @@ public static class DesktopModelScreen
             assignments: null,
             catalog: catalog?.Find(),
             notifications: notifications,
-            installer: localInstallerVm);
+            installer: localInstallerVm,
+            modelCatalog: catalog,
+            options: Program.Options);
     }
 
     private static bool TryResolveCatalogPaths(out string localPath, out string cloudPath, out string embeddingPath)
@@ -67,6 +69,17 @@ public static class DesktopModelScreen
                 localPath = Path.Combine(candidateDir, "local-models.json");
                 cloudPath = Path.Combine(candidateDir, "cloud-models.json");
                 embeddingPath = Path.Combine(candidateDir, "embedding-models.json");
+            }
+        }
+
+        if (!File.Exists(localPath) || !File.Exists(cloudPath) || !File.Exists(embeddingPath))
+        {
+            string sourceCatalogs = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "..", "src", "CyberPipe.Models", "Catalogs"));
+            if (Directory.Exists(sourceCatalogs))
+            {
+                localPath = Path.Combine(sourceCatalogs, "local-models.json");
+                cloudPath = Path.Combine(sourceCatalogs, "cloud-models.json");
+                embeddingPath = Path.Combine(sourceCatalogs, "embedding-models.json");
             }
         }
 

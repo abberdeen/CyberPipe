@@ -529,6 +529,85 @@ public sealed class DesktopUiTests
         vm.DismissSetupBannerCommand.Execute(null);
         Assert.False(vm.IsFirstRun);
     }
+
+    [Fact]
+    public void ModelsViewModel_TierAssignments_CanBeUpdatedAndSaved()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "cyberpipe_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        string tempOverrides = Path.Combine(tempDir, "ui-overrides.json");
+
+        try
+        {
+            var notifications = new DesktopNotificationService();
+            var catalog = new List<ModelDescriptorDto>
+            {
+                new()
+                {
+                    Id = "qwen2.5:7b",
+                    Name = "Qwen 2.5 7B",
+                    HostingType = ModelHostingType.Local,
+                    RecommendedFor = ModelTaskCategory.LightFastTier2,
+                    Provider = "Ollama",
+                    ModelId = "qwen2.5:7b",
+                    ParamsSummary = "7B",
+                    LicenseOrPricing = "Apache-2.0",
+                    BestFor = "Tier 2",
+                },
+                new()
+                {
+                    Id = "gpt-4o",
+                    Name = "GPT-4o",
+                    HostingType = ModelHostingType.RemoteCloud,
+                    RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+                    Provider = "OpenAI",
+                    ModelId = "gpt-4o",
+                    ParamsSummary = "128k",
+                    LicenseOrPricing = "Commercial",
+                    BestFor = "Tier 3",
+                }
+            };
+
+            var vm = new ModelsViewModel(
+                catalog: catalog,
+                notifications: notifications,
+                uiOverridesPath: tempOverrides);
+
+            Assert.Equal(4, vm.Assignments.Count);
+            var tier2 = vm.Assignments.First(a => a.Tier == IntentTier.Tier2);
+            var tier3 = vm.Assignments.First(a => a.Tier == IntentTier.Tier3);
+
+            Assert.Contains("qwen2.5:7b", tier2.AvailableModels);
+            Assert.Contains("gpt-4o", tier3.AvailableModels);
+
+            // Change tier 2 and tier 3
+            tier2.SelectedModel = "qwen2.5:7b";
+            tier3.SelectedModel = "gpt-4o";
+
+            vm.SaveTierAssignmentsCommand.Execute(null);
+
+            Assert.True(vm.HasStatusMessage);
+            Assert.True(File.Exists(tempOverrides));
+
+            string json = File.ReadAllText(tempOverrides);
+            Assert.Contains("qwen2.5:7b", json);
+            Assert.Contains("gpt-4o", json);
+
+            // Test Reset to defaults
+            vm.ResetTierAssignmentsCommand.Execute(null);
+            Assert.Equal("qwen2.5:3b", tier2.ModelId);
+            Assert.Equal("claude-3-5-sonnet", tier3.ModelId);
+
+            // Test Quick Assign
+            vm.AssignCatalogModel(catalog[0]); // qwen2.5:7b -> Tier 2
+            Assert.Equal("qwen2.5:7b", tier2.ModelId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }
 
 // ----------------- Fakes for Unit Tests -----------------
