@@ -178,7 +178,13 @@ public sealed class OllamaLocalRuntimeInstaller : ILocalRuntimeInstaller
     private async Task<bool> DefaultInstallAsync(string downloadUrl, IProgress<string>? progress, CancellationToken ct)
     {
         string installerPath = Path.Combine(Path.GetTempPath(), $"OllamaSetup-{Guid.NewGuid():N}.exe");
-        using (HttpResponseMessage response = await _http.GetAsync(downloadUrl, ct).ConfigureAwait(false))
+        using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
+        {
+            request.Headers.TryAddWithoutValidation("User-Agent", "CyberPipe/1.0 (Windows NT 10.0; Win64; x64)");
+        }
+
+        using (HttpResponseMessage response = await _http.SendAsync(request, ct).ConfigureAwait(false))
         {
             response.EnsureSuccessStatusCode();
             await using FileStream file = File.Create(installerPath);

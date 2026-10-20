@@ -25,6 +25,15 @@ public sealed class SetupModelInstallerAdapter : IModelInstaller
             return Result<bool>.Failure("Model.NoRuntimeId", "Model id is required.");
         }
 
+        if (IsEmbeddingModel(modelId))
+        {
+            Result<EmbeddingInstallResult> embedResult = await _installer.EnsureEmbeddingAsync(cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return embedResult.IsSuccess
+                ? Result<bool>.Success(true)
+                : Result<bool>.Failure(embedResult.Error!);
+        }
+
         ModelDescriptorDto? descriptor = _catalog.GetById(modelId);
         if (descriptor is null)
         {
@@ -46,10 +55,34 @@ public sealed class SetupModelInstallerAdapter : IModelInstaller
             return false;
         }
 
+        if (IsEmbeddingModel(modelId))
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string sentinel = Path.Combine(localAppData, "CyberPipe", "embeddings", "multilingual-e5-small", "model.onnx");
+            return File.Exists(sentinel) && new FileInfo(sentinel).Length > 0;
+        }
+
         string runtimeId = _catalog.GetById(modelId)?.ModelId ?? modelId;
         IReadOnlyList<InstalledLocalModel> installed =
             await _installer.ListInstalledAsync(cancellationToken).ConfigureAwait(false);
         return installed.Any(m => string.Equals(m.ModelId, runtimeId, StringComparison.Ordinal));
+    }
+
+    private bool IsEmbeddingModel(string modelId)
+    {
+        if (string.Equals(modelId, "multilingual-e5-small", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(modelId, "intfloat/multilingual-e5-small", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(modelId, _catalog.EmbeddingModel?.Id, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(modelId, _catalog.EmbeddingModel?.ModelId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        ModelDescriptorDto? descriptor = _catalog.GetById(modelId);
+        return descriptor is not null &&
+            (descriptor.RecommendedFor == ModelTaskCategory.EmbeddingTier1 ||
+             string.Equals(descriptor.Provider, "ONNX", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(descriptor.Runtime, "ONNX", StringComparison.OrdinalIgnoreCase));
     }
 }
 

@@ -12,9 +12,11 @@ namespace CyberPipe.Router;
 /// </summary>
 public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
 {
-    private readonly InferenceSession? _session;
+    private readonly string? _configuredModelPath;
     private readonly ILogger? _logger;
-    private readonly bool _ownsSession;
+    private readonly object _initLock = new();
+    private InferenceSession? _session;
+    private bool _ownsSession;
     private bool _disposed;
 
     public OnnxEmbeddingProvider(
@@ -22,9 +24,12 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
         ILogger? logger = null)
     {
         _logger = logger;
-        if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
+        _configuredModelPath = modelPath;
+
+        string? resolvedPath = ResolveModelPath(modelPath);
+        if (resolvedPath is null)
         {
-            _logger?.LogWarning("ONNX embedding model file not found at path: '{ModelPath}'", modelPath);
+            _logger?.LogWarning("ONNX embedding model file not found at path: '{ModelPath}' or default locations.", modelPath);
             _session = null;
             _ownsSession = false;
             return;
@@ -36,13 +41,13 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
             {
                 GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
             };
-            _session = new InferenceSession(modelPath, sessionOptions);
+            _session = new InferenceSession(resolvedPath, sessionOptions);
             _ownsSession = true;
-            _logger?.LogInformation("Loaded ONNX embedding model from '{ModelPath}'", modelPath);
+            _logger?.LogInformation("Loaded ONNX embedding model from '{ModelPath}'", resolvedPath);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Failed to initialize ONNX session from '{ModelPath}'", modelPath);
+            _logger?.LogError(ex, "Failed to initialize ONNX session from '{ModelPath}'", resolvedPath);
             _session = null;
             _ownsSession = false;
         }
@@ -57,16 +62,87 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
         _ownsSession = false;
     }
 
-    public bool IsModelLoaded => _session is not null;
+    public bool IsModelLoaded
+    {
+        get
+        {
+            EnsureSessionInitialized();
+            return _session is not null;
+        }
+    }
+
+    public static string? ResolveModelPath(string? configuredPath)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredPath) && File.Exists(configuredPath))
+        {
+            return configuredPath;
+        }
+
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string[] candidates =
+        [
+            Path.Combine(localAppData, "CyberPipe", "embeddings", "multilingual-e5-small", "model.onnx"),
+            Path.Combine(AppContext.BaseDirectory, "models", "multilingual-e5-small", "model.onnx"),
+            Path.Combine(AppContext.BaseDirectory, "models", "model.onnx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "models", "multilingual-e5-small", "model.onnx"),
+            Path.Combine(Directory.GetCurrentDirectory(), "models", "model.onnx"),
+        ];
+
+        foreach (string candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private void EnsureSessionInitialized()
+    {
+        if (_session is not null)
+        {
+            return;
+        }
+
+        lock (_initLock)
+        {
+            if (_session is not null)
+            {
+                return;
+            }
+
+            string? resolvedPath = ResolveModelPath(_configuredModelPath);
+            if (resolvedPath is not null)
+            {
+                try
+                {
+                    var sessionOptions = new SessionOptions
+                    {
+                        GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
+                    };
+                    _session = new InferenceSession(resolvedPath, sessionOptions);
+                    _ownsSession = true;
+                    _logger?.LogInformation("Loaded ONNX embedding model from '{ModelPath}'", resolvedPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Failed to lazy-initialize ONNX session from '{ModelPath}'", resolvedPath);
+                }
+            }
+        }
+    }
 
     public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        EnsureSessionInitialized();
         if (_session is null)
         {
             throw new InvalidOperationException(
-                "ONNX embedding model is not loaded or model file was not found.");
+                "ONNX embedding model is not loaded. Please install the multilingual-e5-small embedding model via the Models tab or setup wizard.");
         }
 
         cancellationToken.ThrowIfCancellationRequested();
