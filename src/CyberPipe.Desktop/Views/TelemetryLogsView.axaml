@@ -1,0 +1,310 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+             xmlns:services="using:CyberPipe.Desktop.Services"
+             x:Class="CyberPipe.Desktop.Views.TelemetryLogsView">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="12">
+    <!-- Top Bar: Filters & Toolbar -->
+    <Border Grid.Row="0"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            CornerRadius="8"
+            Padding="12"
+            Margin="0,0,0,10">
+      <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+        <!-- Controls row 1: Filters -->
+        <WrapPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
+          <!-- Process Filter -->
+          <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,14,0" VerticalAlignment="Center">
+            <TextBlock Text="Процесс:" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <ComboBox ItemsSource="{Binding ProcessFilters}"
+                      SelectedItem="{Binding SelectedProcessFilter, Mode=TwoWay}"
+                      Width="135"
+                      FontSize="12" />
+          </StackPanel>
+
+          <!-- Level Filter -->
+          <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,14,0" VerticalAlignment="Center">
+            <TextBlock Text="Уровень:" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold" />
+            <ComboBox ItemsSource="{Binding LevelFilters}"
+                      SelectedItem="{Binding SelectedLevelFilter, Mode=TwoWay}"
+                      Width="130"
+                      FontSize="12" />
+          </StackPanel>
+
+          <!-- OpenTelemetry Only Checkbox -->
+          <CheckBox IsChecked="{Binding OpenTelemetryOnly, Mode=TwoWay}"
+                    Content="Только OpenTelemetry (с трейсами)"
+                    Margin="0,0,14,0"
+                    VerticalAlignment="Center"
+                    FontSize="12"
+                    FontWeight="SemiBold" />
+
+          <!-- Search Box -->
+          <TextBox Text="{Binding SearchText, Mode=TwoWay}"
+                   PlaceholderText="Поиск в логах (сообщение, trace ID, context)..."
+                   Width="240"
+                   FontSize="12"
+                   VerticalAlignment="Center"
+                   Margin="0,0,14,0" />
+
+          <!-- Active Trace Filter Pill -->
+          <Border Background="{DynamicResource SystemAccentColor}"
+                  CornerRadius="4"
+                  Padding="8,2"
+                  Margin="0,0,10,0"
+                  VerticalAlignment="Center"
+                  IsVisible="{Binding HasActiveTraceFilter}">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Text="{Binding ActiveTraceIdFilter, StringFormat='Трейс: {0}'}"
+                         FontSize="11"
+                         Foreground="White"
+                         FontFamily="Consolas,Menlo,monospace"
+                         VerticalAlignment="Center" />
+              <Button Content="✕"
+                      Command="{Binding ClearTraceFilterCommand}"
+                      Padding="4,0"
+                      FontSize="11"
+                      Background="Transparent"
+                      BorderThickness="0"
+                      Foreground="White"
+                      ToolTip.Tip="Сбросить фильтр по трейсу" />
+            </StackPanel>
+          </Border>
+        </WrapPanel>
+
+        <!-- Controls row 2: Action Buttons -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Content="Обновить"
+                    Command="{Binding RefreshCommand}"
+                    Classes="accent"
+                    FontSize="12"
+                    Padding="12,4" />
+
+            <ToggleButton IsChecked="{Binding IsLiveAutoRefresh, Mode=TwoWay}"
+                          Content="Автообновление (Live)"
+                          FontSize="12"
+                          Padding="10,4" />
+
+            <Button Content="Очистить вид"
+                    Command="{Binding ClearCommand}"
+                    FontSize="12"
+                    Padding="10,4" />
+
+            <Button Content="Открыть папку логов"
+                    Command="{Binding OpenFolderCommand}"
+                    FontSize="12"
+                    Padding="10,4"
+                    ToolTip.Tip="{Binding LogDirectoryPath}" />
+          </StackPanel>
+
+          <Button Grid.Column="1"
+                  Content="⧉ Открыть в отдельном окне"
+                  Command="{Binding OpenInSeparateWindowCommand}"
+                  FontSize="12"
+                  Padding="10,4"
+                  ToolTip.Tip="Открыть форму логов в независимом отдельном окне" />
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- Center: Split List & Details -->
+    <Grid Grid.Row="1" RowDefinitions="*,Auto,240">
+      <!-- Logs List -->
+      <Border Grid.Row="0"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="6">
+        <ListBox ItemsSource="{Binding FilteredEntries}"
+                 SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="services:OpenTelemetryLogEntry">
+              <Border Margin="0,2"
+                      Padding="8,6"
+                      CornerRadius="6"
+                      Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                <StackPanel Spacing="3">
+                  <!-- Row 1: Badges -->
+                  <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Timestamp -->
+                    <TextBlock Text="{Binding FormattedTimestamp}"
+                               FontFamily="Consolas,Menlo,monospace"
+                               FontSize="11"
+                               Opacity="0.75"
+                               Margin="0,0,8,0"
+                               VerticalAlignment="Center" />
+
+                    <!-- Level Badge -->
+                    <Border Background="{Binding LevelColor}"
+                            CornerRadius="3"
+                            Padding="5,1"
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Level}"
+                                 Foreground="White"
+                                 FontSize="10"
+                                 FontWeight="Bold" />
+                    </Border>
+
+                    <!-- Process Badge -->
+                    <Border Background="{Binding ProcessColor}"
+                            CornerRadius="3"
+                            Padding="6,1"
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center">
+                      <TextBlock Text="{Binding ProcessName}"
+                                 Foreground="White"
+                                 FontSize="10"
+                                 FontWeight="SemiBold" />
+                    </Border>
+
+                    <!-- OpenTelemetry Trace Badge (if present) -->
+                    <Border Background="#263238"
+                            BorderBrush="#00BCD4"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Padding="5,1"
+                            Margin="0,0,8,0"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding HasTrace}">
+                      <TextBlock Text="{Binding ShortTraceId, StringFormat='OTel: {0}'}"
+                                 Foreground="#80D8FF"
+                                 FontSize="10"
+                                 FontFamily="Consolas,Menlo,monospace"
+                                 FontWeight="SemiBold" />
+                    </Border>
+
+                    <!-- Source Context -->
+                    <TextBlock Text="{Binding SourceContext}"
+                               FontSize="11"
+                               Opacity="0.5"
+                               VerticalAlignment="Center" />
+                  </WrapPanel>
+
+                  <!-- Row 2: Message -->
+                  <TextBlock Text="{Binding Message}"
+                             TextWrapping="Wrap"
+                             FontSize="12"
+                             Margin="2,2,0,0" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Border>
+
+      <!-- Splitter / Separator -->
+      <GridSplitter Grid.Row="1" Height="6" Background="Transparent" ResizeDirection="Rows" />
+
+      <!-- Log Details Pane -->
+      <Border Grid.Row="2"
+              Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+              CornerRadius="8"
+              Padding="12"
+              Margin="0,4,0,0">
+        <Grid RowDefinitions="Auto,*" IsVisible="{Binding SelectedEntry, Converter={x:Null}}">
+          <!-- Details Header -->
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <TextBlock Text="Детали записи:" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" />
+
+              <Border Background="{Binding SelectedEntry.ProcessColor}"
+                      CornerRadius="3" Padding="6,1" VerticalAlignment="Center">
+                <TextBlock Text="{Binding SelectedEntry.ProcessName}" Foreground="White" FontSize="11" FontWeight="SemiBold" />
+              </Border>
+
+              <TextBlock Text="{Binding SelectedEntry.FormattedTimestamp, StringFormat='Время: {0}'}"
+                         FontSize="11" Opacity="0.8" VerticalAlignment="Center" />
+
+              <!-- OpenTelemetry Trace Info -->
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                          IsVisible="{Binding SelectedEntry.HasTrace}">
+                <TextBlock Text="TraceId:" FontWeight="SemiBold" FontSize="11" Foreground="#00BCD4" VerticalAlignment="Center" />
+                <SelectableTextBlock Text="{Binding SelectedEntry.TraceId}"
+                                     FontFamily="Consolas,Menlo,monospace"
+                                     FontSize="11"
+                                     VerticalAlignment="Center" />
+                <Button Content="Копировать TraceId"
+                        Command="{Binding CopyTraceIdCommand}"
+                        FontSize="10"
+                        Padding="6,1"
+                        VerticalAlignment="Center" />
+                <Button Content="Фильтровать по трейсу"
+                        Command="{Binding FilterByTraceCommand}"
+                        Classes="accent"
+                        FontSize="10"
+                        Padding="6,1"
+                        VerticalAlignment="Center" />
+              </StackPanel>
+            </StackPanel>
+
+            <Button Grid.Column="1"
+                    Content="Копировать JSON"
+                    Command="{Binding CopySelectedJsonCommand}"
+                    FontSize="11"
+                    Padding="8,2" />
+          </Grid>
+
+          <!-- Details Body -->
+          <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="6">
+              <!-- Message Text -->
+              <SelectableTextBlock Text="{Binding SelectedEntry.Message}"
+                                   TextWrapping="Wrap"
+                                   FontSize="12" />
+
+              <!-- SpanId if present -->
+              <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SelectedEntry.SpanId, Converter={x:Null}}">
+                <TextBlock Text="SpanId:" FontWeight="SemiBold" FontSize="11" Opacity="0.7" />
+                <SelectableTextBlock Text="{Binding SelectedEntry.SpanId}" FontFamily="Consolas,Menlo,monospace" FontSize="11" />
+              </StackPanel>
+
+              <!-- SourceContext -->
+              <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding SelectedEntry.SourceContext, Converter={x:Null}}">
+                <TextBlock Text="Источник:" FontWeight="SemiBold" FontSize="11" Opacity="0.7" />
+                <SelectableTextBlock Text="{Binding SelectedEntry.SourceContext}" FontSize="11" />
+              </StackPanel>
+
+              <!-- Exception (if present) -->
+              <Border Background="#2B0B0B"
+                      BorderBrush="#E53935"
+                      BorderThickness="1"
+                      CornerRadius="4"
+                      Padding="8"
+                      Margin="0,4,0,0"
+                      IsVisible="{Binding SelectedEntry.HasException}">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="Исключение / StackTrace:" FontWeight="Bold" Foreground="#FF8A80" FontSize="11" />
+                  <SelectableTextBlock Text="{Binding SelectedEntry.Exception}"
+                                       FontFamily="Consolas,Menlo,monospace"
+                                       FontSize="11"
+                                       Foreground="#FFCDD2"
+                                       TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+
+              <!-- Raw JSON view -->
+              <Expander Header="Сырой JSON лога" IsExpanded="False" Margin="0,4,0,0">
+                <SelectableTextBlock Text="{Binding SelectedEntry.RawJson}"
+                                     FontFamily="Consolas,Menlo,monospace"
+                                     FontSize="10"
+                                     TextWrapping="Wrap"
+                                     Opacity="0.85" />
+              </Expander>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- Bottom Status Bar -->
+    <Border Grid.Row="2" Margin="0,8,0,0">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Grid.Column="0" Text="{Binding StatusText}" FontSize="11" Opacity="0.8" />
+        <TextBlock Grid.Column="1" Text="{Binding LogDirectoryPath, StringFormat='Каталог: {0}'}" FontSize="11" Opacity="0.5" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

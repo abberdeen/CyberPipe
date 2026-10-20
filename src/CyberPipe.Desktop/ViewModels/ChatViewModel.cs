@@ -12,6 +12,7 @@ public sealed class ChatViewModel : ViewModelBase
     private readonly ITokenBudgetGovernor? _budgetGovernor;
     private readonly IDesktopNotificationService? _notifications;
     private readonly LocalizationManager _localization;
+    private readonly IClipboardService _clipboard;
 
     private string _inputText = string.Empty;
     private string? _selectedAttachmentPath;
@@ -25,12 +26,14 @@ public sealed class ChatViewModel : ViewModelBase
         IIntentRouter router,
         ITokenBudgetGovernor? budgetGovernor = null,
         IDesktopNotificationService? notifications = null,
-        LocalizationManager? localization = null)
+        LocalizationManager? localization = null,
+        IClipboardService? clipboard = null)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         _budgetGovernor = budgetGovernor;
         _notifications = notifications;
         _localization = localization ?? LocalizationManager.Instance;
+        _clipboard = clipboard ?? AvaloniaClipboardService.Default;
 
         SendCommand = new AsyncRelayCommand(SendMessageAsync, () => !IsProcessing && !string.IsNullOrWhiteSpace(InputText));
         AbortCommand = new RelayCommand(AbortCurrentTask, () => IsProcessing);
@@ -108,7 +111,7 @@ public sealed class ChatViewModel : ViewModelBase
         InputText = string.Empty;
         SelectedAttachmentPath = null;
 
-        Messages.Add(new ChatMessageViewModel
+        Messages.Add(new ChatMessageViewModel(_clipboard)
         {
             IsUser = true,
             Sender = "Owner",
@@ -149,7 +152,7 @@ public sealed class ChatViewModel : ViewModelBase
                 _ => $"[Error: {result.Reason ?? "Routing failed"}]",
             };
 
-            Messages.Add(new ChatMessageViewModel
+            Messages.Add(new ChatMessageViewModel(_clipboard)
             {
                 IsUser = false,
                 Sender = "CyberPipe",
@@ -165,7 +168,7 @@ public sealed class ChatViewModel : ViewModelBase
         catch (OperationCanceledException)
         {
             StatusMessage = _localization["Chat.TaskAborted"];
-            Messages.Add(new ChatMessageViewModel
+            Messages.Add(new ChatMessageViewModel(_clipboard)
             {
                 IsUser = false,
                 Sender = "System",
@@ -176,7 +179,7 @@ public sealed class ChatViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = ex.Message;
-            Messages.Add(new ChatMessageViewModel
+            Messages.Add(new ChatMessageViewModel(_clipboard)
             {
                 IsUser = false,
                 Sender = "System",

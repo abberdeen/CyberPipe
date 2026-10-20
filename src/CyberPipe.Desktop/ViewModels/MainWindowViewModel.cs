@@ -21,7 +21,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         IThemeService? themeService = null,
         LocalizationManager? localization = null,
         bool isFirstRun = false,
-        HostSkillsTestViewModel? hostSkills = null)
+        HostSkillsTestViewModel? hostSkills = null,
+        TelemetryLogsViewModel? logs = null)
     {
         Chat = chat ?? throw new ArgumentNullException(nameof(chat));
         Chains = chains ?? throw new ArgumentNullException(nameof(chains));
@@ -35,6 +36,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         Localization = localization ?? LocalizationManager.Instance;
         _isFirstRun = isFirstRun;
 
+        Logs = logs ?? new TelemetryLogsViewModel(notifications: Notifications);
+        Logs.OpenInSeparateWindowRequested = () => OpenLogsWindowRequested?.Invoke();
+
+        OpenLogsWindowCommand = new RelayCommand(() => OpenLogsWindowRequested?.Invoke());
         ToggleThemeCommand = new RelayCommand(() => ThemeService.ToggleTheme());
         SwitchLanguageCommand = new RelayCommand(param =>
         {
@@ -59,9 +64,12 @@ public sealed class MainWindowViewModel : ViewModelBase
     public SchedulesViewModel Schedules { get; }
     public ModelsViewModel Models { get; }
     public HostSkillsTestViewModel HostSkills { get; }
+    public TelemetryLogsViewModel Logs { get; }
     public IDesktopNotificationService Notifications { get; }
     public IThemeService ThemeService { get; }
     public LocalizationManager Localization { get; }
+
+    public Action? OpenLogsWindowRequested { get; set; }
 
     public int SelectedTabIndex
     {
@@ -83,6 +91,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public RelayCommand ToggleThemeCommand { get; }
     public RelayCommand SwitchLanguageCommand { get; }
+    public RelayCommand OpenLogsWindowCommand { get; }
     public RelayCommand LaunchSetupWizardCommand { get; }
     public RelayCommand DismissSetupBannerCommand { get; }
 

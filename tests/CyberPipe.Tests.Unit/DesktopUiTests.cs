@@ -80,6 +80,71 @@ public sealed class DesktopUiTests
     }
 
     [Fact]
+    public async Task Chat_Message_CopyCommand_CopiesTextToClipboard()
+    {
+        // Arrange
+        var fakeClipboard = new TestFakeClipboardService();
+        var fakeRouter = new TestFakeRouter(replyIntent: "Echo: test response");
+        var chatVm = new ChatViewModel(fakeRouter, clipboard: fakeClipboard);
+
+        chatVm.InputText = "test request";
+        await chatVm.SendMessageAsync();
+
+        Assert.Equal(2, chatVm.Messages.Count);
+        ChatMessageViewModel userMsg = chatVm.Messages[0];
+        ChatMessageViewModel botMsg = chatVm.Messages[1];
+
+        // Act: copy user message
+        await userMsg.CopyCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal("test request", fakeClipboard.LastCopiedText);
+        Assert.True(userMsg.IsCopied);
+        Assert.Equal("Copied!", userMsg.CopyButtonText);
+
+        // Act: copy bot message
+        await botMsg.CopyCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal("Echo: test response", fakeClipboard.LastCopiedText);
+        Assert.True(botMsg.IsCopied);
+        Assert.Equal("Copied!", botMsg.CopyButtonText);
+    }
+
+    [Fact]
+    public async Task Chat_Message_CopyCommand_WithEmptyText_DoesNotCopy()
+    {
+        // Arrange
+        var fakeClipboard = new TestFakeClipboardService();
+        var msg = new ChatMessageViewModel(fakeClipboard)
+        {
+            IsUser = true,
+            Sender = "User",
+            Text = "",
+        };
+
+        // Act
+        await msg.CopyCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal(0, fakeClipboard.CopyCount);
+        Assert.False(msg.IsCopied);
+    }
+
+    private sealed class TestFakeClipboardService : IClipboardService
+    {
+        public string? LastCopiedText { get; private set; }
+        public int CopyCount { get; private set; }
+
+        public Task SetTextAsync(string? text)
+        {
+            LastCopiedText = text;
+            CopyCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public async Task ServicePanel_StartStopRestart_CallsServiceControl_AndUpdatesStatus()
     {
         // Arrange
