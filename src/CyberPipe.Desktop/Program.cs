@@ -49,6 +49,7 @@ internal static class Program
                 LogFailure(exception, "Unhandled Desktop exception");
             }
         };
+        
         TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
         {
             LogFailure(eventArgs.Exception, "Unobserved Desktop task exception");
