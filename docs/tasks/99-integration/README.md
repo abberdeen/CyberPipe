@@ -26,7 +26,7 @@
 | TASK-091 | [TASK-091-e2e-telegram-scenario.md](TASK-091-e2e-telegram-scenario.md) | Сквозной сценарий Telegram: сообщение Owner → маршрутизация → HITL → ответ | Done |
 | TASK-092 | [TASK-092-e2e-chain-scenario.md](TASK-092-e2e-chain-scenario.md) | Сквозной сценарий цепочки на всех четырёх триггерах с чекпоинтами и рестартом | Done |
 | TASK-093 | [TASK-093-full-build-release-gates.md](TASK-093-full-build-release-gates.md) | Полная сборка, публикация и ворота выпуска с манифестом артефактов | In Progress |
-| TASK-094 | [TASK-094-opentelemetry-signoz.md](TASK-094-opentelemetry-signoz.md) | Сквозная наблюдаемость: трейсы, метрики и логи по OTLP в локальный SigNoz | Done |
+| TASK-094 | [TASK-094-opentelemetry-signoz.md](TASK-094-opentelemetry-signoz.md) | Сквозная наблюдаемость по OTLP; локальный приёмник заменён на Grafana LGTM (`eng/grafana`) | Done |
 
 Статусы по правилу глобального индекса: `In Progress` — TASK-093 в работе (автоматика G1–G6 зелёная, выпуск ждёт чинки CLI service-control и ручного чек-листа); `Ready`/`Planned` свободных задач сейчас нет.
 

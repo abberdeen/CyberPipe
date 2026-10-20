@@ -8,9 +8,7 @@ PostgreSQL+pgvector, CyberPipe.Service и CyberPipe.Desktop с едиными
 
 ## Предусловия
 
-- Docker (контейнер PostgreSQL).
-- Поднятый SigNoz: `docker compose -f eng/signoz/docker-compose.yml up -d`
-  (AppHost сам стек SigNoz не поднимает, только указывает экспортёры на его OTLP).
+- Docker (контейнеры PostgreSQL и Grafana). AppHost поднимает их сам.
 - Пароль БД контура (`cyberpipe` / `cyberpipe-dev-pw` на `localhost:5434`)
   один раз сохраняется в платформенное хранилище секретов обычным
   интерактивным запуском до первого старта через Aspire:
@@ -37,13 +35,13 @@ dotnet run --project src/CyberPipe.AppHost
 Порт PostgreSQL контура — `localhost:5434` (не пересекается с продом `:5432`
 и тестовой `cyberpipe-test-db` на `:5433`); том `cyberpipe-aspire-pgdata`
 переживает перезапуски. Телеметрия процессов включена в `aspire`-окружение
-и летит в локальный SigNoz (OTLP/HTTP `:4318`, UI `:8080`).
+и летит в локальный Grafana LGTM (OTLP/HTTP `:4318`, UI `:3000`, вход `admin`/`admin`).
 
 ## Что не входит и почему
 
 - CLI — разовый инструмент, а не долгоживущий процесс.
 - Brainstem-воркер — требует `--pipe` супервизора, сам не стартует.
-- SigNoz — внешний стек из `eng/signoz/`, поднимается своим compose-файлом.
+- Отдельный compose Grafana нужен только без AppHost: `eng/grafana/docker-compose.yml`. Не поднимайте его вместе с AppHost: порты `3000`/`4317`/`4318` общие.
 - ServiceDefaults-проект отсутствует осознанно: логирование, OTLP и health
   уже централизованы в `CyberPipe.Logging`, а ссылка Service на новый проект
   нарушила бы контракт `ServiceComposition_MayReferenceFeatureProjectsOnly`.

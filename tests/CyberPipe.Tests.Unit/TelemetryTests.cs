@@ -113,6 +113,8 @@ public sealed class TelemetryTests
     [InlineData("http://localhost:4318", true, "v1/metrics", "http://localhost:4318/v1/metrics")]
     [InlineData("http://localhost:4318/", true, "v1/traces", "http://localhost:4318/v1/traces")]
     [InlineData("http://localhost:4318/v1/traces", true, "v1/traces", "http://localhost:4318/v1/traces")]
+    [InlineData("https://otlp-gateway-prod-eu-west-2.grafana.net/otlp", true, "v1/traces", "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp/v1/traces")]
+    [InlineData("https://otlp-gateway-prod-eu-west-2.grafana.net/otlp", true, "v1/metrics", "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp/v1/metrics")]
     public void ResolveEndpoint_MapsSignalPath(
         string configured, bool http, string signal, string expected)
     {

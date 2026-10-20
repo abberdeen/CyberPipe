@@ -407,9 +407,9 @@ public sealed record TelemetryOptions
     public bool Enabled { get; init; }
 
     /// <summary>
-    /// Базовый адрес OTLP-приёмника без пути сигнала (SigNoz: :4317 бинарный OTLP
-    /// или :4318 OTLP/HTTP). Путь сигнала (/v1/traces, /v1/metrics, /v1/logs) добавляет
-    /// код экспорта; явно заданный путь сохраняется как есть.
+    /// Базовый адрес OTLP-приёмника. Локальный Grafana LGTM: :4317 бинарный OTLP
+    /// или :4318 OTLP/HTTP. Grafana Cloud: шлюз вида https://otlp-gateway-….grafana.net/otlp.
+    /// Путь сигнала (/v1/traces, /v1/metrics) добавляет код экспорта; уже заданный путь сигнала сохраняется.
     /// </summary>
     public string OtlpEndpoint { get; init; } = "http://localhost:4317";
 
@@ -418,6 +418,12 @@ public sealed record TelemetryOptions
     /// (порт 4318 приёмника; эндпоинт тогда должен указывать на :4318).
     /// </summary>
     public bool OtlpHttp { get; init; }
+
+    /// <summary>
+    /// Необязательные заголовки OTLP в формате "key=value,key2=value2".
+    /// Для Grafana Cloud: "Authorization=Basic &lt;base64-токен&gt;". Пусто — заголовки не отправляются.
+    /// </summary>
+    public string? OtlpHeaders { get; init; }
 
     /// <summary>Окружение для resource-атрибута deployment.environment.</summary>
     public string Environment { get; init; } = "local";

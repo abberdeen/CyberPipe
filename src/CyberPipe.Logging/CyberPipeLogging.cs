@@ -84,6 +84,20 @@ public static class CyberPipeLogging
                     == OpenTelemetry.Exporter.OtlpExportProtocol.HttpProtobuf
                     ? Serilog.Sinks.OpenTelemetry.OtlpProtocol.HttpProtobuf
                     : Serilog.Sinks.OpenTelemetry.OtlpProtocol.Grpc;
+                if (!string.IsNullOrWhiteSpace(options.Telemetry.OtlpHeaders))
+                {
+                    foreach (string part in options.Telemetry.OtlpHeaders.Split(
+                                 ',',
+                                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        int eq = part.IndexOf('=');
+                        if (eq > 0)
+                        {
+                            sinkOptions.Headers[part[..eq].Trim()] = part[(eq + 1)..].Trim();
+                        }
+                    }
+                }
+
                 sinkOptions.ResourceAttributes = new Dictionary<string, object>
                 {
                     ["service.name"] = processName,

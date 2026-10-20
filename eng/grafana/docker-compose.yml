@@ -1,0 +1,16 @@
+# Локальный Grafana LGTM для CyberPipe: один образ вместо стека SigNoz.
+# UI :3000, OTLP/gRPC :4317, OTLP/HTTP :4318. Не поднимать вместе с AppHost.
+services:
+  grafana:
+    image: grafana/otel-lgtm:0.37.0
+    container_name: cyberpipe-grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - cyberpipe-grafana-lgtm:/data
+
+volumes:
+  cyberpipe-grafana-lgtm:
+    name: cyberpipe-grafana-lgtm

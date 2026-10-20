@@ -49,12 +49,32 @@ internal static class TelemetryConfiguration
     internal static Uri ResolveEndpoint(TelemetryOptions options, string signalPath)
     {
         var baseUri = new Uri(options.OtlpEndpoint);
-        if (!options.OtlpHttp || baseUri.AbsolutePath != "/")
+        if (!options.OtlpHttp)
         {
             return baseUri;
         }
 
-        return new Uri(baseUri, signalPath);
+        string signal = signalPath.Trim('/');
+        string path = baseUri.AbsolutePath.TrimEnd('/');
+        if (path.EndsWith("/" + signal, StringComparison.OrdinalIgnoreCase))
+        {
+            return baseUri;
+        }
+
+        return new UriBuilder(baseUri)
+        {
+            Path = string.IsNullOrEmpty(path) ? signal : path + "/" + signal,
+        }.Uri;
+    }
+
+    internal static void ApplyExporter(OtlpExporterOptions exporter, TelemetryOptions options, string signalPath)
+    {
+        exporter.Endpoint = ResolveEndpoint(options, signalPath);
+        exporter.Protocol = MapProtocol(options);
+        if (!string.IsNullOrWhiteSpace(options.OtlpHeaders))
+        {
+            exporter.Headers = options.OtlpHeaders;
+        }
     }
 
     internal static Sampler CreateSampler(TelemetryOptions options) =>
@@ -64,28 +84,16 @@ internal static class TelemetryConfiguration
 
     internal static void ConfigureTracing(TracerProviderBuilder builder, TelemetryOptions options)
     {
-        Uri endpoint = ResolveEndpoint(options, "v1/traces");
-        OtlpExportProtocol protocol = MapProtocol(options);
         builder
             .AddSource("CyberPipe.*")
             .SetSampler(CreateSampler(options))
-            .AddOtlpExporter(o =>
-            {
-                o.Endpoint = endpoint;
-                o.Protocol = protocol;
-            });
+            .AddOtlpExporter(o => ApplyExporter(o, options, "v1/traces"));
     }
 
     internal static void ConfigureMetrics(MeterProviderBuilder builder, TelemetryOptions options)
     {
-        Uri endpoint = ResolveEndpoint(options, "v1/metrics");
-        OtlpExportProtocol protocol = MapProtocol(options);
         builder
             .AddMeter(ChainsMeterName)
-            .AddOtlpExporter(o =>
-            {
-                o.Endpoint = endpoint;
-                o.Protocol = protocol;
-            });
+            .AddOtlpExporter(o => ApplyExporter(o, options, "v1/metrics"));
     }
 }
