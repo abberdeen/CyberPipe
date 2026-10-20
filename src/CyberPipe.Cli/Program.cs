@@ -25,9 +25,20 @@ ILogger logger = loggerFactory.CreateLogger("CyberPipe.Cli");
 
 using IDisposable? telemetry = TelemetryProviders.Start(options.Telemetry, "CyberPipe.Cli");
 
+// Боевое управление службой: тот же Named Pipe + SCM канал, что у Desktop (TASK-021).
+// Router/Chain/Hitl требуют расширения pipe-протокола службы — пока честно остаются null
+// и команды отвечают ServiceUnavailable, а не фейковым успехом (FIX-01, docs FIX-TRACKER).
+CyberPipe.Contracts.IServiceControlChannel pipeChannel =
+    new CyberPipe.ServiceControl.ServiceControlPipeClient(options.Hosting.PipeName);
+CyberPipe.Contracts.IServiceControl? serviceControl = OperatingSystem.IsWindows()
+    ? new CyberPipe.ServiceControl.ServiceControllerManager(
+        pipeChannel, new CyberPipe.ServiceControl.WindowsScmManager(), options, logger)
+    : null;
+
 var ctx = new CliContext
 {
     Options = options,
+    ServiceControl = serviceControl,
 };
 
 logger.LogInformation("CyberPipe CLI invoking command with {Count} args", args.Length);

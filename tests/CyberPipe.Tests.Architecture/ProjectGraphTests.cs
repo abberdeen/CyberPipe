@@ -106,6 +106,7 @@ public sealed class ProjectGraphTests
         [
             "CyberPipe.Contracts",
             "CyberPipe.Logging",
+            "CyberPipe.Brainstem.Supervisor",
             "CyberPipe.Chains",
             "CyberPipe.Channels.Telegram",
             "CyberPipe.Data",

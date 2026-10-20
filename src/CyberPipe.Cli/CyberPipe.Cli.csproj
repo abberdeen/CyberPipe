@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\CyberPipe.Contracts\CyberPipe.Contracts.csproj" />
     <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
+    <ProjectReference Include="..\CyberPipe.ServiceControl\CyberPipe.ServiceControl.csproj" />
   </ItemGroup>
 </Project>

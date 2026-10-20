@@ -42,6 +42,28 @@ public sealed class SemanticCacheTests
     }
 
     [Fact]
+    public async Task SemanticCache_ExceedingMaxEntries_EvictsOldest()
+    {
+        var store = new InMemoryEmbeddingStore();
+        var options = new CyberPipeOptions { Router = new RouterOptions { SemanticCacheMaxEntries = 2 } };
+        var cache = new SemanticCache(store, options);
+
+        for (int i = 0; i < 3; i++)
+        {
+            await cache.PutAsync([1.0f, 0.0f, 0.0f], new RouteResult
+            {
+                Status = RouteStatus.Matched,
+                Tier = IntentTier.Tier1,
+                Intent = $"intent.{i}",
+                Confidence = 0.95
+            });
+        }
+
+        CacheStatsDto stats = await cache.GetStatsAsync();
+        Assert.Equal(2, stats.EntryCount);
+    }
+
+    [Fact]
     public async Task SemanticCache_QueryBelowThreshold_ReturnsNullMiss()
     {
         var store = new InMemoryEmbeddingStore();
@@ -305,6 +327,15 @@ public sealed class SemanticCacheTests
         {
             long count = Records.Count(r => r.Namespace == @namespace);
             return Task.FromResult(count);
+        }
+
+        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
+        {
+            var ordered = Records.Where(r => r.Namespace == @namespace)
+                .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
+            int excess = Math.Max(ordered.Count - keepCount, 0);
+            foreach (EmbeddingRecord old in ordered.Take(excess)) Records.Remove(old);
+            return Task.FromResult(excess);
         }
 
         private static double Cosine(IReadOnlyList<float> a, IReadOnlyList<float> b)

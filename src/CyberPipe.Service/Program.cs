@@ -85,7 +85,21 @@ public static class Program
                         },
                         restartCallback: () =>
                         {
+                            // Реальный рестарт, а не повторный stop: в режиме службы выходим
+                            // с ненулевым кодом — SCM recovery (install-service.ps1: failure
+                            // actions=restart/5000) поднимет службу заново. В консоли
+                            // перезапуск процесса невозможен без супервизора — честно
+                            // останавливаемся и пишем, что нужен `service restart` снаружи.
+                            logger.LogWarning("Restart requested via control pipe. Mode: {Mode}", isConsole ? "Console" : "WindowsService");
                             lifetime.StopApplication();
+                            if (!isConsole && OperatingSystem.IsWindows())
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    await Task.Delay(1000).ConfigureAwait(false);
+                                    Environment.Exit(1);
+                                });
+                            }
                             return Task.CompletedTask;
                         },
                         logger: serverLogger);

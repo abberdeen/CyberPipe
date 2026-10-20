@@ -179,15 +179,16 @@ public sealed class SemanticCache : ISemanticCache
 
             await _store.UpsertAsync(record, cancellationToken);
 
-            // 4. Volume limit enforcement (evict oldest if exceeding SemanticCacheMaxEntries)
+            // 4. Volume limit enforcement: реально вытесняем самые старые записи сверх лимита.
             if (_options.Router.SemanticCacheMaxEntries > 0)
             {
                 long currentCount = await _store.CountAsync(EmbeddingNamespaces.SemanticCache, cancellationToken);
                 if (currentCount > _options.Router.SemanticCacheMaxEntries)
                 {
-                    _logger?.LogDebug("Cache entry count {Count} exceeds maximum {Max}. Cleaning oldest entries.",
-                        currentCount, _options.Router.SemanticCacheMaxEntries);
-                    // Oldest entries are naturally cleaned when TTL expires or oldest can be pruned
+                    int deleted = await _store.DeleteOldestAsync(
+                        EmbeddingNamespaces.SemanticCache, _options.Router.SemanticCacheMaxEntries, cancellationToken);
+                    _logger?.LogDebug("Semantic cache evicted {Deleted} oldest entries (count {Count}, max {Max}).",
+                        deleted, currentCount, _options.Router.SemanticCacheMaxEntries);
                 }
             }
         }

@@ -192,6 +192,19 @@ public sealed class TokenBudgetGovernor : ITokenBudgetGovernor
         }
     }
 
+    // Вызывающие (Tier23) передают CostUsd=0: фактическую стоимость считаем по каталогу цен,
+    // иначе дневной кап никогда не расходуется и бюджетная защита не работает.
+    private decimal EffectiveCostUsd(TokenUsageDto usage)
+    {
+        if (usage.CostUsd != 0m || usage.HostingType != ModelHostingType.RemoteCloud)
+            return usage.CostUsd;
+        var pricing = _priceProvider?.GetModelPricing(usage.ModelId);
+        if (pricing is null)
+            return usage.CostUsd;
+        return usage.InputTokens / 1_000_000m * pricing.Value.InputPricePer1mUsd
+             + usage.OutputTokens / 1_000_000m * pricing.Value.OutputPricePer1mUsd;
+    }
+
     public async Task RecordUsageAsync(TokenUsageDto usage, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(usage);
@@ -208,14 +221,17 @@ public sealed class TokenBudgetGovernor : ITokenBudgetGovernor
                 _reservedCostTodayUsd = Math.Max(0m, _reservedCostTodayUsd - reserved);
             }
 
-            _settledCostTodayUsd += usage.CostUsd;
+            _settledCostTodayUsd += EffectiveCostUsd(usage);
         }
         finally
         {
             _lock.Release();
         }
 
-        await _store.RecordUsageAsync(usage, cancellationToken).ConfigureAwait(false);
+        TokenUsageDto effective = usage.CostUsd == 0m && EffectiveCostUsd(usage) != 0m
+            ? usage with { CostUsd = EffectiveCostUsd(usage) }
+            : usage;
+        await _store.RecordUsageAsync(effective, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<BudgetStatusDto> GetStatusAsync(CancellationToken cancellationToken = default)

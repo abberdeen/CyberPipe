@@ -488,6 +488,15 @@ public sealed class SkillsKnowledgeTests
             return Task.FromResult((long)_records.Count(r => r.Namespace == @namespace));
         }
 
+        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken ct = default)
+        {
+            var ordered = _records.Where(r => r.Namespace == @namespace)
+                .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
+            int excess = Math.Max(ordered.Count - keepCount, 0);
+            foreach (EmbeddingRecord old in ordered.Take(excess)) _records.Remove(old);
+            return Task.FromResult(excess);
+        }
+
         private static double Cosine(IReadOnlyList<float> a, IReadOnlyList<float> b)
         {
             if (a.Count != b.Count) return 0.0;

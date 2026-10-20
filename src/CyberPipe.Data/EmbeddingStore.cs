@@ -263,12 +263,15 @@ public sealed class PgVectorEmbeddingStore : IEmbeddingStore
                 await set.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            // MinScore применяется до TopK: score = 1 - distance, поэтому порог — в WHERE,
+            // а не LIMIT-then-filter (иначе результат мог содержать меньше TopK совпадений).
             const string sql = """
                 SELECT id, source_ref, embedding <=> @vector::vector AS distance, metadata
                 FROM app.embeddings
                 WHERE namespace = @namespace
                   AND dimension = @dimension
                   AND (@model_id IS NULL OR model_id = @model_id)
+                  AND (embedding <=> @vector::vector) <= @max_distance
                 ORDER BY embedding <=> @vector::vector ASC
                 LIMIT @top_k
                 """;
@@ -279,6 +282,7 @@ public sealed class PgVectorEmbeddingStore : IEmbeddingStore
             command.Parameters.Add("model_id", NpgsqlDbType.Text).Value =
                 string.IsNullOrWhiteSpace(query.ModelId) ? DBNull.Value : query.ModelId;
             command.Parameters.AddWithValue("top_k", query.TopK);
+            command.Parameters.AddWithValue("max_distance", 1.0 - query.MinScore);
 
             var matches = new List<EmbeddingMatch>();
             await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -351,6 +355,29 @@ public sealed class PgVectorEmbeddingStore : IEmbeddingStore
         command.Parameters.AddWithValue("namespace", @namespace);
         object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc />
+    public async Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(@namespace))
+            throw new ArgumentException("Namespace must not be empty.", nameof(@namespace));
+        if (keepCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(keepCount));
+        await using NpgsqlConnection connection = await _connectionFactory
+            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new NpgsqlCommand("""
+            DELETE FROM app.embeddings
+            WHERE namespace = @namespace
+              AND id IN (
+                  SELECT id FROM app.embeddings
+                  WHERE namespace = @namespace
+                  ORDER BY created_at ASC, id ASC
+                  LIMIT (SELECT GREATEST(count(*) - @keep, 0) FROM app.embeddings WHERE namespace = @namespace))
+            """, connection);
+        command.Parameters.AddWithValue("namespace", @namespace);
+        command.Parameters.AddWithValue("keep", keepCount);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal static string FormatVector(IReadOnlyList<float> vector) =>

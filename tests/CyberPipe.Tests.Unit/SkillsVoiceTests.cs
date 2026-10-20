@@ -7,6 +7,7 @@ using CyberPipe.Skills.Voice.Converters;
 using CyberPipe.Skills.Voice.Engines;
 using CyberPipe.Skills.Voice.Registry;
 using CyberPipe.Skills.Voice.Skills;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
@@ -439,6 +440,27 @@ public sealed class SkillsVoiceTests
 
         Assert.Null(message);
         Assert.Equal(TranscriptionStatus.NoSpeech, transResult.Status);
+    }
+
+    [Fact]
+    public void SkillsComposition_WithBrainstemWorker_RegistersVoiceTranscribe()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IBrainstemWorker>(new MockBrainstemWorker());
+        CyberPipe.Skills.SkillsServiceCollectionExtensions.AddCyberPipeSkills(services, new CyberPipeOptions());
+        using var provider = services.BuildServiceProvider();
+        var registry = provider.GetRequiredService<VoiceSkillRegistry>();
+        Assert.NotNull(registry.FindSkill("voice.transcribe"));
+    }
+
+    [Fact]
+    public void SkillsComposition_WithoutBrainstemWorker_VoiceRegistryEmpty()
+    {
+        var services = new ServiceCollection();
+        CyberPipe.Skills.SkillsServiceCollectionExtensions.AddCyberPipeSkills(services, new CyberPipeOptions());
+        using var provider = services.BuildServiceProvider();
+        var registry = provider.GetRequiredService<VoiceSkillRegistry>();
+        Assert.Null(registry.FindSkill("voice.transcribe"));
     }
 
     [Fact]

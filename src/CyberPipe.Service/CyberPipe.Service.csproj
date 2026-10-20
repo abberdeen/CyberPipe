@@ -16,6 +16,7 @@
     <ProjectReference Include="..\CyberPipe.Models\CyberPipe.Models.csproj" />
     <ProjectReference Include="..\CyberPipe.Setup\CyberPipe.Setup.csproj" />
     <ProjectReference Include="..\Execution\CyberPipe.Execution.Sandbox\CyberPipe.Execution.Sandbox.csproj" />
+    <ProjectReference Include="..\Execution\CyberPipe.Brainstem.Supervisor\CyberPipe.Brainstem.Supervisor.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />

@@ -29,6 +29,7 @@ public sealed class Tier23LlmRouter : IRouterTier
     private readonly CyberPipeOptions _options;
     private readonly ISemanticCache? _semanticCache;
     private readonly IEmbeddingProvider? _embeddingProvider;
+    private readonly IEgressSanitizer? _egressSanitizer;
     private readonly ILogger<Tier23LlmRouter>? _logger;
 
     public Tier23LlmRouter(
@@ -37,7 +38,8 @@ public sealed class Tier23LlmRouter : IRouterTier
         CyberPipeOptions? options = null,
         ISemanticCache? semanticCache = null,
         IEmbeddingProvider? embeddingProvider = null,
-        ILogger<Tier23LlmRouter>? logger = null)
+        ILogger<Tier23LlmRouter>? logger = null,
+        IEgressSanitizer? egressSanitizer = null)
     {
         _chatModelProvider = chatModelProvider ?? throw new ArgumentNullException(nameof(chatModelProvider));
         _budgetGovernor = budgetGovernor ?? throw new ArgumentNullException(nameof(budgetGovernor));
@@ -45,6 +47,7 @@ public sealed class Tier23LlmRouter : IRouterTier
         _semanticCache = semanticCache;
         _embeddingProvider = embeddingProvider;
         _logger = logger;
+        _egressSanitizer = egressSanitizer;
     }
 
     public IntentTier Tier => IntentTier.Tier2;

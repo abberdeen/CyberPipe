@@ -467,6 +467,15 @@ public sealed class Tier1SemanticRouterTests
             long count = Records.Count(r => r.Namespace == @namespace);
             return Task.FromResult(count);
         }
+
+        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
+        {
+            var ordered = Records.Where(r => r.Namespace == @namespace)
+                .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
+            int excess = Math.Max(ordered.Count - keepCount, 0);
+            foreach (EmbeddingRecord old in ordered.Take(excess)) Records.Remove(old);
+            return Task.FromResult(excess);
+        }
     }
 
     private sealed class CountingEmbeddingStore : InMemoryEmbeddingStore
@@ -495,6 +504,7 @@ public sealed class Tier1SemanticRouterTests
         public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default) => throw ex;
         public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default) => throw ex;
         public Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default) => throw ex;
+        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default) => throw ex;
     }
 
     private static double Cosine(IReadOnlyList<float> a, IReadOnlyList<float> b)

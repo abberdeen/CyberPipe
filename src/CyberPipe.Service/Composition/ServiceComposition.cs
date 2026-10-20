@@ -53,6 +53,19 @@ public static class ServiceComposition
                 new WindowsSandboxLauncher(
                     sp.GetService<CyberPipeOptions>() ?? options,
                     sp.GetService<ILogger<WindowsSandboxLauncher>>()));
+            // Brainstem: супервизор (библиотека, не изолированный воркер) + hosted-обёртка.
+            // Даёт IBrainstemWorker для голосового скилла (TASK-052) и живой воркер (TASK-022).
+            services.TryAddSingleton<Brainstem.Supervisor.BrainstemSupervisor>(sp =>
+                new Brainstem.Supervisor.BrainstemSupervisor(
+                    sp.GetRequiredService<ISandboxLauncher>(),
+                    sp.GetService<CyberPipeOptions>() ?? options,
+                    sp.GetService<ILogger<Brainstem.Supervisor.BrainstemSupervisor>>(),
+                    sp.GetService<IMessageBus>()));
+            services.TryAddSingleton<IBrainstemWorker>(sp => sp.GetRequiredService<Brainstem.Supervisor.BrainstemSupervisor>());
+            services.TryAddSingleton<IBrainstemSupervisor>(sp => sp.GetRequiredService<Brainstem.Supervisor.BrainstemSupervisor>());
+            services.AddHostedService(sp => new BrainstemHostedService(
+                sp.GetRequiredService<Brainstem.Supervisor.BrainstemSupervisor>(),
+                sp.GetService<ILogger<BrainstemHostedService>>()));
         }
 
         services.AddSingleton<IScriptRunnerRegistry>(sp =>
@@ -78,6 +91,11 @@ public static class ServiceComposition
             sp.GetRequiredService<Skills.Knowledge.Registry.KnowledgeSkillRegistry>(),
             sp.GetRequiredService<Skills.Voice.Registry.VoiceSkillRegistry>(),
         }));
+        services.TryAddSingleton<IDiagnosticsService>(sp => new CyberPipe.Logging.DiagnosticsService(
+            "CyberPipe.Service",
+            sp.GetService<CyberPipeOptions>() ?? options,
+            sp.GetRequiredService<IDatabaseHealthProbe>(),
+            sp.GetService<IMessageTransport>()));
         services.TryAddSingleton<ServiceStartupCoordinator>();
         services.AddCyberPipeTelemetry(options.Telemetry, "CyberPipe.Service");
 
@@ -379,6 +397,15 @@ public sealed class ServiceStartupCoordinator
                     await scheduler.Start(linked.Token).ConfigureAwait(false);
                 }
 
+                // Cron-цепочки из репозитория: раньше Scheduler только стартовал,
+                // но ScheduleChainAsync никто не вызывал — расписания не работали.
+                if (databaseOk)
+                {
+                    IChainSchedulerService chainScheduler = _services.GetRequiredService<IChainSchedulerService>();
+                    IChainDefinitionRepository chainRepo = _services.GetRequiredService<IChainDefinitionRepository>();
+                    await chainScheduler.SyncWithRepositoryAsync(chainRepo, linked.Token).ConfigureAwait(false);
+                }
+
                 return (true, false, (string?)"Scheduler started.");
             }
             catch (Exception ex)
@@ -424,11 +451,23 @@ public sealed class ServiceStartupCoordinator
     }
 
     /// <summary>Упорядоченная остановка: приём → Quartz → чекпоинты → каналы → пул БД.</summary>
-    public Task StopAsync(CancellationToken cancellationToken = default)
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Shutdown order: stop message intake, stop scheduler, checkpoint chains, stop channels, close database pool.");
+        try
+        {
+            IScheduler? scheduler = _services.GetService<IScheduler>();
+            if (scheduler is { IsStarted: true, IsShutdown: false })
+            {
+                await scheduler.Shutdown(waitForJobsToComplete: true, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Scheduler shut down; in-flight jobs completed.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Scheduler shutdown failed; continuing service stop.");
+        }
         _logger.LogInformation("Completed checkpoints are preserved; no rollback of finished work.");
-        return Task.CompletedTask;
     }
 
     private StartupStepResult RunStep(string name, Func<(bool Ok, bool Degraded, string? Detail)> run)

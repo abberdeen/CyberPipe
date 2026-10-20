@@ -8,6 +8,7 @@ using CyberPipe.Skills.Knowledge.Services;
 using CyberPipe.Skills.Personal.Data;
 using CyberPipe.Skills.Personal.Registry;
 using CyberPipe.Skills.Voice.Converters;
+using CyberPipe.Skills.Voice.Engines;
 using CyberPipe.Skills.Voice.Registry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -59,7 +60,16 @@ public static class SkillsServiceCollectionExtensions
         services.TryAddSingleton<IVoiceSkillRegistry>(sp => sp.GetRequiredService<VoiceSkillRegistry>());
 
         services.TryAddSingleton<IAudioConverter, FfmpegAudioConverter>();
-        services.TryAddSingleton<VoiceSkillRegistry>(sp => new VoiceSkillRegistry());
+        // Голос: если композиция предоставила IBrainstemWorker (Service + BrainstemSupervisor),
+        // регистрируем настоящий Whisper-скилл; без воркера реестр честно пуст (NotFound, не фейк).
+        services.TryAddSingleton<VoiceSkillRegistry>(sp =>
+        {
+            IBrainstemWorker? worker = sp.GetService<IBrainstemWorker>();
+            if (worker is null)
+                return new VoiceSkillRegistry();
+            var engine = new BrainstemSpeechToTextEngine(worker);
+            return new VoiceSkillRegistry(engine, sp.GetRequiredService<IAudioConverter>());
+        });
 
         return services;
     }

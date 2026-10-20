@@ -128,6 +128,13 @@ public interface IEmbeddingStore
     /// <param name="cancellationToken">Токен отмены.</param>
     /// <returns>Число записей.</returns>
     Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default);
+
+    /// <summary>Удаляет самые старые записи пространства имён, оставляя не более keepCount новейших (по CreatedAt).</summary>
+    /// <param name="namespace">Пространство имён.</param>
+    /// <param name="keepCount">Сколько новейших записей оставить; 0 — удалить все.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Число удалённых записей.</returns>
+    Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

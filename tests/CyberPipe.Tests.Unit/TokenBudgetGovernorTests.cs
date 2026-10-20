@@ -224,6 +224,28 @@ public sealed class TokenBudgetGovernorTests
     }
 
     [Fact]
+    public async Task TokenBudget_RecordUsageZeroCost_SettlesComputedCloudCost()
+    {
+        var options = new CyberPipeOptions { Budget = new BudgetOptions { DailyCapUsd = 0.10m } };
+        var governor = new TokenBudgetGovernor(_store, options, _priceProvider, _timeProvider);
+
+        // Tier23 передаёт CostUsd=0: 1M input ($5) + 1M output ($15) = $20 — кап должен сработать.
+        await governor.RecordUsageAsync(new TokenUsageDto
+        {
+            ModelId = "gpt-4o",
+            HostingType = ModelHostingType.RemoteCloud,
+            InputTokens = 100_000,
+            OutputTokens = 100_000,
+            CostUsd = 0m,
+            OccurredAtUtc = _timeProvider.GetUtcNow(),
+            RequestId = "zero-cost-req"
+        });
+
+        BudgetStatusDto status = await governor.GetStatusAsync();
+        Assert.True(status.SpentTodayUsd >= 2.0m, $"Ожидалась вычисленная стоимость $2.00, получено {status.SpentTodayUsd}");
+    }
+
+    [Fact]
     public async Task TokenBudget_DayRollover_ResetsDailyCountersWithoutRestart()
     {
         var options = new CyberPipeOptions
