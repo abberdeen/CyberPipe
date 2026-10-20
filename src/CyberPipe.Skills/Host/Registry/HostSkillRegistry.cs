@@ -30,6 +30,16 @@ public sealed class HostSkillRegistry : IHostSkillRegistry
         RegisterStandardHostSkills(mediaController, systemStatusProvider, timerService, alarmService);
     }
 
+    public HostSkillRegistry(
+        IHostMediaController mediaController,
+        ISystemStatusProvider systemStatusProvider,
+        ITimerService timerService,
+        IAlarmService alarmService,
+        IAudioContentSafetyEvaluator? audioSafetyEvaluator)
+    {
+        RegisterStandardHostSkills(mediaController, systemStatusProvider, timerService, alarmService, audioSafetyEvaluator);
+    }
+
     /// <inheritdoc />
     public void RegisterSkill(IHostSkill skill)
     {
@@ -127,7 +137,8 @@ public sealed class HostSkillRegistry : IHostSkillRegistry
         IHostMediaController mediaController,
         ISystemStatusProvider systemStatusProvider,
         ITimerService timerService,
-        IAlarmService alarmService)
+        IAlarmService alarmService,
+        IAudioContentSafetyEvaluator? audioSafetyEvaluator = null)
     {
         ArgumentNullException.ThrowIfNull(mediaController);
         ArgumentNullException.ThrowIfNull(systemStatusProvider);
@@ -135,7 +146,7 @@ public sealed class HostSkillRegistry : IHostSkillRegistry
         ArgumentNullException.ThrowIfNull(alarmService);
 
         // Media
-        RegisterSkill(new MediaPlaySkill(mediaController));
+        RegisterSkill(new MediaPlaySkill(mediaController, audioSafetyEvaluator));
         RegisterSkill(new MediaPauseSkill(mediaController));
         RegisterSkill(new MediaPlayPauseSkill(mediaController));
         RegisterSkill(new MediaNextSkill(mediaController));

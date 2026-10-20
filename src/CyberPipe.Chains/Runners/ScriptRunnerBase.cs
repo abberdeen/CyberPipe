@@ -22,6 +22,7 @@ public abstract class ScriptRunnerBase : IScriptRunner
     private readonly ISandboxLauncher _sandbox;
     private readonly ISchemaValidator _schemaValidator;
     private readonly int _maxTailBytes;
+    private readonly IAntiWipeGuard? _antiWipeGuard;
 
     /// <summary>
     /// Создаёт экземпляр базового раннера.
@@ -29,11 +30,13 @@ public abstract class ScriptRunnerBase : IScriptRunner
     protected ScriptRunnerBase(
         ISandboxLauncher sandbox,
         ISchemaValidator schemaValidator,
-        int maxTailBytes = 65536)
+        int maxTailBytes = 65536,
+        IAntiWipeGuard? antiWipeGuard = null)
     {
         _sandbox = sandbox ?? throw new ArgumentNullException(nameof(sandbox));
         _schemaValidator = schemaValidator ?? throw new ArgumentNullException(nameof(schemaValidator));
         _maxTailBytes = maxTailBytes > 0 ? maxTailBytes : 65536;
+        _antiWipeGuard = antiWipeGuard;
     }
 
     /// <inheritdoc />

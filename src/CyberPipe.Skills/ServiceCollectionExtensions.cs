@@ -42,7 +42,8 @@ public static class SkillsServiceCollectionExtensions
                 sp.GetRequiredService<IHostMediaController>(),
                 sp.GetRequiredService<ISystemStatusProvider>(),
                 sp.GetRequiredService<ITimerService>(),
-                sp.GetRequiredService<IAlarmService>())
+                sp.GetRequiredService<IAlarmService>(),
+                sp.GetService<IAudioContentSafetyEvaluator>())
             : new HostSkillRegistry());
 
         services.TryAddSingleton<INoteRepository, InMemoryNoteRepository>();
