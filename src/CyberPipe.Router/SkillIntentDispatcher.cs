@@ -32,6 +32,11 @@ public static class SkillIntentDispatcher
         string intent = route.Intent;
 
         // Встроенные текстовые намерения, не требующие вызова ISkillInvoker
+        if (intent.Equals("chat.reply", StringComparison.OrdinalIgnoreCase))
+        {
+            return route;
+        }
+
         if (intent.Equals("system.greeting", StringComparison.OrdinalIgnoreCase))
         {
             return route with { ResponseText = "Привет! Чем могу помочь?" };

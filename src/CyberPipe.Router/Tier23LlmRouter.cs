@@ -13,15 +13,16 @@ namespace CyberPipe.Router;
 public sealed class Tier23LlmRouter : IRouterTier
 {
     private const string DefaultSystemPrompt = """
-        You are CyberPipe's Intent Classifier. Your task is to classify the user's intent and extract any relevant parameters.
-        Respond ONLY with a valid JSON object matching this schema:
-        {
-          "intent": "string (the detected intent name, e.g. system.help, system.status, diagnostics.run, knowledge.search, custom.action)",
-          "confidence": number between 0.0 and 1.0,
-          "parameters": { "key": "value" },
-          "reason": "short explanation"
-        }
-        Do not include markdown code block formatting or extra commentary outside the JSON object.
+        You are CyberPipe's Intent Classifier. Reply with JSON only:
+        {"intent":"...","confidence":0.0,"parameters":{},"reason":"..."}
+
+        Use a host command only when the user is clearly asking to perform it:
+        system.help, system.status, system.cancel, diagnostics.run, knowledge.search,
+        volume.get, volume.up, volume.down, volume.mute, volume.unmute, media.volume,
+        media.play, media.pause, timer.set.
+
+        Questions, facts, translations, math, and conversation use intent "chat.reply".
+        Never use system.*, volume.*, or media.* for those.
         """;
 
     private readonly IChatModelProvider _chatModelProvider;

@@ -3,6 +3,7 @@ using CyberPipe.Contracts;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using Microsoft.ML.Tokenizers;
 
 namespace CyberPipe.Router;
 
@@ -14,8 +15,11 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
 {
     private readonly string? _configuredModelPath;
     private readonly ILogger? _logger;
+    private const int MaxSequenceLength = 512;
+
     private readonly object _initLock = new();
     private InferenceSession? _session;
+    private SentencePieceTokenizer? _tokenizer;
     private bool _ownsSession;
     private bool _disposed;
 
@@ -45,6 +49,7 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
             };
             _session = new InferenceSession(resolvedPath, sessionOptions);
             _ownsSession = true;
+            LoadTokenizer(resolvedPath);
             _logger?.LogInformation("Loaded ONNX embedding model from '{ModelPath}'", resolvedPath);
         }
         catch (Exception ex)
@@ -135,6 +140,7 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
                     };
                     _session = new InferenceSession(resolvedPath, sessionOptions);
                     _ownsSession = true;
+                    LoadTokenizer(resolvedPath);
                     _logger?.LogInformation("Loaded ONNX embedding model from '{ModelPath}'", resolvedPath);
                 }
                 catch (Exception ex)
@@ -164,8 +170,14 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
 
             if (inputMeta.ContainsKey("input_ids") || inputMeta.ContainsKey("attention_mask"))
             {
-                // Transformer-based model (e.g. multilingual-e5-small)
-                (long[] tokenIds, long[] attentionMask, long[] tokenTypeIds) = Tokenize(text);
+                // multilingual-e5-small ждёт id из tokenizer.json (Unigram/XLM-R), а не хеш слов.
+                if (_tokenizer is null)
+                {
+                    throw new InvalidOperationException(
+                        "tokenizer.json is missing next to the ONNX embedding model. Without the e5 vocabulary, unrelated text is scored as a system command.");
+                }
+
+                (long[] tokenIds, long[] attentionMask, long[] tokenTypeIds) = TokenizeWithVocabulary(text);
 
                 int seqLen = tokenIds.Length;
                 int[] dimensions = [1, seqLen];
@@ -203,7 +215,7 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
                 }
                 else
                 {
-                    (long[] tokenIds, _, _) = Tokenize(text);
+                    (long[] tokenIds, _, _) = HashTokenize(text);
                     var tensor = new DenseTensor<long>(tokenIds, [1, tokenIds.Length]);
                     inputs.Add(NamedOnnxValue.CreateFromTensor(firstInputName, tensor));
                 }
@@ -226,7 +238,80 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
             return Task.FromResult(pooledVector);
     }
 
-    private static (long[] TokenIds, long[] AttentionMask, long[] TokenTypeIds) Tokenize(string text)
+    private void LoadTokenizer(string modelPath)
+    {
+        if (_tokenizer is not null)
+        {
+            return;
+        }
+
+        string tokenizerPath = Path.Combine(Path.GetDirectoryName(modelPath) ?? string.Empty, "tokenizer.json");
+        if (!File.Exists(tokenizerPath))
+        {
+            _logger?.LogWarning("tokenizer.json not found next to '{ModelPath}'.", modelPath);
+            return;
+        }
+
+        using FileStream stream = File.OpenRead(tokenizerPath);
+        _tokenizer = SentencePieceTokenizer.CreateFromTokenizerJson(
+            stream,
+            addBeginningOfSentence: true,
+            addEndOfSentence: true);
+        _logger?.LogInformation("Loaded embedding tokenizer from '{TokenizerPath}'.", tokenizerPath);
+    }
+
+    private (long[] TokenIds, long[] AttentionMask, long[] TokenTypeIds) TokenizeWithVocabulary(string text)
+    {
+        string prefixed = ApplyE5QueryPrefix(text);
+        IReadOnlyList<int> encoded;
+        lock (_initLock)
+        {
+            encoded = _tokenizer!.EncodeToIds(
+                prefixed,
+                addBeginningOfSentence: true,
+                addEndOfSentence: true,
+                maxTokenCount: MaxSequenceLength,
+                out _,
+                out _);
+        }
+
+        if (encoded.Count == 0)
+        {
+            encoded = [0, 2];
+        }
+
+        var tokenIds = new long[encoded.Count];
+        for (int i = 0; i < encoded.Count; i++)
+        {
+            tokenIds[i] = encoded[i];
+        }
+
+        if (tokenIds.Length == MaxSequenceLength && tokenIds[^1] != 2)
+        {
+            tokenIds[^1] = 2;
+        }
+
+        long[] attentionMask = new long[tokenIds.Length];
+        Array.Fill(attentionMask, 1L);
+        return (tokenIds, attentionMask, new long[tokenIds.Length]);
+    }
+
+    /// <summary>
+    /// e5 считает близость для классификации, когда у обеих фраз один префикс query.
+    /// </summary>
+    private static string ApplyE5QueryPrefix(string text)
+    {
+        string trimmed = text.Trim();
+        if (trimmed.StartsWith("query:", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("passage:", StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed;
+        }
+
+        return "query: " + trimmed;
+    }
+
+    private static (long[] TokenIds, long[] AttentionMask, long[] TokenTypeIds) HashTokenize(string text)
     {
         // Fallback word/character hash tokenizer when external tokenizer file is not bundled
         // Produces deterministic sequence of token IDs starting with [CLS]=101 and ending with [SEP]=102

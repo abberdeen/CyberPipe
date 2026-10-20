@@ -146,7 +146,7 @@ public sealed class Tier1SemanticRouter : IRouterTier
             {
                 Vector = queryEmbedding,
                 Namespace = EmbeddingNamespaces.Router,
-                TopK = 2,
+                TopK = 16,
                 MinScore = _options.Router.Tier1SimilarityThreshold,
                 ModelId = _options.Models.EmbeddingModelId
             };
@@ -183,42 +183,76 @@ public sealed class Tier1SemanticRouter : IRouterTier
             };
         }
 
-        EmbeddingMatch best = matches[0];
-        string bestIntent = best.Metadata.TryGetValue("intent", out string? bi) && !string.IsNullOrWhiteSpace(bi)
-            ? bi
-            : best.SourceRef;
-
-        // 6. Check Margin against second candidate
-        if (matches.Count > 1)
+        var bestByIntent = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (EmbeddingMatch match in matches)
         {
-            EmbeddingMatch second = matches[1];
-            string secondIntent = second.Metadata.TryGetValue("intent", out string? si) && !string.IsNullOrWhiteSpace(si)
-                ? si
-                : second.SourceRef;
-
-            if (!string.Equals(bestIntent, secondIntent, StringComparison.OrdinalIgnoreCase))
+            string intent = match.Metadata.TryGetValue("intent", out string? name) && !string.IsNullOrWhiteSpace(name)
+                ? name
+                : match.SourceRef;
+            if (!bestByIntent.TryGetValue(intent, out double existing) || match.Score > existing)
             {
-                double margin = best.Score - second.Score;
-                if (margin < _options.Router.Tier1MarginThreshold)
-                {
-                    _logger?.LogInformation(
-                        "Ambiguous intent for '{Text}': best '{BestIntent}' ({BestScore:F3}) vs '{SecondIntent}' ({SecondScore:F3}) margin {Margin:F3} < threshold {Threshold:F3}. Escalating.",
-                        request.Text,
-                        bestIntent,
-                        best.Score,
-                        secondIntent,
-                        second.Score,
-                        margin,
-                        _options.Router.Tier1MarginThreshold);
-
-                    return new RouteResult
-                    {
-                        Status = RouteStatus.Escalate,
-                        Tier = IntentTier.Tier1,
-                        Reason = $"Ambiguous intent: best '{bestIntent}' ({best.Score:F3}) vs '{secondIntent}' ({second.Score:F3}) margin {margin:F3} < threshold {_options.Router.Tier1MarginThreshold:F3}."
-                    };
-                }
+                bestByIntent[intent] = match.Score;
             }
+        }
+
+        string bestIntent = string.Empty;
+        double bestScore = double.MinValue;
+        string? secondIntent = null;
+        double secondScore = double.MinValue;
+        foreach ((string intent, double score) in bestByIntent)
+        {
+            if (score > bestScore)
+            {
+                secondIntent = bestIntent.Length == 0 ? null : bestIntent;
+                secondScore = bestScore;
+                bestIntent = intent;
+                bestScore = score;
+            }
+            else if (score > secondScore)
+            {
+                secondIntent = intent;
+                secondScore = score;
+            }
+        }
+
+        // 6. Margin между разными намерениями, а не между двумя соседними примерами одного навыка.
+        if (secondIntent is not null)
+        {
+            double margin = bestScore - secondScore;
+            if (margin < _options.Router.Tier1MarginThreshold)
+            {
+                _logger?.LogInformation(
+                    "Ambiguous intent for '{Text}': best '{BestIntent}' ({BestScore:F3}) vs '{SecondIntent}' ({SecondScore:F3}) margin {Margin:F3} < threshold {Threshold:F3}. Escalating.",
+                    request.Text,
+                    bestIntent,
+                    bestScore,
+                    secondIntent,
+                    secondScore,
+                    margin,
+                    _options.Router.Tier1MarginThreshold);
+
+                return new RouteResult
+                {
+                    Status = RouteStatus.Escalate,
+                    Tier = IntentTier.Tier1,
+                    Reason = $"Ambiguous intent: best '{bestIntent}' ({bestScore:F3}) vs '{secondIntent}' ({secondScore:F3}) margin {margin:F3} < threshold {_options.Router.Tier1MarginThreshold:F3}."
+                };
+            }
+        }
+
+        if (string.Equals(bestIntent, "chat.reply", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger?.LogInformation(
+                "Request '{Text}' is closer to general chat ({Score:F3}) than to a host command. Escalating.",
+                request.Text,
+                bestScore);
+
+            return new RouteResult
+            {
+                Status = RouteStatus.Escalate,
+                Tier = IntentTier.Tier1,
+                Reason = $"Closer to general chat ({bestScore:F3}) than to a host command."
+            };
         }
 
         // 7. Confident match found!
@@ -227,9 +261,9 @@ public sealed class Tier1SemanticRouter : IRouterTier
             Status = RouteStatus.Matched,
             Tier = IntentTier.Tier1,
             Intent = bestIntent,
-            Confidence = best.Score,
+            Confidence = bestScore,
             MatchedRuleName = $"Semantic:{bestIntent}",
-            Reason = $"Matched intent '{bestIntent}' with similarity {best.Score:F3}."
+            Reason = $"Matched intent '{bestIntent}' with similarity {bestScore:F3}."
         };
 
         // 8. Cache result if semantic cache is enabled
@@ -271,6 +305,7 @@ public sealed class Tier1SemanticRouter : IRouterTier
             }
 
             _logger?.LogInformation("Indexing {Count} Tier 1 intent examples into embedding store...", examples.Count);
+            await _embeddingStore.DeleteByOwnerScopeAsync(EmbeddingNamespaces.Router, cancellationToken);
 
             var records = new List<EmbeddingRecord>(examples.Count);
             foreach (SemanticExampleDefinition ex in examples)

@@ -165,6 +165,66 @@ public sealed class Tier1SemanticRouterTests
     }
 
     [Fact]
+    public async Task Tier1_Escalates_WhenAnotherIntentIsCloseBehindRepeatedExamples()
+    {
+        var store = new InMemoryEmbeddingStore();
+        var provider = new FakeEmbeddingProvider();
+        provider.Register("тише", [1.0f, 0.0f, 0.0f]);
+        provider.Register("убавь", [0.99f, 0.05f, 0.0f]);
+        provider.Register("mute", [0.96f, 0.28f, 0.0f]);
+
+        var examples = new FakeExampleProvider(
+        [
+            new() { Text = "тише", Intent = "volume.down" },
+            new() { Text = "убавь", Intent = "volume.down" },
+            new() { Text = "mute", Intent = "volume.mute" },
+        ]);
+
+        var options = new CyberPipeOptions
+        {
+            Router = new RouterOptions
+            {
+                Tier1SimilarityThreshold = 0.70,
+                Tier1MarginThreshold = 0.05
+            }
+        };
+
+        var router = new Tier1SemanticRouter(provider, store, options, exampleProvider: examples);
+        provider.Register("не про громкость", [0.995f, 0.02f, 0.0f]);
+
+        RouteResult result = await router.TryRouteAsync(new RouteRequest
+        {
+            Text = "не про громкость",
+            Channel = ChannelKind.Telegram
+        });
+
+        Assert.Equal(RouteStatus.Escalate, result.Status);
+        Assert.Contains("margin", result.Reason);
+    }
+
+    [Fact]
+    public async Task E5_Question_IsCloserToChatThanToVolume()
+    {
+        string model = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "CyberPipe", "embeddings", "multilingual-e5-small", "model.onnx");
+        if (!File.Exists(model))
+        {
+            return;
+        }
+
+        using var provider = new OnnxEmbeddingProvider(model);
+        float[] question = await provider.EmbedAsync("capital of russia");
+        float[] volume = await provider.EmbedAsync("сделай тише");
+        float[] chat = await provider.EmbedAsync("столица франции");
+
+        double toVolume = Cosine(question, volume);
+        double toChat = Cosine(question, chat);
+        Assert.True(toChat > toVolume, $"chat {toChat:F3} should beat volume {toVolume:F3}");
+        Assert.True(toVolume < 0.80, $"volume similarity {toVolume:F3} should stay under the router threshold");
+    }
+
+    [Fact]
     public async Task Tier1_DegradesGracefully_WhenEmbeddingProviderThrows()
     {
         var store = new InMemoryEmbeddingStore();

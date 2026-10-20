@@ -29,7 +29,6 @@ public static class DefaultSemanticExamples
         new() { Text = "проверь статус", Intent = "system.status" },
         new() { Text = "system status", Intent = "system.status" },
         new() { Text = "health check", Intent = "system.status" },
-        new() { Text = "how are you", Intent = "system.status" },
 
         // system.cancel
         new() { Text = "отмени операцию", Intent = "system.cancel" },
@@ -93,6 +92,18 @@ public static class DefaultSemanticExamples
         new() { Text = "включи звук", Intent = "volume.unmute" },
         new() { Text = "разглуши звук", Intent = "volume.unmute" },
         new() { Text = "unmute audio", Intent = "volume.unmute" },
+
+        // Обычные вопросы и разговор. Иначе ближайшими остаются короткие системные команды.
+        new() { Text = "столица франции", Intent = "chat.reply" },
+        new() { Text = "capital of france", Intent = "chat.reply" },
+        new() { Text = "what is the capital of japan", Intent = "chat.reply" },
+        new() { Text = "объясни простыми словами", Intent = "chat.reply" },
+        new() { Text = "расскажи про космос", Intent = "chat.reply" },
+        new() { Text = "сколько будет два плюс два", Intent = "chat.reply" },
+        new() { Text = "переведи на английский доброе утро", Intent = "chat.reply" },
+        new() { Text = "как дела", Intent = "chat.reply" },
+        new() { Text = "how are you", Intent = "chat.reply" },
+        new() { Text = "who wrote war and peace", Intent = "chat.reply" },
     ];
 }
 
