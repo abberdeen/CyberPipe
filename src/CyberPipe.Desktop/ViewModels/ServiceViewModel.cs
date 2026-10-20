@@ -16,6 +16,8 @@ public sealed class ServiceViewModel : ViewModelBase
     private string? _lastError;
     private bool _isBusy;
     private string _actionPrompt = string.Empty;
+    private readonly SynchronizationContext? _ui = SynchronizationContext.Current;
+    private readonly CancellationTokenSource _watchCancellation = new();
 
     public ServiceViewModel(
         IServiceController controller,
@@ -31,7 +33,7 @@ public sealed class ServiceViewModel : ViewModelBase
         RefreshCommand = new AsyncRelayCommand(RefreshStatusAsync, () => !IsBusy);
 
         UpdateComputedProperties();
-        _ = RefreshStatusAsync();
+        _ = WatchStatusAsync(_watchCancellation.Token);
     }
 
     public string State
@@ -112,16 +114,49 @@ public sealed class ServiceViewModel : ViewModelBase
         try
         {
             ServiceStatusDto status = await _controller.GetStatusAsync().ConfigureAwait(false);
-            State = status.State;
-            ServiceVersion = status.Version;
-            StartedAtUtc = status.StartedAtUtc;
-            LastError = status.LastError;
+            ApplyStatus(status);
         }
         catch (Exception ex)
         {
-            State = "ServiceUnavailable";
-            LastError = ex.Message;
+            ApplyStatus(new ServiceStatusDto("ServiceUnavailable", ServiceVersion, StartedAtUtc, ex.Message));
         }
+    }
+
+    private async Task WatchStatusAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (ServiceStatusDto status in _controller.WatchStatusAsync(cancellationToken).ConfigureAwait(false))
+            {
+                ApplyStatus(status);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            ApplyStatus(new ServiceStatusDto("ServiceUnavailable", ServiceVersion, StartedAtUtc, ex.Message));
+        }
+    }
+
+    private void ApplyStatus(ServiceStatusDto status)
+    {
+        if (_ui is null || SynchronizationContext.Current == _ui)
+        {
+            ApplyStatusCore(status);
+            return;
+        }
+
+        _ui.Post(_ => ApplyStatusCore(status), null);
+    }
+
+    private void ApplyStatusCore(ServiceStatusDto status)
+    {
+        State = status.State;
+        ServiceVersion = status.Version;
+        StartedAtUtc = status.StartedAtUtc;
+        LastError = status.LastError;
     }
 
     public async Task StartAsync()

@@ -138,6 +138,23 @@ public sealed class DesktopUiTests
     }
 
     [Fact]
+    public async Task ServicePanel_Watch_UpdatesWhenServiceDropsWithoutManualRefresh()
+    {
+        var controller = new DroppingServiceController();
+        var serviceVm = new ServiceViewModel(controller);
+
+        DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+        while (serviceVm.State != "Faulted" && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+
+        Assert.Equal("Faulted", serviceVm.State);
+        Assert.False(serviceVm.IsRunning);
+        Assert.Contains("exited", serviceVm.LastError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Hitl_Enqueue_AppearsInPendingList()
     {
         // Arrange
@@ -627,6 +644,31 @@ internal sealed class TestFakeServiceController : IServiceController
     public async IAsyncEnumerable<ServiceStatusDto> WatchStatusAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         yield return await GetStatusAsync(cancellationToken);
+    }
+}
+
+internal sealed class DroppingServiceController : IServiceController
+{
+    public Task<ServiceControlResult> StartAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ServiceControlResult(ServiceControlOutcome.Ok, null));
+
+    public Task<ServiceControlResult> StopAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ServiceControlResult(ServiceControlOutcome.Ok, null));
+
+    public Task<ServiceControlResult> RestartAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ServiceControlResult(ServiceControlOutcome.Ok, null));
+
+    public Task<ServiceStatusDto> GetStatusAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ServiceStatusDto("Running", "1.0.0", DateTimeOffset.UtcNow, null));
+
+    public async IAsyncEnumerable<ServiceStatusDto> WatchStatusAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return new ServiceStatusDto("Running", "1.0.0", DateTimeOffset.UtcNow, null);
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
+        yield return new ServiceStatusDto("Faulted", "1.0.0", DateTimeOffset.UtcNow, "Service process exited.");
     }
 }
 

@@ -57,6 +57,19 @@ public sealed class ServiceControlTests
     }
 
     [Fact]
+    public async Task GetStatusAsync_WhenChannelFails_AndScmStillRunning_ReportsFaulted()
+    {
+        var channel = new FakeServiceControlChannel { ShouldThrowOnPing = true };
+        var scm = new FakeScmManager { IsInstalled = true, CurrentStatus = "Running" };
+        var controller = new ServiceControllerManager(channel, scm, _options, NullLogger.Instance);
+
+        ServiceStatusDto status = await controller.GetStatusAsync();
+
+        Assert.Equal("Faulted", status.State);
+        Assert.Contains("unavailable", status.LastError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task StartAsync_WhenAlreadyRunning_ReturnsOk()
     {
         var channel = new FakeServiceControlChannel

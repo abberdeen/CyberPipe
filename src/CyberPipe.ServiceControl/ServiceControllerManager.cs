@@ -56,6 +56,14 @@ public sealed class ServiceControllerManager : IServiceController
         }
 
         string scmStatus = _scm.GetServiceStatus(serviceName);
+        // Канал молчит, а SCM ещё считает службу запущенной: процесс упал или завис
+        // и не отвечает. Для Desktop это не Running.
+        if (string.Equals(scmStatus, "Running", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(scmStatus, "Starting", StringComparison.OrdinalIgnoreCase))
+        {
+            scmStatus = "Faulted";
+        }
+
         return new ServiceStatusDto(
             State: scmStatus,
             Version: "Unknown",
