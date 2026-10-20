@@ -116,8 +116,7 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
         if (_executions is not null)
         {
-            ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
-            if (existingRun is not null)
+            try
             {
                 await _executions.SaveCheckpointAsync(new ChainCheckpointDto
                 {
@@ -128,6 +127,10 @@ public sealed class HitlApprovalService : IHitlApprovalService
                     OutputJson = record.PayloadJson,
                     CheckpointAtUtc = DateTimeOffset.UtcNow,
                 }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Standalone invocation without chain run record in DB
             }
         }
 
@@ -206,8 +209,7 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
         if (_executions is not null)
         {
-            ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
-            if (existingRun is not null)
+            try
             {
                 await _executions.SaveCheckpointAsync(new ChainCheckpointDto
                 {
@@ -218,6 +220,10 @@ public sealed class HitlApprovalService : IHitlApprovalService
                     OutputJson = editedPayloadJson,
                     CheckpointAtUtc = DateTimeOffset.UtcNow,
                 }, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Standalone invocation without chain run record in DB
             }
         }
 
@@ -262,8 +268,7 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
         if (_executions is not null)
         {
-            ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
-            if (existingRun is not null)
+            try
             {
                 await _executions.SaveCheckpointAsync(new ChainCheckpointDto
                 {
@@ -275,11 +280,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
                     CheckpointAtUtc = DateTimeOffset.UtcNow,
                 }, cancellationToken).ConfigureAwait(false);
 
-                await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+                if (existingRun is not null)
                 {
-                    Code = "HitlRejected",
-                    Message = rejectionReason,
-                }, cancellationToken).ConfigureAwait(false);
+                    await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                    {
+                        Code = "HitlRejected",
+                        Message = rejectionReason,
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (Exception)
+            {
+                // Standalone invocation without chain run record in DB
             }
         }
 
@@ -313,8 +326,7 @@ public sealed class HitlApprovalService : IHitlApprovalService
 
                 if (_executions is not null)
                 {
-                    ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
-                    if (existingRun is not null)
+                    try
                     {
                         await _executions.SaveCheckpointAsync(new ChainCheckpointDto
                         {
@@ -326,11 +338,19 @@ public sealed class HitlApprovalService : IHitlApprovalService
                             CheckpointAtUtc = nowUtc,
                         }, cancellationToken).ConfigureAwait(false);
 
-                        await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                        ChainRunState? existingRun = await _executions.GetRunAsync(record.RunId, cancellationToken).ConfigureAwait(false);
+                        if (existingRun is not null)
                         {
-                            Code = "HitlTimeout",
-                            Message = "HITL approval timed out.",
-                        }, cancellationToken).ConfigureAwait(false);
+                            await _executions.UpdateRunStatusAsync(record.RunId, ChainRunStatus.Cancelled, new ErrorDto
+                            {
+                                Code = "HitlTimeout",
+                                Message = "HITL approval timed out.",
+                            }, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Standalone invocation without chain run record in DB
                     }
                 }
 
