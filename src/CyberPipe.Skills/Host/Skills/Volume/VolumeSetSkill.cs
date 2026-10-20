@@ -87,6 +87,13 @@ public sealed class VolumeSetSkill(IHostMediaController controller) : IHostSkill
 
     // Резкое повышение громкости требует подтверждения владельца (TASK-050).
     // Уменьшение громкости безопасно для слуха и не требует подтверждения.
-    private static bool IsDrasticChange(int current, int target) =>
-        target > current && (target - current > 40 || (target > 80 && current <= 40));
+    private static bool IsDrasticChange(int current, int target)
+    {
+        bool isLargeIncrease = target - current > 40;
+        bool isJumpToHighVolume = target > 80 && current <= 40;
+
+        return target > current && (isLargeIncrease || isJumpToHighVolume);
+    }
+
+
 }
