@@ -144,19 +144,77 @@
               CornerRadius="8"
               Padding="16"
               IsVisible="{Binding HasInstaller}">
-        <StackPanel Spacing="8">
-          <TextBlock Text="Tier 1 — Семантический эмбеддинг (multilingual-e5-small ONNX)" FontWeight="Bold" FontSize="16" />
+        <StackPanel Spacing="10">
           <Grid ColumnDefinitions="*,Auto">
             <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
-              <TextBlock Text="{Binding Installer.EmbeddingStateText}" FontSize="13" />
+              <TextBlock Text="Tier 1 — Семантический эмбеддинг (multilingual-e5-small ONNX)" FontWeight="Bold" FontSize="16" />
               <TextBlock Text="Локальная ONNX-модель для семантической маршрутизации и кэша." FontSize="11" Opacity="0.7" />
+              <TextBlock Text="{Binding Installer.EmbeddingStateText}" FontSize="13" FontWeight="SemiBold" Margin="0,2,0,0" />
             </StackPanel>
-            <Button Grid.Column="1"
-                    Content="Скачать и подключить эмбеддинг"
-                    Command="{Binding Installer.EnsureEmbeddingCommand}"
-                    Classes="accent"
-                    Margin="8,0" />
+
+            <!-- Action buttons -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <!-- Download button -->
+              <Button Content="Скачать и подключить эмбеддинг"
+                      Command="{Binding Installer.EnsureEmbeddingCommand}"
+                      IsVisible="{Binding !Installer.IsEmbeddingInstalled}"
+                      IsEnabled="{Binding !Installer.IsEmbeddingDownloading}"
+                      Classes="accent" />
+
+              <!-- Cancel button during download -->
+              <Button Content="Отмена"
+                      Command="{Binding Installer.CancelEmbeddingCommand}"
+                      IsVisible="{Binding Installer.IsEmbeddingDownloading}" />
+
+              <!-- Remove from disk button -->
+              <Button Content="Удалить с диска"
+                      Command="{Binding Installer.RequestRemoveEmbeddingCommand}"
+                      IsVisible="{Binding Installer.IsEmbeddingInstalled}"
+                      IsEnabled="{Binding !Installer.IsEmbeddingDownloading}" />
+            </StackPanel>
           </Grid>
+
+          <!-- Download Progress Bar & Text -->
+          <StackPanel Spacing="4" IsVisible="{Binding Installer.IsEmbeddingDownloading}">
+            <ProgressBar Minimum="0" Maximum="100"
+                         Value="{Binding Installer.EmbeddingProgressPercent}"
+                         Height="6" />
+            <TextBlock Text="{Binding Installer.EmbeddingProgressText}"
+                       FontSize="11"
+                       Opacity="0.85"
+                       FontFamily="Consolas,Menlo,monospace" />
+          </StackPanel>
+
+          <!-- Confirmation prompt for removing from disk -->
+          <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                  CornerRadius="6"
+                  Padding="12"
+                  Margin="0,4,0,0"
+                  IsVisible="{Binding Installer.EmbeddingNeedsRemoveConfirmation}">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+              <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="Удалить файлы модели multilingual-e5-small с диска?"
+                           FontWeight="SemiBold"
+                           FontSize="13"
+                           Foreground="{DynamicResource SystemAccentColor}" />
+                <TextBlock Text="Файлы модели будут удалены из локального хранилища. Для работы Tier 1 потребуется повторное скачивание."
+                           FontSize="11"
+                           Opacity="0.8" />
+              </StackPanel>
+
+              <Button Grid.Column="1"
+                      Content="Да, удалить"
+                      Command="{Binding Installer.ConfirmRemoveEmbeddingCommand}"
+                      Classes="accent"
+                      Margin="8,0"
+                      VerticalAlignment="Center" />
+
+              <Button Grid.Column="2"
+                      Content="Отмена"
+                      Command="{Binding Installer.CancelRemoveEmbeddingCommand}"
+                      VerticalAlignment="Center" />
+            </Grid>
+          </Border>
         </StackPanel>
       </Border>
 

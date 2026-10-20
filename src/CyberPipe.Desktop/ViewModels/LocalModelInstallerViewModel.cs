@@ -94,6 +94,12 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
 
     private string _runtimeStatusText = "Runtime status unknown.";
     private string _embeddingStateText = "Embedding state unknown.";
+    private bool _isEmbeddingDownloading;
+    private bool _isEmbeddingInstalled;
+    private int _embeddingProgressPercent;
+    private string? _embeddingProgressText;
+    private bool _embeddingNeedsRemoveConfirmation;
+    private CancellationTokenSource? _embeddingCts;
     private IReadOnlyDictionary<string, HardwareFitVerdict> _verdicts =
         new Dictionary<string, HardwareFitVerdict>(StringComparer.Ordinal);
 
@@ -134,8 +140,13 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
 
         RefreshCommand = new AsyncRelayCommand(RefreshAsync);
         EnsureRuntimeCommand = new AsyncRelayCommand(EnsureRuntimeAsync);
-        EnsureEmbeddingCommand = new AsyncRelayCommand(EnsureEmbeddingAsync);
+        EnsureEmbeddingCommand = new AsyncRelayCommand(EnsureEmbeddingAsync, () => CanDownloadEmbedding);
+        CancelEmbeddingCommand = new RelayCommand(CancelEmbedding, () => IsEmbeddingDownloading);
+        RequestRemoveEmbeddingCommand = new RelayCommand(RequestRemoveEmbedding, () => IsEmbeddingInstalled && !IsEmbeddingDownloading);
+        ConfirmRemoveEmbeddingCommand = new AsyncRelayCommand(ConfirmRemoveEmbeddingAsync);
+        CancelRemoveEmbeddingCommand = new RelayCommand(CancelRemoveEmbedding);
 
+        CheckEmbeddingInstalledState();
         _ = RefreshAsync();
     }
 
@@ -153,14 +164,73 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
         private set => SetProperty(ref _embeddingStateText, value);
     }
 
+    public bool IsEmbeddingDownloading
+    {
+        get => _isEmbeddingDownloading;
+        private set
+        {
+            if (SetProperty(ref _isEmbeddingDownloading, value))
+            {
+                OnPropertyChanged(nameof(CanDownloadEmbedding));
+                EnsureEmbeddingCommand?.RaiseCanExecuteChanged();
+                CancelEmbeddingCommand?.RaiseCanExecuteChanged();
+                RequestRemoveEmbeddingCommand?.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool IsEmbeddingInstalled
+    {
+        get => _isEmbeddingInstalled;
+        private set
+        {
+            if (SetProperty(ref _isEmbeddingInstalled, value))
+            {
+                OnPropertyChanged(nameof(CanDownloadEmbedding));
+                EnsureEmbeddingCommand?.RaiseCanExecuteChanged();
+                RequestRemoveEmbeddingCommand?.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public bool CanDownloadEmbedding => !IsEmbeddingDownloading && !IsEmbeddingInstalled;
+
+    public int EmbeddingProgressPercent
+    {
+        get => _embeddingProgressPercent;
+        private set => SetProperty(ref _embeddingProgressPercent, value);
+    }
+
+    public string? EmbeddingProgressText
+    {
+        get => _embeddingProgressText;
+        private set => SetProperty(ref _embeddingProgressText, value);
+    }
+
+    public bool EmbeddingNeedsRemoveConfirmation
+    {
+        get => _embeddingNeedsRemoveConfirmation;
+        set => SetProperty(ref _embeddingNeedsRemoveConfirmation, value);
+    }
+
     public AsyncRelayCommand RefreshCommand { get; }
 
     public AsyncRelayCommand EnsureRuntimeCommand { get; }
 
     public AsyncRelayCommand EnsureEmbeddingCommand { get; }
 
+    public RelayCommand CancelEmbeddingCommand { get; }
+
+    public RelayCommand RequestRemoveEmbeddingCommand { get; }
+
+    public AsyncRelayCommand ConfirmRemoveEmbeddingCommand { get; }
+
+    public RelayCommand CancelRemoveEmbeddingCommand { get; }
+
     public async Task RefreshAsync()
     {
+        CheckEmbeddingInstalledState();
+
         LocalRuntimeInfo runtime = await _runtime.GetStatusAsync().ConfigureAwait(true);
         RuntimeStatusText = runtime.State == LocalRuntimeState.Ready
             ? $"Ollama ready{(runtime.Version is null ? string.Empty : $" ({runtime.Version})")}."
@@ -209,17 +279,179 @@ public sealed class LocalModelInstallerViewModel : ViewModelBase
 
     public async Task EnsureEmbeddingAsync()
     {
-        EmbeddingStateText = "Downloading embedding.";
-        Result<EmbeddingInstallResult> result = await _installer.EnsureEmbeddingAsync().ConfigureAwait(true);
-        if (result.IsSuccess)
+        if (IsEmbeddingDownloading)
         {
-            EmbeddingStateText = result.Value!.AlreadyInstalled
-                ? "Embedding already installed."
-                : $"Embedding installed at {result.Value.InstallPath}.";
+            return;
+        }
+
+        _embeddingCts?.Dispose();
+        _embeddingCts = new CancellationTokenSource();
+        CancellationToken ct = _embeddingCts.Token;
+
+        IsEmbeddingDownloading = true;
+        EmbeddingProgressPercent = 0;
+        EmbeddingProgressText = "Подготовка к скачиванию...";
+        EmbeddingStateText = "Скачивание модели эмбеддинга multilingual-e5-small...";
+
+        var progress = new Progress<ModelInstallProgress>(p =>
+        {
+            EmbeddingProgressPercent = p.Percent;
+            if (p.TotalBytes.HasValue && p.TotalBytes.Value > 0)
+            {
+                double mbDownloaded = p.DownloadedBytes / (1024.0 * 1024.0);
+                double mbTotal = p.TotalBytes.Value / (1024.0 * 1024.0);
+                EmbeddingProgressText = $"{p.ModelId}: {p.Percent}% ({mbDownloaded:F1} МБ из {mbTotal:F1} МБ)";
+            }
+            else
+            {
+                EmbeddingProgressText = $"{p.ModelId}: {p.Percent}%";
+            }
+        });
+
+        try
+        {
+            Result<EmbeddingInstallResult> result =
+                await _installer.EnsureEmbeddingAsync(progress, ct).ConfigureAwait(true);
+
+            if (result.IsSuccess)
+            {
+                IsEmbeddingInstalled = true;
+                EmbeddingProgressPercent = 100;
+                EmbeddingProgressText = "Загрузка завершена.";
+                EmbeddingStateText = result.Value!.AlreadyInstalled
+                    ? "Эмбеддинг уже установлен."
+                    : $"Эмбеддинг успешно установлен в {result.Value.InstallPath}.";
+
+                _notifications?.ShowNotification(
+                    "Tier 1 Эмбеддинг",
+                    "Модель multilingual-e5-small успешно установлена и готова к работе.",
+                    NotificationSeverity.Success);
+            }
+            else
+            {
+                EmbeddingStateText = result.Error!.Message;
+                _notifications?.ShowNotification(
+                    "Ошибка загрузки",
+                    result.Error.Message,
+                    NotificationSeverity.Error);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            EmbeddingStateText = "Загрузка эмбеддинга отменена.";
+            EmbeddingProgressText = "Отменено пользователем.";
+
+            try
+            {
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string directory = Path.Combine(localAppData, "CyberPipe", "embeddings", "multilingual-e5-small");
+                string sentinel = Path.Combine(directory, "model.onnx");
+                if (Directory.Exists(directory) && (!File.Exists(sentinel) || new FileInfo(sentinel).Length == 0))
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+            catch
+            {
+            }
+
+            _notifications?.ShowNotification(
+                "Tier 1 Эмбеддинг",
+                "Скачивание модели эмбеддинга отменено.",
+                NotificationSeverity.Warning);
+        }
+        catch (Exception ex)
+        {
+            EmbeddingStateText = $"Ошибка: {ex.Message}";
+            _notifications?.ShowNotification(
+                "Ошибка загрузки",
+                ex.Message,
+                NotificationSeverity.Error);
+        }
+        finally
+        {
+            IsEmbeddingDownloading = false;
+        }
+    }
+
+    public void CancelEmbedding()
+    {
+        if (IsEmbeddingDownloading)
+        {
+            EmbeddingProgressText = "Отмена загрузки...";
+            _embeddingCts?.Cancel();
+        }
+    }
+
+    public void RequestRemoveEmbedding()
+    {
+        EmbeddingNeedsRemoveConfirmation = true;
+    }
+
+    public void CancelRemoveEmbedding()
+    {
+        EmbeddingNeedsRemoveConfirmation = false;
+    }
+
+    public async Task ConfirmRemoveEmbeddingAsync()
+    {
+        EmbeddingNeedsRemoveConfirmation = false;
+        try
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string directory = Path.Combine(localAppData, "CyberPipe", "embeddings", "multilingual-e5-small");
+
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+
+            IsEmbeddingInstalled = false;
+            EmbeddingProgressPercent = 0;
+            EmbeddingProgressText = null;
+            EmbeddingStateText = "Эмбеддинг удалён с диска.";
+
+            _notifications?.ShowNotification(
+                "Tier 1 Эмбеддинг",
+                "Файлы эмбеддинга multilingual-e5-small успешно удалены с диска.",
+                NotificationSeverity.Info);
+        }
+        catch (IOException ex)
+        {
+            EmbeddingStateText = $"Не удалось удалить файлы (возможно, модель используется службой): {ex.Message}";
+            _notifications?.ShowNotification(
+                "Ошибка удаления",
+                "Файлы эмбеддинга заблокированы процессом или службой. Остановите службу перед удалением.",
+                NotificationSeverity.Warning);
+        }
+        catch (Exception ex)
+        {
+            EmbeddingStateText = $"Ошибка: {ex.Message}";
+            _notifications?.ShowNotification(
+                "Ошибка удаления",
+                ex.Message,
+                NotificationSeverity.Error);
+        }
+    }
+
+    public void CheckEmbeddingInstalledState()
+    {
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string sentinel = Path.Combine(localAppData, "CyberPipe", "embeddings", "multilingual-e5-small", "model.onnx");
+        if (File.Exists(sentinel) && new FileInfo(sentinel).Length > 0)
+        {
+            var fi = new FileInfo(sentinel);
+            double mb = fi.Length / (1024.0 * 1024.0);
+            IsEmbeddingInstalled = true;
+            EmbeddingStateText = $"Эмбеддинг установлен на диске ({mb:F1} МБ).";
         }
         else
         {
-            EmbeddingStateText = result.Error!.Message;
+            IsEmbeddingInstalled = false;
+            if (!IsEmbeddingDownloading)
+            {
+                EmbeddingStateText = "Эмбеддинг не установлен.";
+            }
         }
     }
 

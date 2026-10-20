@@ -44,11 +44,21 @@ public sealed class InstallerViewModelTests
         public Task<Result<ModelProbeResult>> VerifyAsync(ModelDescriptorDto model, CancellationToken cancellationToken = default) =>
             Task.FromResult(Result<ModelProbeResult>.Success(new ModelProbeResult { Succeeded = true, SampleText = "ok" }));
 
-        public Task<Result<EmbeddingInstallResult>> EnsureEmbeddingAsync(
+        public bool EmbeddingShouldHang { get; set; }
+
+        public async Task<Result<EmbeddingInstallResult>> EnsureEmbeddingAsync(
             IProgress<ModelInstallProgress>? progress = null,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(Result<EmbeddingInstallResult>.Success(
-                new EmbeddingInstallResult { AlreadyInstalled = true, InstallPath = "emb", VectorDimensions = 384 }));
+            CancellationToken cancellationToken = default)
+        {
+            if (EmbeddingShouldHang)
+            {
+                progress?.Report(new ModelInstallProgress { ModelId = "model.onnx", Percent = 35, DownloadedBytes = 3500, TotalBytes = 10000, Stage = "downloading" });
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+            progress?.Report(new ModelInstallProgress { ModelId = "model.onnx", Percent = 100, DownloadedBytes = 10000, TotalBytes = 10000, Stage = "success" });
+            return Result<EmbeddingInstallResult>.Success(
+                new EmbeddingInstallResult { AlreadyInstalled = false, InstallPath = "emb", VectorDimensions = 384 });
+        }
     }
 
     private sealed class FakeRuntime : ILocalRuntimeInstaller
@@ -217,12 +227,57 @@ public sealed class InstallerViewModelTests
     }
 
     [Fact]
-    public async Task EnsureEmbedding_UpdatesStateText()
+    public async Task EnsureEmbedding_ShowsProgressAndCompletes()
     {
         LocalModelInstallerViewModel vm = CreateViewModel();
 
         await vm.EnsureEmbeddingAsync();
 
-        Assert.Contains("already installed", vm.EmbeddingStateText, StringComparison.OrdinalIgnoreCase);
+        Assert.True(vm.IsEmbeddingInstalled);
+        Assert.False(vm.IsEmbeddingDownloading);
+        Assert.Equal(100, vm.EmbeddingProgressPercent);
+        Assert.Contains("emb", vm.EmbeddingStateText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task EnsureEmbedding_CanBeCancelled()
+    {
+        var installer = new FakeInstaller { EmbeddingShouldHang = true };
+        LocalModelInstallerViewModel vm = CreateViewModel(installer);
+
+        Task installTask = vm.EnsureEmbeddingAsync();
+
+        Assert.True(vm.IsEmbeddingDownloading);
+        Assert.Equal(35, vm.EmbeddingProgressPercent);
+
+        vm.CancelEmbedding();
+        await installTask;
+
+        Assert.False(vm.IsEmbeddingDownloading);
+        Assert.Contains("отменена", vm.EmbeddingStateText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Embedding_RemoveConfirmation_TogglesAndResetsState()
+    {
+        LocalModelInstallerViewModel vm = CreateViewModel();
+        await vm.EnsureEmbeddingAsync();
+        Assert.True(vm.IsEmbeddingInstalled);
+
+        // Request remove -> confirmation shown
+        vm.RequestRemoveEmbeddingCommand.Execute(null);
+        Assert.True(vm.EmbeddingNeedsRemoveConfirmation);
+
+        // Cancel remove -> confirmation hidden
+        vm.CancelRemoveEmbeddingCommand.Execute(null);
+        Assert.False(vm.EmbeddingNeedsRemoveConfirmation);
+
+        // Request remove and confirm
+        vm.RequestRemoveEmbeddingCommand.Execute(null);
+        await vm.ConfirmRemoveEmbeddingAsync();
+
+        Assert.False(vm.EmbeddingNeedsRemoveConfirmation);
+        Assert.False(vm.IsEmbeddingInstalled);
+        Assert.Contains("удалён", vm.EmbeddingStateText, StringComparison.OrdinalIgnoreCase);
     }
 }
