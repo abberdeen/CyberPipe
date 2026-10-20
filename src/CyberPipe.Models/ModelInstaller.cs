@@ -525,8 +525,14 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
         IProgress<ModelInstallProgress>? progress,
         CancellationToken ct)
     {
-        using HttpResponseMessage response = await _http.GetAsync(
-            url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!_http.DefaultRequestHeaders.Contains("User-Agent"))
+        {
+            request.Headers.TryAddWithoutValidation("User-Agent", "CyberPipe/1.0 (Windows NT 10.0; Win64; x64)");
+        }
+
+        using HttpResponseMessage response = await _http.SendAsync(
+            request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         long? total = response.Content.Headers.ContentLength;

@@ -25,11 +25,13 @@ public sealed class ModelsViewModel : ViewModelBase
         IEnumerable<TierModelAssignment>? assignments = null,
         IEnumerable<ModelDescriptorDto>? catalog = null,
         IDesktopNotificationService? notifications = null,
-        LocalizationManager? localization = null)
+        LocalizationManager? localization = null,
+        LocalModelInstallerViewModel? installer = null)
     {
         _notifications = notifications;
         _localization = localization ?? LocalizationManager.Instance;
         _installerNotice = _localization["Models.InstallerNotice"];
+        Installer = installer;
 
         LaunchInstallerCommand = new RelayCommand(LaunchInstaller);
 
@@ -51,8 +53,8 @@ public sealed class ModelsViewModel : ViewModelBase
         {
             // Default expected assignments
             Assignments.Add(new TierModelAssignmentViewModel { Tier = IntentTier.Tier0, TierName = "Tier 0 (Regex)", ModelId = "builtin-regex-rules", HostingType = ModelHostingType.Local });
-            Assignments.Add(new TierModelAssignmentViewModel { Tier = IntentTier.Tier1, TierName = "Tier 1 (Semantic)", ModelId = "bge-m3-onnx", HostingType = ModelHostingType.Local });
-            Assignments.Add(new TierModelAssignmentViewModel { Tier = IntentTier.Tier2, TierName = "Tier 2 (Small LLM)", ModelId = "qwen2.5-coder:7b", HostingType = ModelHostingType.Local });
+            Assignments.Add(new TierModelAssignmentViewModel { Tier = IntentTier.Tier1, TierName = "Tier 1 (Semantic)", ModelId = "multilingual-e5-small", HostingType = ModelHostingType.Local });
+            Assignments.Add(new TierModelAssignmentViewModel { Tier = IntentTier.Tier2, TierName = "Tier 2 (Small LLM)", ModelId = "qwen2.5:3b", HostingType = ModelHostingType.Local });
             Assignments.Add(new TierModelAssignmentViewModel { Tier = IntentTier.Tier3, TierName = "Tier 3 (Large LLM)", ModelId = "claude-3-5-sonnet", HostingType = ModelHostingType.RemoteCloud });
         }
 
@@ -65,6 +67,10 @@ public sealed class ModelsViewModel : ViewModelBase
             }
         }
     }
+
+    public LocalModelInstallerViewModel? Installer { get; }
+
+    public bool HasInstaller => Installer != null;
 
     public ObservableCollection<TierModelAssignmentViewModel> Assignments { get; } = [];
     public ObservableCollection<ModelDescriptorDto> Catalog { get; } = [];
@@ -79,9 +85,20 @@ public sealed class ModelsViewModel : ViewModelBase
 
     public void LaunchInstaller()
     {
-        _notifications?.ShowNotification(
-            "Model Installer",
-            "Ollama installer and hardware advisor will be initialized in TASK-081 & TASK-082.",
-            NotificationSeverity.Info);
+        if (Installer != null)
+        {
+            _ = Installer.RefreshAsync();
+            _notifications?.ShowNotification(
+                "Model Installer",
+                "Ollama runtime & local models installer refreshed.",
+                NotificationSeverity.Info);
+        }
+        else
+        {
+            _notifications?.ShowNotification(
+                "Model Installer",
+                "Local model installer is unavailable.",
+                NotificationSeverity.Warning);
+        }
     }
 }
