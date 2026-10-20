@@ -6,23 +6,23 @@
 
 | ID | Разрыв | Задачи | Статус |
 |---|---|---|---|
-| FIX-01 | CLI: `CliContext` только с Options — Router/ServiceControl/Hitl/Setup = null, боевой `ask/service` = ServiceUnavailable. Нужен транспорт к Service (расширение pipe-протокола TASK-020 командами route/budget/chain/hitl) + клиент в CLI | TASK-062, TASK-093 (F-CLI-SERVICE-CONTROL) | TODO |
+| FIX-01 | CLI: `service` подключён к реальному pipe+SCM (проверено живым запуском: `ServiceNotInstalled`, exit 0). Router/Chain/Hitl/Setup всё ещё null — нужен транспорт к Service (расширение pipe-протокола TASK-020 командами route/budget/chain/hitl) + клиент в CLI | TASK-062, TASK-093 (F-CLI-SERVICE-CONTROL — частично снят) | PARTIAL |
 | FIX-02 | Desktop боевой вход `CreateDefault()` на Standalone* (эхо-роутер, захардкоженный бюджет, no-op HITL/планировщик). Нужен тот же транспорт, что FIX-01 | TASK-061 | TODO (зависит от FIX-01) |
-| FIX-03 | Персистентность: Budget=`InMemoryBudgetStore`, ChainExecution/PackageRegistry=in-memory, личные репозитории (заметки/финансы/контакты)=in-memory. Postgres backing не подключён, данные теряются при рестарте | TASK-033, 042, 044, 051 | TODO |
-| FIX-04 | Voice: пустой `VoiceSkillRegistry()`, Whisper-движок (Brainstem STT) не зарегистрирован — `voice.transcribe` отсутствует в композиции | TASK-052 | TODO |
-| FIX-05 | Security без вызывающих: AntiWipeGuard / AudioContentSafety / EgressSanitizer никто не вызывает вне Security (0 вызовов в src) | TASK-070, 071, 072 | TODO |
-| FIX-06 | Не подключено: BrainstemSupervisor не hosted-сервис; Quartz — никто не вызывает ScheduleChainAsync; webhook — нет HTTP-роута; IDiagnosticsService не в DI | TASK-022, 045, 041, 004 | TODO |
+| FIX-03 | Персистентность: Budget — ГОТОВО (`PostgresBudgetStore` поверх `ITokenBudgetRepository`, регистрация в Data DI раньше Router TryAdd). Осталось: ChainExecution/PackageRegistry=in-memory, личные репозитории=in-memory | TASK-033 (done), 042, 044, 051 | PARTIAL |
+| FIX-04 | Voice: ГОТОВО в композиции — реестр строится от `IBrainstemWorker` (Brainstem STT + ffmpeg), Service регистрирует супервизор. Живой Whisper не проверен (нет бинаря воркера в среде) | TASK-052 | DONE (код), BLOCKED-ENV (live) |
+| FIX-05 | Security: EgressSanitizer подключён в Tier23 (Blocked = модель не вызывается, тест есть). Осталось: AntiWipeGuard / AudioContentSafety без вызывающих | TASK-072 (done), 070, 071 | PARTIAL |
+| FIX-06 | Подключено: BrainstemSupervisor (hosted-обёртка, не роняет службу), Quartz SyncWithRepository при старте, IDiagnosticsService в DI, StopAsync реально гасит Scheduler. Осталось: webhook — нет HTTP-роута | TASK-022, 045, 004 (done), 041 | PARTIAL |
 
 ## Дефекты внутри «готовых» задач
 
 | ID | Дефект | Задача | Статус |
 |---|---|---|---|
-| FIX-07 | SemanticCache: лимит записей — log-only no-op, вытеснения нет | TASK-034 | IN-PROGRESS |
-| FIX-08 | EmbeddingStore.Search: `LIMIT TopK` в SQL до фильтра MinScore → возвращает меньше TopK; нет HNSW | TASK-012 | IN-PROGRESS |
-| FIX-09 | Tier23: `CostUsd=0` всегда — стоимость не учитывается; CatalogModelPriceProvider есть в ServiceComposition, но не в Router DI по умолчанию | TASK-032, 033 | TODO |
+| FIX-07 | SemanticCache: ГОТОВО — `IEmbeddingStore.DeleteOldestAsync` (PG + фейки), вытеснение в Put, регрессионный тест | TASK-034 | DONE (live PG не проверен) |
+| FIX-08 | EmbeddingStore.Search: ГОТОВО — порог MinScore в WHERE (`distance <= 1-MinScore`) до LIMIT. HNSW-индекса по-прежнему нет | TASK-012 | DONE (SQL), TODO (HNSW) |
+| FIX-09 | Tier23/`CostUsd=0`: ГОТОВО на уровне губернатора — фактическая стоимость считается по IModelPriceProvider при записи (тест: $0 → $2.00 settled) | TASK-032, 033 | DONE |
 | FIX-10 | Tier1: токенизатор — FNV-хеш, не WordPiece multilingual-e5; семантика на реальной модели не та, что в тестах | TASK-031 | TODO |
 | FIX-11 | Sandbox: Deny-ACL отсутствует; fallback на plain CreateProcessW нарушает no-fallback; CreateRestrictedToken без SID | TASK-023 | TODO |
-| FIX-12 | Service restart = stop (оба callback — StopApplication) | TASK-020 | TODO |
+| FIX-12 | Service restart: в режиме службы — Exit(1) под SCM recovery (restart/5000 в install-скрипте); в консоли — честная остановка с предупреждением. Живой рестарт не проверен | TASK-020 | DONE (код), BLOCKED-ENV (live) |
 | FIX-13 | Setup: PG-конструктор DefaultSetupStateRepository не подключён (in-memory ctor); Desktop показывает только баннер мастера | TASK-063 | TODO |
 | FIX-14 | Telegram: Photo не маппится, /status захардкожен, /stop не прерывает задачу; без токена — Fake-адаптер | TASK-060 | TODO |
 | FIX-15 | Models: installer без Avalonia View и не инстанцируется в Desktop; GPU у advisor всегда null → VRAM-путь мёртв | TASK-081, 082 | TODO |
