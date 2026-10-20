@@ -94,6 +94,4 @@ public sealed class VolumeSetSkill(IHostMediaController controller) : IHostSkill
 
         return target > current && (isLargeIncrease || isJumpToHighVolume);
     }
-
-
 }
