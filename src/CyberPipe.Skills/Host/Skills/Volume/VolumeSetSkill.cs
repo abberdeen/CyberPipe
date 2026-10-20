@@ -8,7 +8,7 @@ public sealed class VolumeSetSkill(IHostMediaController controller) : IHostSkill
 {
     public string SkillId => "volume.set";
     public string Name => "Volume Set";
-    public string Description => "Sets host audio volume (0-100). Drastic changes require owner approval.";
+    public string Description => "Sets host audio volume (0-100). Drastic increases require owner approval.";
 
     public async Task<HostSkillResult> ExecuteAsync(string payloadJson, CancellationToken cancellationToken = default)
     {
@@ -21,7 +21,7 @@ public sealed class VolumeSetSkill(IHostMediaController controller) : IHostSkill
         if (!force && IsDrasticChange(currentVolume, targetVolume))
         {
             return HostSkillResult.NeedsApproval(
-                $"Changing volume from {currentVolume}% to {targetVolume}% is a drastic change and requires confirmation.",
+                $"Increasing volume from {currentVolume}% to {targetVolume}% is a drastic change and requires confirmation.",
                 payloadJson);
         }
 
@@ -85,7 +85,8 @@ public sealed class VolumeSetSkill(IHostMediaController controller) : IHostSkill
         return true;
     }
 
-    // Резкое изменение громкости требует подтверждения владельца (TASK-050).
+    // Резкое повышение громкости требует подтверждения владельца (TASK-050).
+    // Уменьшение громкости безопасно для слуха и не требует подтверждения.
     private static bool IsDrasticChange(int current, int target) =>
-        Math.Abs(target - current) > 40 || (target > 80 && current <= 40);
+        target > current && (target - current > 40 || (target > 80 && current <= 40));
 }

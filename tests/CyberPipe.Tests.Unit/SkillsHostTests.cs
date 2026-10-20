@@ -141,6 +141,20 @@ public sealed class SkillsHostTests
     }
 
     [Fact]
+    public async Task VolumeSet_DrasticDecrease_DoesNotRequireApproval()
+    {
+        var media = new FakeMediaController { Volume = 100 };
+        var setSkill = new VolumeSetSkill(media);
+
+        // Уменьшение громкости (например, со 100% до 20%) безопасно для слуха и не требует подтверждения
+        HostSkillResult result = await setSkill.ExecuteAsync("{\"volume\":20}");
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.RequiresApproval);
+        Assert.Equal(20, media.Volume);
+    }
+
+    [Fact]
     public async Task VolumeUpAndDown_ValidAndInvalidSteps_BehaveCorrectly()
     {
         var media = new FakeMediaController { Volume = 30 };

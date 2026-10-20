@@ -13,6 +13,7 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
     private readonly IClipboardService _clipboard;
     private readonly IDesktopNotificationService? _notifications;
     private readonly DispatcherTimer? _timer;
+    private readonly SemaphoreSlim _loadLock = new(1, 1);
 
     private readonly List<OpenTelemetryLogEntry> _allEntries = [];
     private OpenTelemetryLogEntry? _selectedEntry;
@@ -22,6 +23,7 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
     private bool _openTelemetryOnly;
     private string? _activeTraceIdFilter;
     private bool _isLiveAutoRefresh = true;
+    private string _logDirectoryPath;
     private bool _isLoading;
     private string _statusText = "Загрузка логов...";
 
@@ -29,6 +31,7 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
         ITelemetryLogReaderService? reader = null,
         IClipboardService? clipboard = null,
         IDesktopNotificationService? notifications = null,
+        string? logDirectory = null,
         bool enableTimer = true)
     {
         _reader = reader ?? new TelemetryLogReaderService();
@@ -45,7 +48,7 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
         CopySelectedJsonCommand = new AsyncRelayCommand(CopySelectedJsonAsync, () => SelectedEntry != null);
         OpenInSeparateWindowCommand = new RelayCommand(() => OpenInSeparateWindowRequested?.Invoke());
 
-        LogDirectoryPath = CyberPipeLogging.GetDefaultLogDirectory();
+        _logDirectoryPath = logDirectory ?? CyberPipeLogging.GetDefaultLogDirectory();
 
         if (enableTimer)
         {
@@ -71,9 +74,21 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
     public IReadOnlyList<string> LevelFilters { get; } =
         ["All Levels", "Information+", "Warning+", "Error", "Debug"];
 
-    public string LogDirectoryPath { get; }
+    public string LogDirectoryPath
+    {
+        get => _logDirectoryPath;
+        set
+        {
+            if (SetProperty(ref _logDirectoryPath, value))
+            {
+                _ = LoadLogsAsync(isAutoRefresh: false);
+            }
+        }
+    }
 
     public Action? OpenInSeparateWindowRequested { get; set; }
+
+    public bool HasSelectedEntry => _selectedEntry != null;
 
     public OpenTelemetryLogEntry? SelectedEntry
     {
@@ -82,6 +97,7 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedEntry, value))
             {
+                OnPropertyChanged(nameof(HasSelectedEntry));
                 FilterByTraceCommand.RaiseCanExecuteChanged();
                 CopyTraceIdCommand.RaiseCanExecuteChanged();
                 CopySelectedJsonCommand.RaiseCanExecuteChanged();
@@ -182,18 +198,14 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
 
     public async Task LoadLogsAsync(bool isAutoRefresh = false)
     {
-        if (IsLoading)
-        {
-            return;
-        }
-
-        if (!isAutoRefresh)
-        {
-            IsLoading = true;
-        }
-
+        await _loadLock.WaitAsync().ConfigureAwait(true);
         try
         {
+            if (!isAutoRefresh)
+            {
+                IsLoading = true;
+            }
+
             IReadOnlyList<OpenTelemetryLogEntry> logs = await _reader.ReadLogsAsync(LogDirectoryPath).ConfigureAwait(true);
 
             _allEntries.Clear();
@@ -208,6 +220,7 @@ public sealed class TelemetryLogsViewModel : ViewModelBase
         finally
         {
             IsLoading = false;
+            _loadLock.Release();
         }
     }
 

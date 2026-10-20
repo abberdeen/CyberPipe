@@ -116,6 +116,14 @@
                               IsVisible="{Binding !HasHostingSelector}">
                         <TextBlock Text="{Binding HostingTypeText}" FontSize="11" FontWeight="SemiBold" Opacity="0.8" />
                       </Border>
+
+                      <!-- Test Model Button -->
+                      <Button Content="💬 Тест"
+                              Command="{Binding TestCommand}"
+                              Padding="8,4"
+                              Margin="4,0,0,0"
+                              ToolTip.Tip="Открыть диалог проверки прямого ответа модели"
+                              VerticalAlignment="Center" />
                     </StackPanel>
                   </Grid>
                 </Border>
@@ -265,6 +273,10 @@
                                 Command="{Binding InstallCommand}"
                                 IsVisible="{Binding CanInstall}"
                                 Classes="accent" />
+                        <Button Content="💬 Тест"
+                                Command="{Binding TestCommand}"
+                                IsVisible="{Binding IsInstalled}"
+                                ToolTip.Tip="Открыть диалог проверки прямого ответа модели" />
                         <Button Content="Проверить"
                                 Command="{Binding VerifyCommand}"
                                 IsVisible="{Binding IsInstalled}" />
@@ -324,7 +336,7 @@
                         Padding="10"
                         CornerRadius="6"
                         Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
-                  <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                  <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto">
                     <StackPanel Grid.Column="0" Spacing="2">
                       <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                       <TextBlock Text="{Binding ParamsSummary}" FontSize="11" Opacity="0.7" />
@@ -335,6 +347,12 @@
                     <Button Grid.Column="3"
                             Content="Назначить"
                             Command="{Binding AssignCommand}"
+                            VerticalAlignment="Center" />
+                    <Button Grid.Column="4"
+                            Content="💬 Тест"
+                            Command="{Binding TestCommand}"
+                            Margin="8,0,0,0"
+                            ToolTip.Tip="Открыть диалог проверки прямого ответа модели"
                             VerticalAlignment="Center" />
                   </Grid>
                 </Border>

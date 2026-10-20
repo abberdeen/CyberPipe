@@ -20,6 +20,7 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
     public string Description { get; init; } = string.Empty;
     public bool IsEditable => Tier != IntentTier.Tier0;
     public bool HasHostingSelector => Tier == IntentTier.Tier2 || Tier == IntentTier.Tier3;
+    public RelayCommand? TestCommand { get; set; }
 
     public Action<TierModelAssignmentViewModel>? OnHostingTypeChanged { get; set; }
 
@@ -110,6 +111,7 @@ public sealed class CatalogItemViewModel : ViewModelBase
 {
     public required ModelDescriptorDto Model { get; init; }
     public required RelayCommand AssignCommand { get; init; }
+    public RelayCommand? TestCommand { get; init; }
 
     public string Name => Model.Name;
     public string ParamsSummary => Model.ParamsSummary;
@@ -124,6 +126,8 @@ public sealed class ModelsViewModel : ViewModelBase
     private readonly LocalizationManager _localization;
     private readonly IModelCatalog? _modelCatalog;
     private readonly string _uiOverridesPath;
+    private readonly IModelTestService _modelTestService;
+    private readonly IClipboardService _clipboardService;
 
     private string _installerNotice;
     private string _statusMessage = string.Empty;
@@ -136,7 +140,9 @@ public sealed class ModelsViewModel : ViewModelBase
         LocalModelInstallerViewModel? installer = null,
         IModelCatalog? modelCatalog = null,
         CyberPipeOptions? options = null,
-        string? uiOverridesPath = null)
+        string? uiOverridesPath = null,
+        IModelTestService? modelTestService = null,
+        IClipboardService? clipboardService = null)
     {
         _notifications = notifications;
         _localization = localization ?? LocalizationManager.Instance;
@@ -144,6 +150,8 @@ public sealed class ModelsViewModel : ViewModelBase
         _modelCatalog = modelCatalog;
         Installer = installer;
         _uiOverridesPath = uiOverridesPath ?? CyberPipeConfigurationLoader.GetDefaultUiOverridesPath();
+        _modelTestService = modelTestService ?? new ModelTestService();
+        _clipboardService = clipboardService ?? AvaloniaClipboardService.Default;
 
         LaunchInstallerCommand = new RelayCommand(LaunchInstaller);
         SaveTierAssignmentsCommand = new RelayCommand(SaveTierAssignments);
@@ -159,10 +167,35 @@ public sealed class ModelsViewModel : ViewModelBase
         AssignToTier2Command = new RelayCommand(param => AssignModelToTier(IntentTier.Tier2, param as string ?? ""));
         AssignToTier3Command = new RelayCommand(param => AssignModelToTier(IntentTier.Tier3, param as string ?? ""));
 
-        // Wire up installer assignment callback
+        TestModelCommand = new RelayCommand(param =>
+        {
+            if (param is ModelDescriptorDto model)
+            {
+                OpenTestForModel(model);
+            }
+            else if (param is CatalogItemViewModel catalogItem)
+            {
+                OpenTestForModel(catalogItem.Model);
+            }
+            else if (param is LocalModelItemViewModel localItem)
+            {
+                OpenTestForModel(localItem.Model);
+            }
+            else if (param is TierModelAssignmentViewModel tierItem)
+            {
+                OpenTestForTier(tierItem);
+            }
+            else if (param is string modelId && !string.IsNullOrWhiteSpace(modelId))
+            {
+                OpenTestForModelId(modelId, ModelHostingType.Local);
+            }
+        });
+
+        // Wire up installer assignment and test callbacks
         if (Installer != null)
         {
             Installer.OnAssignModel = model => AssignCatalogModel(model);
+            Installer.OnTestModel = model => OpenTestForModel(model);
         }
 
         // Populate catalog
@@ -175,6 +208,7 @@ public sealed class ModelsViewModel : ViewModelBase
                 {
                     Model = item,
                     AssignCommand = new RelayCommand(() => AssignCatalogModel(item)),
+                    TestCommand = new RelayCommand(() => OpenTestForModel(item)),
                 });
             }
         }
@@ -218,6 +252,34 @@ public sealed class ModelsViewModel : ViewModelBase
     public RelayCommand AssignToTier1Command { get; }
     public RelayCommand AssignToTier2Command { get; }
     public RelayCommand AssignToTier3Command { get; }
+    public RelayCommand TestModelCommand { get; }
+
+    public Func<ModelTestViewModel, Task>? OpenModelTestRequested { get; set; }
+
+    public void OpenTestForModel(ModelDescriptorDto model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        var vm = new ModelTestViewModel(model, _modelTestService, _clipboardService);
+        OpenModelTestRequested?.Invoke(vm);
+    }
+
+    public void OpenTestForModelId(string modelId, ModelHostingType hosting, string? provider = null, string? name = null)
+    {
+        var vm = new ModelTestViewModel(modelId, hosting, provider ?? "Ollama", name ?? modelId, _modelTestService, _clipboardService);
+        OpenModelTestRequested?.Invoke(vm);
+    }
+
+    public void OpenTestForTier(TierModelAssignmentViewModel tierItem)
+    {
+        if (tierItem == null) return;
+        string modelId = string.IsNullOrWhiteSpace(tierItem.SelectedModel) ? tierItem.ModelId : tierItem.SelectedModel;
+        ModelHostingType hosting = tierItem.HostingType ?? (tierItem.Tier == IntentTier.Tier3 ? ModelHostingType.RemoteCloud : ModelHostingType.Local);
+        string provider = hosting == ModelHostingType.RemoteCloud ? "Cloud" : "Ollama";
+        if (tierItem.Tier == IntentTier.Tier1) provider = "ONNX";
+        if (tierItem.Tier == IntentTier.Tier0) provider = "Regex";
+
+        OpenTestForModelId(modelId, hosting, provider, $"{tierItem.TierName}: {modelId}");
+    }
 
     private void InitializeTierAssignments(
         IEnumerable<TierModelAssignment>? assignments,
@@ -268,7 +330,7 @@ public sealed class ModelsViewModel : ViewModelBase
         }
 
         // Tier 0
-        Assignments.Add(new TierModelAssignmentViewModel
+        var t0Vm = new TierModelAssignmentViewModel
         {
             Tier = IntentTier.Tier0,
             TierName = "Tier 0 (Regex)",
@@ -276,7 +338,9 @@ public sealed class ModelsViewModel : ViewModelBase
             ModelId = tier0Model,
             SelectedModel = tier0Model,
             HostingType = ModelHostingType.Local,
-        });
+        };
+        t0Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t0Vm));
+        Assignments.Add(t0Vm);
 
         // Tier 1
         var t1Vm = new TierModelAssignmentViewModel
@@ -289,6 +353,7 @@ public sealed class ModelsViewModel : ViewModelBase
             HostingType = ModelHostingType.Local,
         };
         foreach (string c in tier1Candidates) t1Vm.AvailableModels.Add(c);
+        t1Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t1Vm));
         Assignments.Add(t1Vm);
 
         // Tier 2
@@ -305,6 +370,7 @@ public sealed class ModelsViewModel : ViewModelBase
         var t2Candidates = GetCandidatesForHosting(tier2Hosting, IntentTier.Tier2);
         if (!t2Candidates.Contains(tier2Model)) t2Candidates.Insert(0, tier2Model);
         foreach (string c in t2Candidates) t2Vm.AvailableModels.Add(c);
+        t2Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t2Vm));
         Assignments.Add(t2Vm);
 
         // Tier 3
@@ -321,6 +387,7 @@ public sealed class ModelsViewModel : ViewModelBase
         var t3Candidates = GetCandidatesForHosting(tier3Hosting, IntentTier.Tier3);
         if (!t3Candidates.Contains(tier3Model)) t3Candidates.Insert(0, tier3Model);
         foreach (string c in t3Candidates) t3Vm.AvailableModels.Add(c);
+        t3Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t3Vm));
         Assignments.Add(t3Vm);
     }
 

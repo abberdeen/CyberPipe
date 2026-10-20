@@ -29,8 +29,14 @@
           </Border>
         </StackPanel>
 
-        <!-- Right Controls: Language & Theme -->
+        <!-- Right Controls: Language, Theme & Logs Window -->
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <!-- Logs Window Button -->
+          <Button Content="Logs (OTel)"
+                  Command="{Binding OpenLogsWindowCommand}"
+                  Classes="accent"
+                  ToolTip.Tip="Открыть логи OpenTelemetry и процессов в отдельном окне" />
+
           <!-- Language Toggle -->
           <Button Content="RU/EN"
                   Command="{Binding SwitchLanguageCommand}"
@@ -103,6 +109,10 @@
       <TabItem Header="Host skills">
         <views:HostSkillsTestView DataContext="{Binding HostSkills}" />
       </TabItem>
+
+      <TabItem Header="Logs">
+        <views:TelemetryLogsView DataContext="{Binding Logs}" />
+      </TabItem>
     </TabControl>
 
     <!-- In-App Notification Overlay / Toast Bar -->
@@ -111,20 +121,23 @@
             BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
             BorderThickness="0,1,0,0"
             Padding="12,6"
+            MaxHeight="200"
             IsVisible="{Binding Notifications.ActiveNotifications.Count}">
-      <ItemsControl ItemsSource="{Binding Notifications.ActiveNotifications}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate DataType="notif:DesktopNotification">
-            <Grid ColumnDefinitions="*,Auto">
-              <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="{Binding Title, StringFormat='[{0}]'}" FontWeight="Bold" FontSize="11" />
-                <TextBlock Text="{Binding Message}" FontSize="11" Opacity="0.9" />
-              </StackPanel>
-              <TextBlock Grid.Column="1" Text="{Binding CreatedAtUtc, StringFormat='{}{0:HH:mm:ss}'}" FontSize="10" Opacity="0.5" />
-            </Grid>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
+      <ScrollViewer MaxHeight="190">
+        <ItemsControl ItemsSource="{Binding Notifications.ActiveNotifications}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate DataType="notif:DesktopNotification">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="{Binding Title, StringFormat='[{0}]'}" FontWeight="Bold" FontSize="11" />
+                  <TextBlock Text="{Binding Message}" FontSize="11" Opacity="0.9" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="{Binding CreatedAtUtc, StringFormat='{}{0:HH:mm:ss}'}" FontSize="10" Opacity="0.5" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
     </Border>
   </Grid>
 </Window>

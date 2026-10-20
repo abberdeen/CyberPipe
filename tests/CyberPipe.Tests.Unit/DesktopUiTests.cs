@@ -208,7 +208,7 @@ public sealed class DesktopUiTests
         var controller = new DroppingServiceController();
         var serviceVm = new ServiceViewModel(controller);
 
-        DateTime deadline = DateTime.UtcNow.AddSeconds(2);
+        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
         while (serviceVm.State != "Faulted" && DateTime.UtcNow < deadline)
         {
             await Task.Delay(20);

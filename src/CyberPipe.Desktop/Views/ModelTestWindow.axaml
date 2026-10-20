@@ -1,0 +1,229 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+        x:Class="CyberPipe.Desktop.Views.ModelTestWindow"
+        x:DataType="vm:ModelTestViewModel"
+        Title="Прямой тест модели"
+        Width="680"
+        Height="600"
+        MinWidth="520"
+        MinHeight="450"
+        WindowStartupLocation="CenterOwner"
+        CanResize="True">
+
+  <Grid Margin="18" RowDefinitions="Auto,Auto,*,Auto">
+    <!-- 1. Header with Model Info -->
+    <Border Grid.Row="0"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="14"
+            Margin="0,0,0,14">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Grid.Column="0" Spacing="4">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="💬" FontSize="16" VerticalAlignment="Center" />
+            <TextBlock Text="{Binding ModelName}" FontWeight="Bold" FontSize="16" VerticalAlignment="Center" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <TextBlock Text="{Binding ModelId}" FontFamily="Consolas,Menlo,monospace" FontSize="12" Opacity="0.8" />
+            <TextBlock Text="•" Opacity="0.4" />
+            <TextBlock Text="{Binding HostingTypeText}" FontSize="12" FontWeight="SemiBold" />
+            <TextBlock Text="•" Opacity="0.4" />
+            <TextBlock Text="{Binding Provider, StringFormat='Провайдер: {0}'}" FontSize="12" Opacity="0.8" />
+          </StackPanel>
+        </StackPanel>
+
+        <!-- Status badge / indicator -->
+        <Border Grid.Column="1"
+                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                CornerRadius="6"
+                Padding="10,6"
+                VerticalAlignment="Center">
+          <TextBlock Text="Интерактивный тест" FontSize="11" FontWeight="SemiBold" Opacity="0.8" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- 2. Prompt Input & Presets -->
+    <Border Grid.Row="1"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="14"
+            Margin="0,0,0,14">
+      <StackPanel Spacing="10">
+        <!-- Label and Quick presets -->
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Grid.Column="0" Text="Сообщение для модели:" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+            <Button Content="Приветствие" Command="{Binding SetGreetingPromptCommand}" FontSize="11" Padding="6,2" />
+            <Button Content="Логика" Command="{Binding SetLogicPromptCommand}" FontSize="11" Padding="6,2" />
+            <Button Content="Код" Command="{Binding SetCodePromptCommand}" FontSize="11" Padding="6,2" />
+            <Button Content="Сбросить" Command="{Binding ResetPromptCommand}" FontSize="11" Padding="6,2" />
+          </StackPanel>
+        </Grid>
+
+        <!-- Prompt input -->
+        <TextBox Text="{Binding Prompt, Mode=TwoWay}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 Height="72"
+                 PlaceholderText="Введите текст сообщения для модели..."
+                 VerticalContentAlignment="Top" />
+
+        <!-- Actions row -->
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+          <Button Grid.Column="0"
+                  Content="Отправить"
+                  Command="{Binding SendCommand}"
+                  Classes="accent"
+                  FontWeight="SemiBold"
+                  Padding="14,6" />
+
+          <Button Grid.Column="1"
+                  Content="Отмена"
+                  Command="{Binding CancelCommand}"
+                  IsVisible="{Binding IsSending}"
+                  Margin="8,0,0,0"
+                  Padding="12,6" />
+
+          <Button Grid.Column="2"
+                  Content="Очистить"
+                  Command="{Binding ClearPromptCommand}"
+                  IsEnabled="{Binding !IsSending}"
+                  Margin="8,0,0,0"
+                  Padding="10,6"
+                  HorizontalAlignment="Left" />
+
+          <!-- Loading indicator -->
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsSending}">
+            <ProgressBar IsIndeterminate="True" Width="80" Height="4" VerticalAlignment="Center" />
+            <TextBlock Text="Ожидание ответа..." FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- 3. Result Section -->
+    <Border Grid.Row="2"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="14">
+      <Grid RowDefinitions="Auto,*">
+        <!-- Result Header / Status Bar -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Text="Результат ответа:" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+
+            <!-- Success badge -->
+            <Border Background="#1A10B981" BorderBrush="#FF10B981" BorderThickness="1" CornerRadius="4" Padding="6,2" IsVisible="{Binding HasResponse}">
+              <TextBlock Text="✔ Ответ получен" Foreground="#FF10B981" FontWeight="SemiBold" FontSize="11" />
+            </Border>
+
+            <!-- Latency badge -->
+            <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" CornerRadius="4" Padding="6,2" IsVisible="{Binding HasResponse}">
+              <TextBlock Text="{Binding LatencyText, StringFormat='⏱ {0}'}" FontSize="11" Opacity="0.85" />
+            </Border>
+
+            <!-- Tokens summary -->
+            <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" CornerRadius="4" Padding="6,2" IsVisible="{Binding HasResponse}">
+              <TextBlock Text="{Binding TokensSummary}" FontSize="11" Opacity="0.85" />
+            </Border>
+
+            <!-- Error badge -->
+            <Border Background="#1AEF4444" BorderBrush="#FFEF4444" BorderThickness="1" CornerRadius="4" Padding="6,2" IsVisible="{Binding HasError}">
+              <TextBlock Text="❌ Ошибка вызова" Foreground="#FFEF4444" FontWeight="SemiBold" FontSize="11" />
+            </Border>
+          </StackPanel>
+
+          <!-- Copy Button -->
+          <Button Grid.Column="1"
+                  Command="{Binding CopyResponseCommand}"
+                  IsVisible="{Binding HasResponse}"
+                  Padding="8,4"
+                  VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="4">
+              <TextBlock Text="📋" FontSize="11" VerticalAlignment="Center" />
+              <TextBlock Text="Скопировано!" IsVisible="{Binding IsCopied}" FontWeight="SemiBold" FontSize="11" />
+              <TextBlock Text="Копировать" IsVisible="{Binding !IsCopied}" FontSize="11" />
+            </StackPanel>
+          </Button>
+        </Grid>
+
+        <!-- Response Body -->
+        <ScrollViewer Grid.Row="1">
+          <StackPanel Spacing="8">
+            <!-- Idle state placeholder -->
+            <Border Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
+                    CornerRadius="6"
+                    Padding="16"
+                    IsVisible="{Binding !HasResponse}">
+              <StackPanel Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,20">
+                <TextBlock Text="💡" FontSize="24" HorizontalAlignment="Center" />
+                <TextBlock Text="Нажмите кнопку «Отправить» для прямого обращения к модели."
+                           FontSize="12"
+                           Opacity="0.7"
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- Error message container -->
+            <Border Background="#1AEF4444"
+                    BorderBrush="#FFEF4444"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="12"
+                    IsVisible="{Binding HasError}">
+              <StackPanel Spacing="4">
+                <TextBlock Text="Описание проблемы:" FontWeight="Bold" FontSize="12" Foreground="#FFEF4444" />
+                <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" FontSize="12" />
+              </StackPanel>
+            </Border>
+
+            <!-- Success response text -->
+            <TextBox Text="{Binding ResponseText, Mode=OneWay}"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas,Menlo,monospace"
+                     FontSize="12"
+                     MinHeight="140"
+                     IsVisible="{Binding HasResponse}" />
+
+            <!-- Thinking / Reasoning expander if model produced reasoning -->
+            <Expander Header="Рассуждение модели (Thinking Process)"
+                      IsVisible="{Binding HasThinking}"
+                      Margin="0,4,0,0">
+              <TextBox Text="{Binding ThinkingText, Mode=OneWay}"
+                       IsReadOnly="True"
+                       AcceptsReturn="True"
+                       TextWrapping="Wrap"
+                       FontFamily="Consolas,Menlo,monospace"
+                       FontSize="11"
+                       Opacity="0.8"
+                       MaxHeight="150" />
+            </Expander>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+
+    <!-- 4. Footer -->
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,14,0,0">
+      <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <TextBlock Text="{Binding ModelUsed, StringFormat='Рантайм: {0}'}" FontSize="11" Opacity="0.6" IsVisible="{Binding HasResponse}" />
+      </StackPanel>
+
+      <Button Grid.Column="1"
+              Content="Закрыть"
+              Command="{Binding CloseCommand}"
+              Padding="16,6" />
+    </Grid>
+  </Grid>
+</Window>

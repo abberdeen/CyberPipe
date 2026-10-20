@@ -165,6 +165,11 @@ public sealed class ServiceViewModel : ViewModelBase
     {
         try
         {
+            if (Avalonia.Application.Current?.ApplicationLifetime is null)
+            {
+                return false;
+            }
+
             Dispatcher dispatcher = Dispatcher.UIThread;
             if (dispatcher.CheckAccess())
             {
