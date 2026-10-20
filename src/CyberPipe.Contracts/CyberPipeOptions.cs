@@ -260,8 +260,14 @@ public sealed record RouterOptions
     /// <summary>Идентификатор модели яруса Tier2 из каталога TASK-080; пусто — не назначена.</summary>
     public string? Tier2ModelId { get; init; }
 
+    /// <summary>Тип размещения модели яруса Tier2 (локальный или удаленный/облачный); пусто — автоопределение по каталогу/модели.</summary>
+    public ModelHostingType? Tier2HostingType { get; init; }
+
     /// <summary>Идентификатор модели яруса Tier3 из каталога TASK-080; пусто — не назначена.</summary>
     public string? Tier3ModelId { get; init; }
+
+    /// <summary>Тип размещения модели яруса Tier3 (локальный или удаленный/облачный); пусто — автоопределение по каталогу/модели.</summary>
+    public ModelHostingType? Tier3HostingType { get; init; }
 
     /// <summary>Порог косинусной близости Tier1 для Matched.</summary>
     public double Tier1SimilarityThreshold { get; init; } = 0.80;

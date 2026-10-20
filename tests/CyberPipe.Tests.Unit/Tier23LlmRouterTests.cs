@@ -334,12 +334,57 @@ public sealed class Tier23LlmRouterTests
         }
     }
 
+    [Fact]
+    public async Task Tier23_RespectsConfiguredHostingType_ForTier2AndTier3()
+    {
+        var modelProvider = new FakeChatModelProvider();
+        modelProvider.SetResponse(ChatModelClass.Light, """{ "intent": "user.greeting", "confidence": 0.95 }""");
+        modelProvider.SetResponse(ChatModelClass.Heavy, """{ "intent": "order.complex", "confidence": 0.90 }""");
+
+        var governor = new FakeBudgetGovernor(allowAll: true);
+        var options = new CyberPipeOptions
+        {
+            Router = new RouterOptions
+            {
+                Tier2ModelId = "gpt-4o-mini",
+                Tier2HostingType = ModelHostingType.RemoteCloud,
+                Tier3ModelId = "llama3.1:8b",
+                Tier3HostingType = ModelHostingType.Local,
+                Tier2ConfidenceThreshold = 0.8,
+                Tier3ConfidenceThreshold = 0.8
+            }
+        };
+
+        var router = new Tier23LlmRouter(modelProvider, governor, options);
+
+        // Tier 2 should authorize with RemoteCloud
+        var result2 = await router.TryRouteAsync(new RouteRequest { Text = "Hello", Channel = ChannelKind.Telegram });
+        Assert.Equal(RouteStatus.Matched, result2.Status);
+        Assert.Equal("user.greeting", result2.Intent);
+        Assert.NotEmpty(governor.AuthorizationRequests);
+        Assert.Equal(ModelHostingType.RemoteCloud, governor.AuthorizationRequests[0].HostingType);
+        Assert.Equal("gpt-4o-mini", governor.AuthorizationRequests[0].ModelId);
+
+        // Now test Tier 3 with low confidence in Tier 2
+        governor.AuthorizationRequests.Clear();
+        modelProvider.SetResponse(ChatModelClass.Light, """{ "intent": "unknown", "confidence": 0.40 }""");
+        var result3 = await router.TryRouteAsync(new RouteRequest { Text = "Order complex widget", Channel = ChannelKind.Telegram });
+        Assert.Equal(RouteStatus.Matched, result3.Status);
+        Assert.Equal("order.complex", result3.Intent);
+        // AuthorizationRequests: first was Tier 2 (RemoteCloud), second was Tier 3 (Local)
+        Assert.Equal(2, governor.AuthorizationRequests.Count);
+        Assert.Equal(ModelHostingType.Local, governor.AuthorizationRequests[1].HostingType);
+        Assert.Equal("llama3.1:8b", governor.AuthorizationRequests[1].ModelId);
+    }
+
     private sealed class FakeBudgetGovernor(bool allowAll, BudgetDenialReason denialReason = BudgetDenialReason.DailyBudgetExceeded) : ITokenBudgetGovernor
     {
         public List<TokenUsageDto> RecordedUsages { get; } = [];
+        public List<BudgetRequest> AuthorizationRequests { get; } = [];
 
         public Task<BudgetDecision> TryAuthorizeAsync(BudgetRequest request, CancellationToken cancellationToken = default)
         {
+            AuthorizationRequests.Add(request);
             if (allowAll)
             {
                 return Task.FromResult(new BudgetDecision { IsAllowed = true });

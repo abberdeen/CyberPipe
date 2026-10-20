@@ -108,7 +108,7 @@ public sealed class Tier23LlmRouter : IRouterTier
         CancellationToken cancellationToken)
     {
         string modelId = _options.Router.Tier2ModelId ?? "tier2-light";
-        ModelHostingType hosting = DetermineHostingType(modelId, ModelHostingType.Local);
+        ModelHostingType hosting = _options.Router.Tier2HostingType ?? DetermineHostingType(modelId, ModelHostingType.Local);
 
         int estimatedInput = 200 + (request.Text.Length / 3);
         int estimatedOutput = 100;
@@ -217,7 +217,7 @@ public sealed class Tier23LlmRouter : IRouterTier
         CancellationToken cancellationToken)
     {
         string modelId = _options.Router.Tier3ModelId ?? "tier3-heavy";
-        ModelHostingType hosting = DetermineHostingType(modelId, ModelHostingType.RemoteCloud);
+        ModelHostingType hosting = _options.Router.Tier3HostingType ?? DetermineHostingType(modelId, ModelHostingType.RemoteCloud);
 
         int estimatedInput = 300 + (request.Text.Length / 3);
         int estimatedOutput = 150;

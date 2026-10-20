@@ -608,6 +608,120 @@ public sealed class DesktopUiTests
                 Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public void ModelsViewModel_HostingToggle_SwitchesAvailableModelsAndSaves()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "cyberpipe_test_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        string tempOverrides = Path.Combine(tempDir, "ui-overrides.json");
+
+        try
+        {
+            var notifications = new DesktopNotificationService();
+            var catalog = new List<ModelDescriptorDto>
+            {
+                new()
+                {
+                    Id = "qwen2.5:7b",
+                    Name = "Qwen 2.5 7B",
+                    HostingType = ModelHostingType.Local,
+                    RecommendedFor = ModelTaskCategory.LightFastTier2,
+                    Provider = "Ollama",
+                    ModelId = "qwen2.5:7b",
+                    ParamsSummary = "7B",
+                    LicenseOrPricing = "Apache-2.0",
+                    BestFor = "Tier 2",
+                },
+                new()
+                {
+                    Id = "gpt-4o-mini",
+                    Name = "GPT-4o Mini",
+                    HostingType = ModelHostingType.RemoteCloud,
+                    RecommendedFor = ModelTaskCategory.LightFastTier2,
+                    Provider = "OpenAI",
+                    ModelId = "gpt-4o-mini",
+                    ParamsSummary = "128k",
+                    LicenseOrPricing = "Commercial",
+                    BestFor = "Tier 2 Cloud",
+                },
+                new()
+                {
+                    Id = "llama3.1:8b",
+                    Name = "Llama 3.1 8B",
+                    HostingType = ModelHostingType.Local,
+                    RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+                    Provider = "Ollama",
+                    ModelId = "llama3.1:8b",
+                    ParamsSummary = "8B",
+                    LicenseOrPricing = "Llama 3.1",
+                    BestFor = "Tier 3 Local",
+                },
+                new()
+                {
+                    Id = "claude-3-5-sonnet",
+                    Name = "Claude 3.5 Sonnet",
+                    HostingType = ModelHostingType.RemoteCloud,
+                    RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+                    Provider = "Anthropic",
+                    ModelId = "claude-3-5-sonnet",
+                    ParamsSummary = "200k",
+                    LicenseOrPricing = "Commercial",
+                    BestFor = "Tier 3 Cloud",
+                }
+            };
+
+            var vm = new ModelsViewModel(
+                catalog: catalog,
+                notifications: notifications,
+                uiOverridesPath: tempOverrides);
+
+            var tier2 = vm.Assignments.First(a => a.Tier == IntentTier.Tier2);
+            var tier3 = vm.Assignments.First(a => a.Tier == IntentTier.Tier3);
+
+            // Initially Tier 2 is Local, Tier 3 is RemoteCloud
+            Assert.True(tier2.HasHostingSelector);
+            Assert.True(tier3.HasHostingSelector);
+            Assert.False(tier2.IsRemoteHosting);
+            Assert.True(tier2.IsLocalHosting);
+            Assert.True(tier3.IsRemoteHosting);
+            Assert.False(tier3.IsLocalHosting);
+
+            // Toggle Tier 2 to RemoteCloud
+            tier2.IsRemoteHosting = true;
+            Assert.Equal(ModelHostingType.RemoteCloud, tier2.HostingType);
+            Assert.Contains("gpt-4o-mini", tier2.AvailableModels);
+            Assert.DoesNotContain("qwen2.5:7b", tier2.AvailableModels);
+            Assert.Equal("gpt-4o-mini", tier2.ModelId);
+
+            // Toggle Tier 3 to Local
+            tier3.IsRemoteHosting = false;
+            Assert.Equal(ModelHostingType.Local, tier3.HostingType);
+            Assert.Contains("llama3.1:8b", tier3.AvailableModels);
+            Assert.DoesNotContain("claude-3-5-sonnet", tier3.AvailableModels);
+            Assert.Equal("llama3.1:8b", tier3.ModelId);
+
+            // Verify written file
+            Assert.True(File.Exists(tempOverrides));
+            string json = File.ReadAllText(tempOverrides);
+            Assert.Contains("\"Tier2HostingType\": \"RemoteCloud\"", json);
+            Assert.Contains("\"Tier3HostingType\": \"Local\"", json);
+            Assert.Contains("\"Tier2ModelId\": \"gpt-4o-mini\"", json);
+            Assert.Contains("\"Tier3ModelId\": \"llama3.1:8b\"", json);
+
+            // Reset back to defaults
+            vm.ResetTierAssignmentsCommand.Execute(null);
+            Assert.Equal(ModelHostingType.Local, tier2.HostingType);
+            Assert.Equal(ModelHostingType.RemoteCloud, tier3.HostingType);
+            Assert.Equal("qwen2.5:3b", tier2.ModelId);
+            Assert.Equal("claude-3-5-sonnet", tier3.ModelId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }
 
 // ----------------- Fakes for Unit Tests -----------------

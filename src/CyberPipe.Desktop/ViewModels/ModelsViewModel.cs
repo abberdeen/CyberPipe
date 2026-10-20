@@ -19,6 +19,9 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
     public required string TierName { get; init; }
     public string Description { get; init; } = string.Empty;
     public bool IsEditable => Tier != IntentTier.Tier0;
+    public bool HasHostingSelector => Tier == IntentTier.Tier2 || Tier == IntentTier.Tier3;
+
+    public Action<TierModelAssignmentViewModel>? OnHostingTypeChanged { get; set; }
 
     public string ModelId
     {
@@ -39,7 +42,49 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
     public ModelHostingType? HostingType
     {
         get => _hostingType;
-        set => SetProperty(ref _hostingType, value);
+        set
+        {
+            if (SetProperty(ref _hostingType, value))
+            {
+                OnPropertyChanged(nameof(IsRemoteHosting));
+                OnPropertyChanged(nameof(IsLocalHosting));
+                OnPropertyChanged(nameof(HostingTypeText));
+                OnHostingTypeChanged?.Invoke(this);
+            }
+        }
+    }
+
+    public string HostingTypeText => HostingType switch
+    {
+        ModelHostingType.Local => "Локальный (Local)",
+        ModelHostingType.RemoteCloud => "Удаленный (Cloud)",
+        _ => HostingType?.ToString() ?? "—"
+    };
+
+    public bool IsRemoteHosting
+    {
+        get => HostingType == ModelHostingType.RemoteCloud;
+        set
+        {
+            ModelHostingType target = value ? ModelHostingType.RemoteCloud : ModelHostingType.Local;
+            if (HostingType != target)
+            {
+                HostingType = target;
+            }
+        }
+    }
+
+    public bool IsLocalHosting
+    {
+        get => HostingType == ModelHostingType.Local;
+        set
+        {
+            ModelHostingType target = value ? ModelHostingType.Local : ModelHostingType.RemoteCloud;
+            if (HostingType != target)
+            {
+                HostingType = target;
+            }
+        }
     }
 
     public ObservableCollection<string> AvailableModels { get; } = [];
@@ -184,6 +229,8 @@ public sealed class ModelsViewModel : ViewModelBase
         string tier1Model = options?.Models?.EmbeddingModelId ?? "multilingual-e5-small";
         string tier2Model = options?.Router?.Tier2ModelId ?? "qwen2.5:3b";
         string tier3Model = options?.Router?.Tier3ModelId ?? "claude-3-5-sonnet";
+        ModelHostingType tier2Hosting = options?.Router?.Tier2HostingType ?? ModelHostingType.Local;
+        ModelHostingType tier3Hosting = options?.Router?.Tier3HostingType ?? ModelHostingType.RemoteCloud;
 
         if (assignments != null)
         {
@@ -191,19 +238,26 @@ public sealed class ModelsViewModel : ViewModelBase
             {
                 switch (a.Tier)
                 {
-                    case IntentTier.Tier0: tier0Model = a.ModelId; break;
-                    case IntentTier.Tier1: tier1Model = a.ModelId; break;
-                    case IntentTier.Tier2: tier2Model = a.ModelId; break;
-                    case IntentTier.Tier3: tier3Model = a.ModelId; break;
+                    case IntentTier.Tier0:
+                        tier0Model = a.ModelId;
+                        break;
+                    case IntentTier.Tier1:
+                        tier1Model = a.ModelId;
+                        break;
+                    case IntentTier.Tier2:
+                        tier2Model = a.ModelId;
+                        if (a.HostingType.HasValue) tier2Hosting = a.HostingType.Value;
+                        break;
+                    case IntentTier.Tier3:
+                        tier3Model = a.ModelId;
+                        if (a.HostingType.HasValue) tier3Hosting = a.HostingType.Value;
+                        break;
                 }
             }
         }
 
         // Tier 1 Candidates
         var tier1Candidates = new List<string> { "multilingual-e5-small" };
-        var tier2Candidates = new List<string>();
-        var tier3Candidates = new List<string>();
-
         foreach (ModelDescriptorDto item in Catalog)
         {
             if (item.RecommendedFor == ModelTaskCategory.EmbeddingTier1 || string.Equals(item.Provider, "ONNX", StringComparison.OrdinalIgnoreCase))
@@ -211,20 +265,7 @@ public sealed class ModelsViewModel : ViewModelBase
                 if (!tier1Candidates.Contains(item.Id))
                     tier1Candidates.Add(item.Id);
             }
-            if (item.RecommendedFor == ModelTaskCategory.LightFastTier2 || item.HostingType == ModelHostingType.Local)
-            {
-                if (!tier2Candidates.Contains(item.Id))
-                    tier2Candidates.Add(item.Id);
-            }
-            if (item.RecommendedFor == ModelTaskCategory.HeavyReasoningTier3 || item.HostingType == ModelHostingType.RemoteCloud)
-            {
-                if (!tier3Candidates.Contains(item.Id))
-                    tier3Candidates.Add(item.Id);
-            }
         }
-
-        if (!tier2Candidates.Contains("qwen2.5:3b")) tier2Candidates.Insert(0, "qwen2.5:3b");
-        if (!tier3Candidates.Contains("claude-3-5-sonnet")) tier3Candidates.Insert(0, "claude-3-5-sonnet");
 
         // Tier 0
         Assignments.Add(new TierModelAssignmentViewModel
@@ -255,12 +296,15 @@ public sealed class ModelsViewModel : ViewModelBase
         {
             Tier = IntentTier.Tier2,
             TierName = "Tier 2 (Small LLM)",
-            Description = "Быстрая локальная LLM для простых интентов",
+            Description = "Быстрая LLM (локальная или облачная)",
             ModelId = tier2Model,
             SelectedModel = tier2Model,
-            HostingType = ResolveHostingType(tier2Model, ModelHostingType.Local),
+            HostingType = tier2Hosting,
+            OnHostingTypeChanged = HandleTierHostingTypeChanged,
         };
-        foreach (string c in tier2Candidates) t2Vm.AvailableModels.Add(c);
+        var t2Candidates = GetCandidatesForHosting(tier2Hosting, IntentTier.Tier2);
+        if (!t2Candidates.Contains(tier2Model)) t2Candidates.Insert(0, tier2Model);
+        foreach (string c in t2Candidates) t2Vm.AvailableModels.Add(c);
         Assignments.Add(t2Vm);
 
         // Tier 3
@@ -268,13 +312,114 @@ public sealed class ModelsViewModel : ViewModelBase
         {
             Tier = IntentTier.Tier3,
             TierName = "Tier 3 (Large LLM)",
-            Description = "Мощная рассуждающая LLM для сложных сценариев",
+            Description = "Мощная рассуждающая LLM (облачная или локальная)",
             ModelId = tier3Model,
             SelectedModel = tier3Model,
-            HostingType = ResolveHostingType(tier3Model, ModelHostingType.RemoteCloud),
+            HostingType = tier3Hosting,
+            OnHostingTypeChanged = HandleTierHostingTypeChanged,
         };
-        foreach (string c in tier3Candidates) t3Vm.AvailableModels.Add(c);
+        var t3Candidates = GetCandidatesForHosting(tier3Hosting, IntentTier.Tier3);
+        if (!t3Candidates.Contains(tier3Model)) t3Candidates.Insert(0, tier3Model);
+        foreach (string c in t3Candidates) t3Vm.AvailableModels.Add(c);
         Assignments.Add(t3Vm);
+    }
+
+    public List<string> GetCandidatesForHosting(ModelHostingType hosting, IntentTier tier)
+    {
+        var candidates = new List<string>();
+        ModelTaskCategory targetCategory = tier == IntentTier.Tier3
+            ? ModelTaskCategory.HeavyReasoningTier3
+            : ModelTaskCategory.LightFastTier2;
+
+        // First add catalog models that match both hosting and tier recommendation
+        foreach (ModelDescriptorDto item in Catalog)
+        {
+            if (item.RecommendedFor == ModelTaskCategory.EmbeddingTier1 ||
+                string.Equals(item.Provider, "ONNX", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (item.HostingType == hosting && item.RecommendedFor == targetCategory && !candidates.Contains(item.Id))
+            {
+                candidates.Add(item.Id);
+            }
+        }
+
+        // Then add other catalog models matching hosting
+        foreach (ModelDescriptorDto item in Catalog)
+        {
+            if (item.RecommendedFor == ModelTaskCategory.EmbeddingTier1 ||
+                string.Equals(item.Provider, "ONNX", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (item.HostingType == hosting && !candidates.Contains(item.Id))
+            {
+                candidates.Add(item.Id);
+            }
+        }
+
+        if (hosting == ModelHostingType.Local)
+        {
+            string[] defaults = tier == IntentTier.Tier3
+                ? ["qwen2.5:7b", "llama3.1:8b", "qwen2.5:3b", "llama3.2:3b", "mistral"]
+                : ["qwen2.5:3b", "llama3.2:3b", "qwen2.5:7b", "gemma2:2b", "mistral"];
+            foreach (string d in defaults)
+            {
+                if (!candidates.Contains(d))
+                    candidates.Add(d);
+            }
+        }
+        else // RemoteCloud
+        {
+            string[] defaults = tier == IntentTier.Tier2
+                ? ["gpt-4o-mini", "claude-3-haiku", "gemini-1.5-flash", "gpt-4o", "claude-3-5-sonnet"]
+                : ["claude-3-5-sonnet", "gpt-4o", "gpt-4o-mini", "claude-3-haiku", "gemini-1.5-pro"];
+            foreach (string d in defaults)
+            {
+                if (!candidates.Contains(d))
+                    candidates.Add(d);
+            }
+        }
+
+        return candidates;
+    }
+
+    private void HandleTierHostingTypeChanged(TierModelAssignmentViewModel vm)
+    {
+        if (vm.Tier != IntentTier.Tier2 && vm.Tier != IntentTier.Tier3)
+            return;
+
+        ModelHostingType hosting = vm.HostingType ?? (vm.Tier == IntentTier.Tier2 ? ModelHostingType.Local : ModelHostingType.RemoteCloud);
+        var candidates = GetCandidatesForHosting(hosting, vm.Tier);
+
+        vm.AvailableModels.Clear();
+        foreach (var c in candidates)
+        {
+            vm.AvailableModels.Add(c);
+        }
+
+        bool currentMatches = candidates.Contains(vm.ModelId);
+        if (!currentMatches)
+        {
+            var catalogItem = Catalog.FirstOrDefault(c => string.Equals(c.Id, vm.ModelId, StringComparison.OrdinalIgnoreCase));
+            if (catalogItem != null && catalogItem.HostingType == hosting)
+            {
+                currentMatches = true;
+                vm.AvailableModels.Insert(0, vm.ModelId);
+            }
+        }
+
+        if (!currentMatches)
+        {
+            string fallback = candidates.Count > 0 ? candidates[0] : (hosting == ModelHostingType.Local ? "qwen2.5:3b" : "gpt-4o-mini");
+            vm.ModelId = fallback;
+            vm.SelectedModel = fallback;
+        }
+
+        SaveTierAssignments();
     }
 
     public void SaveTierAssignments()
@@ -285,12 +430,16 @@ public sealed class ModelsViewModel : ViewModelBase
             string? tier2 = Assignments.FirstOrDefault(a => a.Tier == IntentTier.Tier2)?.ModelId?.Trim();
             string? tier3 = Assignments.FirstOrDefault(a => a.Tier == IntentTier.Tier3)?.ModelId?.Trim();
 
-            foreach (TierModelAssignmentViewModel a in Assignments)
+            TierModelAssignmentViewModel? t2 = Assignments.FirstOrDefault(a => a.Tier == IntentTier.Tier2);
+            TierModelAssignmentViewModel? t3 = Assignments.FirstOrDefault(a => a.Tier == IntentTier.Tier3);
+
+            if (t2 != null && t2.HostingType == null)
             {
-                if (a.Tier == IntentTier.Tier2)
-                    a.HostingType = ResolveHostingType(a.ModelId, ModelHostingType.Local);
-                else if (a.Tier == IntentTier.Tier3)
-                    a.HostingType = ResolveHostingType(a.ModelId, ModelHostingType.RemoteCloud);
+                t2.HostingType = ResolveHostingType(t2.ModelId, ModelHostingType.Local);
+            }
+            if (t3 != null && t3.HostingType == null)
+            {
+                t3.HostingType = ResolveHostingType(t3.ModelId, ModelHostingType.RemoteCloud);
             }
 
             string path = _uiOverridesPath;
@@ -320,6 +469,16 @@ public sealed class ModelsViewModel : ViewModelBase
                 routerObj["Tier3ModelId"] = tier3;
             }
 
+            if (t2?.HostingType != null)
+            {
+                routerObj["Tier2HostingType"] = t2.HostingType.Value.ToString();
+            }
+
+            if (t3?.HostingType != null)
+            {
+                routerObj["Tier3HostingType"] = t3.HostingType.Value.ToString();
+            }
+
             if (root["Models"] is not JsonObject modelsObj)
             {
                 modelsObj = new JsonObject();
@@ -342,6 +501,8 @@ public sealed class ModelsViewModel : ViewModelBase
                     {
                         Tier2ModelId = tier2 ?? Program.Options.Router.Tier2ModelId,
                         Tier3ModelId = tier3 ?? Program.Options.Router.Tier3ModelId,
+                        Tier2HostingType = t2?.HostingType ?? Program.Options.Router.Tier2HostingType,
+                        Tier3HostingType = t3?.HostingType ?? Program.Options.Router.Tier3HostingType,
                     },
                     Models = Program.Options.Models with
                     {
@@ -354,10 +515,10 @@ public sealed class ModelsViewModel : ViewModelBase
                 // In testing environments Program.Options may not be initialized or modifiable
             }
 
-            StatusMessage = $"✓ Назначения сохранены в {Path.GetFileName(path)} (Tier 1: {tier1}, Tier 2: {tier2}, Tier 3: {tier3})";
+            StatusMessage = $"✓ Назначения сохранены в {Path.GetFileName(path)} (Tier 1: {tier1}, Tier 2: {tier2} [{t2?.HostingType}], Tier 3: {tier3} [{t3?.HostingType}])";
             _notifications?.ShowNotification(
                 "Назначение моделей",
-                $"Назначения ярусов успешно сохранены:\nTier 1: {tier1}\nTier 2: {tier2}\nTier 3: {tier3}",
+                $"Назначения ярусов успешно сохранены:\nTier 1: {tier1}\nTier 2: {tier2} ({t2?.HostingType})\nTier 3: {tier3} ({t3?.HostingType})",
                 NotificationSeverity.Success);
         }
         catch (Exception ex)
@@ -376,15 +537,31 @@ public sealed class ModelsViewModel : ViewModelBase
         if (t1 != null) { t1.ModelId = "multilingual-e5-small"; t1.SelectedModel = "multilingual-e5-small"; }
 
         TierModelAssignmentViewModel? t2 = Assignments.FirstOrDefault(a => a.Tier == IntentTier.Tier2);
-        if (t2 != null) { t2.ModelId = "qwen2.5:3b"; t2.SelectedModel = "qwen2.5:3b"; }
+        if (t2 != null)
+        {
+            t2.HostingType = ModelHostingType.Local;
+            var c2 = GetCandidatesForHosting(ModelHostingType.Local, IntentTier.Tier2);
+            t2.AvailableModels.Clear();
+            foreach (var m in c2) t2.AvailableModels.Add(m);
+            t2.ModelId = "qwen2.5:3b";
+            t2.SelectedModel = "qwen2.5:3b";
+        }
 
         TierModelAssignmentViewModel? t3 = Assignments.FirstOrDefault(a => a.Tier == IntentTier.Tier3);
-        if (t3 != null) { t3.ModelId = "claude-3-5-sonnet"; t3.SelectedModel = "claude-3-5-sonnet"; }
+        if (t3 != null)
+        {
+            t3.HostingType = ModelHostingType.RemoteCloud;
+            var c3 = GetCandidatesForHosting(ModelHostingType.RemoteCloud, IntentTier.Tier3);
+            t3.AvailableModels.Clear();
+            foreach (var m in c3) t3.AvailableModels.Add(m);
+            t3.ModelId = "claude-3-5-sonnet";
+            t3.SelectedModel = "claude-3-5-sonnet";
+        }
 
         SaveTierAssignments();
     }
 
-    public void AssignModelToTier(IntentTier tier, string modelId)
+    public void AssignModelToTier(IntentTier tier, string modelId, ModelHostingType? hostingType = null)
     {
         if (string.IsNullOrWhiteSpace(modelId))
             return;
@@ -392,9 +569,14 @@ public sealed class ModelsViewModel : ViewModelBase
         TierModelAssignmentViewModel? target = Assignments.FirstOrDefault(a => a.Tier == tier);
         if (target != null && target.IsEditable)
         {
+            if (hostingType.HasValue && target.HasHostingSelector && target.HostingType != hostingType.Value)
+            {
+                target.HostingType = hostingType.Value;
+            }
+
             if (!target.AvailableModels.Contains(modelId))
             {
-                target.AvailableModels.Add(modelId);
+                target.AvailableModels.Insert(0, modelId);
             }
             target.ModelId = modelId;
             target.SelectedModel = modelId;
@@ -408,23 +590,23 @@ public sealed class ModelsViewModel : ViewModelBase
 
         if (model.RecommendedFor == ModelTaskCategory.EmbeddingTier1 || string.Equals(model.Provider, "ONNX", StringComparison.OrdinalIgnoreCase))
         {
-            AssignModelToTier(IntentTier.Tier1, model.Id);
+            AssignModelToTier(IntentTier.Tier1, model.Id, ModelHostingType.Local);
         }
         else if (model.RecommendedFor == ModelTaskCategory.LightFastTier2)
         {
-            AssignModelToTier(IntentTier.Tier2, model.Id);
+            AssignModelToTier(IntentTier.Tier2, model.Id, model.HostingType);
         }
         else if (model.RecommendedFor == ModelTaskCategory.HeavyReasoningTier3)
         {
-            AssignModelToTier(IntentTier.Tier3, model.Id);
+            AssignModelToTier(IntentTier.Tier3, model.Id, model.HostingType);
         }
         else if (model.HostingType == ModelHostingType.Local)
         {
-            AssignModelToTier(IntentTier.Tier2, model.Id);
+            AssignModelToTier(IntentTier.Tier2, model.Id, ModelHostingType.Local);
         }
         else
         {
-            AssignModelToTier(IntentTier.Tier3, model.Id);
+            AssignModelToTier(IntentTier.Tier3, model.Id, ModelHostingType.RemoteCloud);
         }
     }
 
