@@ -17,16 +17,18 @@ public sealed class HostSkillsTestViewModel : ViewModelBase
 {
     private readonly ExternalChannelInbox _inbox;
     private readonly ExternalChannelHostSkillHandler _handler;
-    private readonly FakeMediaController _media;
+    private readonly IHostMediaController _media;
     private HostSkillChoice? _selectedSkill;
     private string _payloadJson = "{}";
     private string _resultText = string.Empty;
+    private string _hostState = "Volume —, muted —";
+    private int _hostStateEpoch;
     private bool _isBusy;
 
     public HostSkillsTestViewModel(
         ExternalChannelInbox inbox,
         ExternalChannelHostSkillHandler handler,
-        FakeMediaController media,
+        IHostMediaController media,
         IReadOnlyList<IHostSkill> skills)
     {
         _inbox = inbox ?? throw new ArgumentNullException(nameof(inbox));
@@ -46,14 +48,18 @@ public sealed class HostSkillsTestViewModel : ViewModelBase
         }
 
         SendCommand = new AsyncRelayCommand(SendAsync, () => !IsBusy && SelectedSkill is not null);
+        _ = RefreshHostStateAsync();
     }
 
+    /// <summary>
+    /// Проверочная форма: канал внешний и ненастоящий, команды навыков выполняются на этом компьютере.
+    /// </summary>
     public static HostSkillsTestViewModel CreateProbe()
     {
-        var media = new FakeMediaController();
+        var media = new WindowsMediaController();
         var registry = new HostSkillRegistry(
             media,
-            new FakeSystemStatusProvider(),
+            new WindowsSystemStatusProvider(),
             new InMemoryTimerService(),
             new InMemoryAlarmService());
         var inbox = new ExternalChannelInbox();
@@ -105,8 +111,11 @@ public sealed class HostSkillsTestViewModel : ViewModelBase
         }
     }
 
-    public string HostState =>
-        $"Volume {_media.Volume}%, muted {_media.IsMuted}, playing {_media.IsPlaying}, last command: {_media.LastCommand ?? "none"}";
+    public string HostState
+    {
+        get => _hostState;
+        private set => SetProperty(ref _hostState, value);
+    }
 
     public AsyncRelayCommand SendCommand { get; }
 
@@ -139,11 +148,32 @@ public sealed class HostSkillsTestViewModel : ViewModelBase
                 : $"{reply.ErrorCode}: {reply.Text}";
             Transcript.Add(new ChannelTranscriptLine("Reply", replyText));
             ResultText = reply.OutputJson ?? reply.Text;
-            OnPropertyChanged(nameof(HostState));
+            await RefreshHostStateAsync().ConfigureAwait(true);
         }
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    private async Task RefreshHostStateAsync()
+    {
+        int epoch = Interlocked.Increment(ref _hostStateEpoch);
+        try
+        {
+            int volume = await _media.GetVolumeAsync().ConfigureAwait(true);
+            bool muted = await _media.IsMutedAsync().ConfigureAwait(true);
+            if (epoch == Volatile.Read(ref _hostStateEpoch))
+            {
+                HostState = $"Volume {volume}%, muted {muted}";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (epoch == Volatile.Read(ref _hostStateEpoch))
+            {
+                HostState = $"Host state unavailable: {ex.Message}";
+            }
         }
     }
 
