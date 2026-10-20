@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using CyberPipe.Contracts;
 using CyberPipe.Desktop.Common;
 using CyberPipe.Desktop.Localization;
@@ -113,7 +114,7 @@ public sealed class ServiceViewModel : ViewModelBase
     {
         try
         {
-            ServiceStatusDto status = await _controller.GetStatusAsync().ConfigureAwait(false);
+            ServiceStatusDto status = await _controller.GetStatusAsync();
             ApplyStatus(status);
         }
         catch (Exception ex)
@@ -142,6 +143,11 @@ public sealed class ServiceViewModel : ViewModelBase
 
     private void ApplyStatus(ServiceStatusDto status)
     {
+        if (TryPostToUi(() => ApplyStatusCore(status)))
+        {
+            return;
+        }
+
         if (_ui is null || SynchronizationContext.Current == _ui)
         {
             ApplyStatusCore(status);
@@ -149,6 +155,28 @@ public sealed class ServiceViewModel : ViewModelBase
         }
 
         _ui.Post(_ => ApplyStatusCore(status), null);
+    }
+
+    private static bool TryPostToUi(Action action)
+    {
+        try
+        {
+            Dispatcher dispatcher = Dispatcher.UIThread;
+            if (dispatcher.CheckAccess())
+            {
+                action();
+            }
+            else
+            {
+                dispatcher.Post(action);
+            }
+
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private void ApplyStatusCore(ServiceStatusDto status)
@@ -170,7 +198,7 @@ public sealed class ServiceViewModel : ViewModelBase
         ActionPrompt = "Starting service...";
         try
         {
-            ServiceControlResult result = await _controller.StartAsync().ConfigureAwait(false);
+            ServiceControlResult result = await _controller.StartAsync();
             if (result.Outcome != ServiceControlOutcome.Ok)
             {
                 LastError = result.Error;
@@ -178,7 +206,7 @@ public sealed class ServiceViewModel : ViewModelBase
             }
             else
             {
-                await RefreshStatusAsync().ConfigureAwait(false);
+                await RefreshStatusAsync();
             }
         }
         catch (Exception ex)
@@ -203,7 +231,7 @@ public sealed class ServiceViewModel : ViewModelBase
         ActionPrompt = "Stopping service...";
         try
         {
-            ServiceControlResult result = await _controller.StopAsync().ConfigureAwait(false);
+            ServiceControlResult result = await _controller.StopAsync();
             if (result.Outcome != ServiceControlOutcome.Ok)
             {
                 LastError = result.Error;
@@ -211,7 +239,7 @@ public sealed class ServiceViewModel : ViewModelBase
             }
             else
             {
-                await RefreshStatusAsync().ConfigureAwait(false);
+                await RefreshStatusAsync();
             }
         }
         catch (Exception ex)
@@ -236,7 +264,7 @@ public sealed class ServiceViewModel : ViewModelBase
         ActionPrompt = "Restarting service...";
         try
         {
-            ServiceControlResult result = await _controller.RestartAsync().ConfigureAwait(false);
+            ServiceControlResult result = await _controller.RestartAsync();
             if (result.Outcome != ServiceControlOutcome.Ok)
             {
                 LastError = result.Error;
@@ -244,7 +272,7 @@ public sealed class ServiceViewModel : ViewModelBase
             }
             else
             {
-                await RefreshStatusAsync().ConfigureAwait(false);
+                await RefreshStatusAsync();
             }
         }
         catch (Exception ex)

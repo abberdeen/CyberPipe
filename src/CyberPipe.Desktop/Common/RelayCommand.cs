@@ -80,7 +80,7 @@ public sealed class AsyncRelayCommand : ICommand
         try
         {
             IsExecuting = true;
-            await _executeAsync(parameter).ConfigureAwait(false);
+            await _executeAsync(parameter);
         }
         finally
         {
@@ -103,7 +103,7 @@ public sealed class AsyncRelayCommand : ICommand
         try
         {
             IsExecuting = true;
-            await _executeAsync(parameter).ConfigureAwait(false);
+            await _executeAsync(parameter);
         }
         finally
         {
