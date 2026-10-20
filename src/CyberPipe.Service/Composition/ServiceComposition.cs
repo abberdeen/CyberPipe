@@ -75,9 +75,10 @@ public static class ServiceComposition
             ISchemaValidator validators = sp.GetRequiredService<ISchemaValidator>();
             if (sandbox is not null)
             {
-                registry.RegisterRunner(new CSharpScriptRunner(sandbox, validators));
-                registry.RegisterRunner(new PythonScriptRunner(sandbox, validators));
-                registry.RegisterRunner(new JavaScriptScriptRunner(sandbox, validators));
+                IAntiWipeGuard? antiWipe = sp.GetService<IAntiWipeGuard>();
+                registry.RegisterRunner(new CSharpScriptRunner(sandbox, validators, antiWipeGuard: antiWipe));
+                registry.RegisterRunner(new PythonScriptRunner(sandbox, validators, antiWipeGuard: antiWipe));
+                registry.RegisterRunner(new JavaScriptScriptRunner(sandbox, validators, antiWipeGuard: antiWipe));
             }
 
             return registry;

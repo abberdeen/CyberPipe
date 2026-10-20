@@ -19,8 +19,9 @@ public sealed class CSharpScriptRunner : ScriptRunnerBase
         ISchemaValidator schemaValidator,
         string? executable = null,
         IReadOnlyList<string>? customArgs = null,
-        int maxTailBytes = 65536)
-        : base(sandbox, schemaValidator, maxTailBytes)
+        int maxTailBytes = 65536,
+        IAntiWipeGuard? antiWipeGuard = null)
+        : base(sandbox, schemaValidator, maxTailBytes, antiWipeGuard)
     {
         _executable = executable ?? "dotnet";
         _customArgs = customArgs;

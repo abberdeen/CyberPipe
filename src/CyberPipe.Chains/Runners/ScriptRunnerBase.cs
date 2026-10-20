@@ -90,6 +90,25 @@ public abstract class ScriptRunnerBase : IScriptRunner
                 $"Runner for '{Language}/{Environment}' cannot run package with runtime '{request.Manifest.Runtime.Language}/{request.Manifest.Runtime.Environment}'.");
         }
 
+        // Anti-wipe (TASK-070): входной payload скрипта проверяется до запуска песочницы.
+        // Deny и RequireApproval — fail-closed: скрипт не выполняется.
+        if (_antiWipeGuard is not null && !string.IsNullOrWhiteSpace(request.InputJson))
+        {
+            WipeGuardDecision decision = await _antiWipeGuard.EvaluateAsync(new DestructiveOperation
+            {
+                Kind = DestructiveOperationKind.SqlStatement,
+                Target = request.PackageDir,
+                StatementOrCommand = request.InputJson,
+                Source = $"ScriptRunner:{request.Manifest.Slug}",
+            }, cancellationToken).ConfigureAwait(false);
+            if (decision.Outcome != WipeGuardDecisionOutcome.Allow)
+            {
+                return ScriptRunResult.Failed(
+                    ScriptRunStatus.SchemaValidationFailed,
+                    $"Anti-wipe guard {decision.Outcome} ({decision.ReasonCode}): {decision.Message}");
+            }
+        }
+
         // 2. Пред-валидация входных файлов
         foreach (NetrunnerInputFileDto desc in request.Manifest.Io.InputFiles)
         {
