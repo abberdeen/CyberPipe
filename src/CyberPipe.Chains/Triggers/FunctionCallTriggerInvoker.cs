@@ -10,13 +10,13 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class FunctionCallTriggerInvoker : ITriggerInvoker
 {
-    private readonly ChainCatalogService _repository;
+    private readonly IChainCatalogService _repository;
     private readonly IChainExecutor _executor;
 
     /// <summary>
     /// Инициализирует инвокер функций.
     /// </summary>
-    public FunctionCallTriggerInvoker(ChainCatalogService repository, IChainExecutor executor)
+    public FunctionCallTriggerInvoker(IChainCatalogService repository, IChainExecutor executor)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _executor = executor ?? throw new ArgumentNullException(nameof(executor));

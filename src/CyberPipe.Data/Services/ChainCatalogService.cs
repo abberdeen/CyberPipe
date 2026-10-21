@@ -11,7 +11,7 @@ namespace CyberPipe.Data;
 /// Объединяет операции определений и каталога; все чтения — LINQ с AsNoTracking,
 /// записи — ExecuteUpdate/ExecuteDelete, сырых SQL-строк нет.
 /// </summary>
-public sealed class ChainCatalogService
+public sealed class ChainCatalogService : IChainCatalogService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>
     {

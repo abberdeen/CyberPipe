@@ -19,17 +19,17 @@ public interface IKnowledgeService
 }
 
 /// <summary>
-/// Реализация службы базы знаний и долговременной памяти поверх IEmbeddingStore и IEmbeddingProvider (TASK-053).
+/// Реализация службы базы знаний и долговременной памяти поверх IEmbeddingStoreService и IEmbeddingProvider (TASK-053).
 /// </summary>
 public sealed class KnowledgeService : IKnowledgeService
 {
-    private readonly EmbeddingStoreService _store;
+    private readonly IEmbeddingStoreService _store;
     private readonly IEmbeddingProvider _embeddingProvider;
     private readonly KnowledgeOptions _options;
     private readonly ConcurrentDictionary<string, List<string>> _docChunksIndex = new(StringComparer.OrdinalIgnoreCase);
 
     public KnowledgeService(
-        EmbeddingStoreService store,
+        IEmbeddingStoreService store,
         IEmbeddingProvider embeddingProvider,
         KnowledgeOptions? options = null)
     {

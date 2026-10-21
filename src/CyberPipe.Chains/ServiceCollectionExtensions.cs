@@ -16,9 +16,9 @@ namespace CyberPipe.Chains;
 /// <summary>
 /// Модуль регистрации цепочек Trigger → Skill → Script → Delivery, триггеров,
 /// пакетов, раннеров, Quartz-планировщика и HITL (TASK-090).
-/// Хранилища — конкретные сервисы CyberPipe.Data (ChainCatalogService,
-/// ChainExecutionStoreService, HitlApprovalStoreService,
-/// NetrunnerPackageStoreService), регистрируемые модулем данных.
+/// Хранилища — интерфейсы сервисов CyberPipe.Data (IChainCatalogService,
+/// IChainExecutionStoreService, IHitlApprovalStoreService,
+/// INetrunnerPackageStoreService), регистрируемые модулем данных.
 /// </summary>
 public static class ChainsServiceCollectionExtensions
 {
@@ -42,14 +42,14 @@ public static class ChainsServiceCollectionExtensions
         services.TryAddSingleton<ChainRecoveryService>();
         services.TryAddSingleton<IHitlApprovalService>(sp => sp.GetRequiredService<HitlApprovalService>());
         services.TryAddSingleton<HitlApprovalService>(sp => new HitlApprovalService(
-            sp.GetRequiredService<HitlApprovalStoreService>(),
+            sp.GetRequiredService<IHitlApprovalStoreService>(),
             sp.GetRequiredService<IEnumerable<IHitlCardSender>>(),
             sp.GetRequiredService<IOwnerGuard>(),
             new DeferredChainExecutor(sp),
             sp.GetService<ISchemaValidator>(),
-            sp.GetService<ChainCatalogService>(),
-            sp.GetService<NetrunnerPackageStoreService>(),
-            sp.GetService<ChainExecutionStoreService>()));
+            sp.GetService<IChainCatalogService>(),
+            sp.GetService<INetrunnerPackageStoreService>(),
+            sp.GetService<IChainExecutionStoreService>()));
         services.TryAddSingleton<IHitlApprovalGate, HitlApprovalGate>();
         services.TryAddSingleton<IDelayedResumeScheduler>(sp =>
             new TimerDelayedResumeScheduler((runId, ct) =>

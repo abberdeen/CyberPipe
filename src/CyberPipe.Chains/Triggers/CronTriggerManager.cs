@@ -10,7 +10,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class CronTriggerManager
 {
-    private readonly ChainCatalogService _repository;
+    private readonly IChainCatalogService _repository;
     private readonly IChainExecutor _executor;
     private readonly ICronTriggerRegistrar _cronRegistrar;
     private readonly IIdempotencyStore _idempotencyStore;
@@ -20,7 +20,7 @@ public sealed class CronTriggerManager
     /// Инициализирует менеджер cron-триггеров.
     /// </summary>
     public CronTriggerManager(
-        ChainCatalogService repository,
+        IChainCatalogService repository,
         IChainExecutor executor,
         ICronTriggerRegistrar cronRegistrar,
         IIdempotencyStore idempotencyStore,

@@ -207,7 +207,12 @@ public static class ServiceComposition
         typeof(IDatabaseHealthProbe),
         typeof(ISchemaMigrator),
         typeof(IDatabaseBootstrapper),
-        typeof(EmbeddingStoreService),
+        typeof(IEmbeddingStoreService),
+        typeof(IBudgetLedgerService),
+        typeof(IChainCatalogService),
+        typeof(IChainExecutionStoreService),
+        typeof(IHitlApprovalStoreService),
+        typeof(INetrunnerPackageStoreService),
         typeof(IEmbeddingProvider),
         typeof(ITokenBudgetGovernor),
         typeof(IBudgetStore),
@@ -404,7 +409,7 @@ public sealed class ServiceStartupCoordinator
                 if (databaseOk)
                 {
                     QuartzChainSchedulerService chainScheduler = _services.GetRequiredService<QuartzChainSchedulerService>();
-                    ChainCatalogService chainRepo = _services.GetRequiredService<ChainCatalogService>();
+                    IChainCatalogService chainRepo = _services.GetRequiredService<IChainCatalogService>();
                     await chainScheduler.SyncWithRepositoryAsync(chainRepo, linked.Token).ConfigureAwait(false);
                 }
 

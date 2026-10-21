@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Router;
@@ -9,7 +10,7 @@ namespace CyberPipe.Router;
 /// </summary>
 public sealed class TokenBudgetGovernor : ITokenBudgetGovernor
 {
-    private readonly IBudgetStore _store;
+    private readonly IBudgetLedgerService _store;
     private readonly IModelPriceProvider? _priceProvider;
     private readonly CyberPipeOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -25,7 +26,7 @@ public sealed class TokenBudgetGovernor : ITokenBudgetGovernor
     private bool _initialized;
 
     public TokenBudgetGovernor(
-        IBudgetStore store,
+        IBudgetLedgerService store,
         CyberPipeOptions? options = null,
         IModelPriceProvider? priceProvider = null,
         TimeProvider? timeProvider = null,

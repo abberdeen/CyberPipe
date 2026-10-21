@@ -12,7 +12,7 @@ namespace CyberPipe.Data;
 /// Атомарное разрешение запросов: UPDATE выполняется одним оператором с проверкой
 /// статуса 'Pending', поэтому побеждает ровно один конкурент. Сырых SQL-строк нет.
 /// </summary>
-public sealed class HitlApprovalStoreService
+public sealed class HitlApprovalStoreService : IHitlApprovalStoreService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;

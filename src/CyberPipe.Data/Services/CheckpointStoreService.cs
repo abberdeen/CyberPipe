@@ -11,7 +11,7 @@ namespace CyberPipe.Data;
 /// идемпотентность по (run_id, step). Все чтения — LINQ с AsNoTracking,
 /// сырых SQL-строк нет.
 /// </summary>
-public sealed class CheckpointStoreService
+public sealed class CheckpointStoreService : ICheckpointStoreService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {

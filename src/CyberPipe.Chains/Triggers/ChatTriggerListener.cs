@@ -9,7 +9,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class ChatTriggerListener : IMessageHandler<IncomingMessage>, IDisposable
 {
-    private readonly ChainCatalogService _repository;
+    private readonly IChainCatalogService _repository;
     private readonly IChainExecutor _executor;
     private readonly IIdempotencyStore _idempotencyStore;
     private readonly IDisposable _subscription;
@@ -19,7 +19,7 @@ public sealed class ChatTriggerListener : IMessageHandler<IncomingMessage>, IDis
     /// Инициализирует слушатель сообщений чата и оформляет подписку.
     /// </summary>
     public ChatTriggerListener(
-        ChainCatalogService repository,
+        IChainCatalogService repository,
         IChainExecutor executor,
         IInboundMessageSource messageSource,
         IIdempotencyStore idempotencyStore,

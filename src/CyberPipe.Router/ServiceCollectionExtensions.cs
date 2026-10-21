@@ -1,4 +1,5 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -25,7 +26,8 @@ public static class RouterServiceCollectionExtensions
                 sp.GetService<ILogger<OnnxEmbeddingProvider>>()));
         services.TryAddSingleton<Tier1SemanticRouter>();
         services.TryAddSingleton<ISemanticCache, SemanticCache>();
-        services.TryAddSingleton<IBudgetStore, InMemoryBudgetStore>();
+        services.TryAddSingleton<IBudgetLedgerService, InMemoryBudgetStore>();
+        services.TryAddSingleton<IBudgetStore>(sp => sp.GetRequiredService<IBudgetLedgerService>());
         services.TryAddSingleton<ITokenBudgetGovernor, TokenBudgetGovernor>();
         services.TryAddSingleton<Tier23LlmRouter>();
         services.TryAddSingleton<IIntentRouter, CompositeIntentRouter>();

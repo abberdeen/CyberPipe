@@ -12,7 +12,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class WebhookTriggerHandler
 {
-    private readonly ChainCatalogService _repository;
+    private readonly IChainCatalogService _repository;
     private readonly IChainExecutor _executor;
     private readonly IIdempotencyStore _idempotencyStore;
     private readonly ISecretStore? _secretStore;
@@ -29,7 +29,7 @@ public sealed class WebhookTriggerHandler
     /// <param name="maxBodySizeBytes">Максимальный размер тела в байтах (по умолчанию 1 МБ).</param>
     /// <param name="idempotencyWindow">Окно дедупликации (по умолчанию 24 часа).</param>
     public WebhookTriggerHandler(
-        ChainCatalogService repository,
+        IChainCatalogService repository,
         IChainExecutor executor,
         IIdempotencyStore idempotencyStore,
         ISecretStore? secretStore = null,

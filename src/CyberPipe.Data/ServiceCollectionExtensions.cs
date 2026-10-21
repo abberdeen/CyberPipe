@@ -9,8 +9,8 @@ namespace CyberPipe.Data;
 
 /// <summary>
 /// Модуль регистрации доступа к данным: единственная SQLite (WAL) через EF Core.
-/// Регистрирует конкретные сервисы данных (без интерфейсов репозиториев и unit-of-work):
-/// каждый метод сервиса сам владеет контекстом; миграции и bootstrap выполняются
+/// Регистрирует интерфейсы сервисов данных. Потребители берут интерфейс из DI;
+/// каждый метод сервиса сам владеет контекстом. Миграции и bootstrap выполняются
 /// шагом запуска, а не здесь. Только регистрация — подключений при регистрации нет
 /// (фабрики ленивые).
 /// </summary>
@@ -49,26 +49,46 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<UnitOfWorkMetrics>();
         services.AddSingleton<IUnitOfWorkMetrics>(sp => sp.GetRequiredService<UnitOfWorkMetrics>());
 
-        // Конкретные сервисы данных — единственная регистрация; интерфейсов нет,
-        // потребители берут конкретный класс из DI.
-        services.AddSingleton<ChainCatalogService>();
-        services.AddSingleton<ChainRunRecordService>();
-        services.AddSingleton<CheckpointStoreService>();
-        services.AddSingleton<ApprovalLedgerService>();
-        services.AddSingleton<TokenBudgetLedgerService>();
-        services.AddSingleton<KvSettingsService>();
-        services.AddSingleton<AuditLogService>();
-        services.AddSingleton<ChainExecutionStoreService>();
-        services.AddSingleton<HitlApprovalStoreService>();
-        services.AddSingleton<NetrunnerPackageStoreService>();
-        services.AddSingleton<NoteStoreService>();
-        services.AddSingleton<FinanceLedgerService>();
-        services.AddSingleton<ReminderStoreService>();
-        services.AddSingleton<ContactStoreService>();
-        services.AddSingleton<EmbeddingStoreService>();
-        services.AddSingleton<BudgetLedgerService>();
+        // Интерфейс сервиса — то, что берут потребители. Конкретный класс остаётся
+        // в контейнере, чтобы фабрика интерфейса и логирование ILogger<TImpl> совпадали.
+        AddDataService<IChainCatalogService, ChainCatalogService>(services);
+        AddDataService<IChainRunRecordService, ChainRunRecordService>(services);
+        AddDataService<ICheckpointStoreService, CheckpointStoreService>(services);
+        AddDataService<IApprovalLedgerService, ApprovalLedgerService>(services);
+        AddDataService<ITokenBudgetLedgerService, TokenBudgetLedgerService>(services);
+        AddDataService<IKvSettingsService, KvSettingsService>(services);
+        AddDataService<IAuditLogService, AuditLogService>(services);
+        AddDataService<IChainExecutionStoreService, ChainExecutionStoreService>(services);
+        AddDataService<IHitlApprovalStoreService, HitlApprovalStoreService>(services);
+        AddDataService<INetrunnerPackageStoreService, NetrunnerPackageStoreService>(services);
+        AddDataService<INoteStoreService, NoteStoreService>(services);
+        AddDataService<IFinanceLedgerService, FinanceLedgerService>(services);
+        AddDataService<IReminderStoreService, ReminderStoreService>(services);
+        AddDataService<IContactStoreService, ContactStoreService>(services);
+        AddDataService<IEmbeddingStoreService, EmbeddingStoreService>(services);
+        AddDataService<IBudgetLedgerService, BudgetLedgerService>(services);
+
+        // Те же экземпляры закрывают прежние контрактные порты: отдельного репозитория нет.
+        services.AddSingleton<IChainDefinitionRepository>(sp => sp.GetRequiredService<IChainCatalogService>());
+        services.AddSingleton<IChainExecutionRepository>(sp => sp.GetRequiredService<IChainExecutionStoreService>());
+        services.AddSingleton<IHitlApprovalRepository>(sp => sp.GetRequiredService<IHitlApprovalStoreService>());
+        services.AddSingleton<IPackageRegistryRepository>(sp => sp.GetRequiredService<INetrunnerPackageStoreService>());
+        services.AddSingleton<INoteRepository>(sp => sp.GetRequiredService<INoteStoreService>());
+        services.AddSingleton<IFinanceRepository>(sp => sp.GetRequiredService<IFinanceLedgerService>());
+        services.AddSingleton<IReminderRepository>(sp => sp.GetRequiredService<IReminderStoreService>());
+        services.AddSingleton<IContactRepository>(sp => sp.GetRequiredService<IContactStoreService>());
+        services.AddSingleton<IEmbeddingStore>(sp => sp.GetRequiredService<IEmbeddingStoreService>());
+        services.AddSingleton<IBudgetStore>(sp => sp.GetRequiredService<IBudgetLedgerService>());
         services.TryAddSingleton<IDatabaseBootstrapService, SetupDatabaseBootstrapAdapter>();
 
         return services;
+    }
+
+    private static void AddDataService<TService, TImplementation>(IServiceCollection services)
+        where TService : class
+        where TImplementation : class, TService
+    {
+        services.AddSingleton<TImplementation>();
+        services.AddSingleton<TService>(sp => sp.GetRequiredService<TImplementation>());
     }
 }

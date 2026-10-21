@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Skills.Personal.Skills;
 
 namespace CyberPipe.Skills.Personal.Registry;
@@ -23,10 +24,10 @@ public sealed class PersonalSkillRegistry : IPersonalSkillRegistry
     /// Создаёт реестр и регистрирует стандартный набор навыков заметок, финансов, напоминаний и CRM.
     /// </summary>
     public PersonalSkillRegistry(
-        INoteRepository noteRepository,
-        IFinanceRepository financeRepository,
-        IReminderRepository reminderRepository,
-        IContactRepository contactRepository,
+        INoteStoreService noteRepository,
+        IFinanceLedgerService financeRepository,
+        IReminderStoreService reminderRepository,
+        IContactStoreService contactRepository,
         TimeProvider? timeProvider = null)
     {
         RegisterStandardPersonalSkills(noteRepository, financeRepository, reminderRepository, contactRepository, timeProvider);
@@ -126,10 +127,10 @@ public sealed class PersonalSkillRegistry : IPersonalSkillRegistry
     /// Регистрирует стандартные персональные навыки: заметки, финансы, напоминания и CRM.
     /// </summary>
     public void RegisterStandardPersonalSkills(
-        INoteRepository noteRepository,
-        IFinanceRepository financeRepository,
-        IReminderRepository reminderRepository,
-        IContactRepository contactRepository,
+        INoteStoreService noteRepository,
+        IFinanceLedgerService financeRepository,
+        IReminderStoreService reminderRepository,
+        IContactStoreService contactRepository,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(noteRepository);

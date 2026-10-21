@@ -39,7 +39,7 @@ public static class ApprovalStatusMapping
 /// Журнал HITL-одобрений (таблица app.approvals): фильтр статуса — точное совпадение
 /// lowercase-строки. Все чтения — LINQ с AsNoTracking, сырых SQL-строк нет.
 /// </summary>
-public sealed class ApprovalLedgerService
+public sealed class ApprovalLedgerService : IApprovalLedgerService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {

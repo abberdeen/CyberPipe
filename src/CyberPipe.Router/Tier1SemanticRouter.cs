@@ -14,7 +14,7 @@ namespace CyberPipe.Router;
 public sealed class Tier1SemanticRouter : IRouterTier
 {
     private readonly IEmbeddingProvider _embeddingProvider;
-    private readonly EmbeddingStoreService _embeddingStore;
+    private readonly IEmbeddingStoreService _embeddingStore;
     private readonly ISemanticCache? _semanticCache;
     private readonly ISemanticExampleProvider _exampleProvider;
     private readonly CyberPipeOptions _options;
@@ -25,7 +25,7 @@ public sealed class Tier1SemanticRouter : IRouterTier
 
     public Tier1SemanticRouter(
         IEmbeddingProvider embeddingProvider,
-        EmbeddingStoreService embeddingStore,
+        IEmbeddingStoreService embeddingStore,
         CyberPipeOptions? options = null,
         ISemanticCache? semanticCache = null,
         ISemanticExampleProvider? exampleProvider = null,

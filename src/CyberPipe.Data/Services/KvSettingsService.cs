@@ -9,7 +9,7 @@ namespace CyberPipe.Data;
 /// Настройки ключ-значение (таблица app.kv_settings); SetAsync — upsert по ключу.
 /// Все чтения — LINQ с AsNoTracking, сырых SQL-строк нет.
 /// </summary>
-public sealed class KvSettingsService
+public sealed class KvSettingsService : IKvSettingsService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {

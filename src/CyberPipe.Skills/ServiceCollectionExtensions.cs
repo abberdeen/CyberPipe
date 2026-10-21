@@ -1,4 +1,5 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Skills.Host.Media;
 using CyberPipe.Skills.Host.Registry;
 using CyberPipe.Skills.Host.System;
@@ -46,10 +47,10 @@ public static class SkillsServiceCollectionExtensions
                 sp.GetService<IAudioContentSafetyEvaluator>())
             : new HostSkillRegistry());
 
-        services.TryAddSingleton<INoteRepository, InMemoryNoteRepository>();
-        services.TryAddSingleton<IFinanceRepository, InMemoryFinanceRepository>();
-        services.TryAddSingleton<IReminderRepository, InMemoryReminderRepository>();
-        services.TryAddSingleton<IContactRepository, InMemoryContactRepository>();
+        services.TryAddSingleton<INoteStoreService, InMemoryNoteRepository>();
+        services.TryAddSingleton<IFinanceLedgerService, InMemoryFinanceRepository>();
+        services.TryAddSingleton<IReminderStoreService, InMemoryReminderRepository>();
+        services.TryAddSingleton<IContactStoreService, InMemoryContactRepository>();
         services.TryAddSingleton<PersonalSkillRegistry>();
 
         services.TryAddSingleton<IKnowledgeService, KnowledgeService>();

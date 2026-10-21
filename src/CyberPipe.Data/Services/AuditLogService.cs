@@ -9,7 +9,7 @@ namespace CyberPipe.Data;
 /// Журнал аудита (таблица app.audit_log, append-only по смыслу).
 /// Все чтения — LINQ с AsNoTracking, сырых SQL-строк нет.
 /// </summary>
-public sealed class AuditLogService
+public sealed class AuditLogService : IAuditLogService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {

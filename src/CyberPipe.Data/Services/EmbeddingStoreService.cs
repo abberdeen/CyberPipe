@@ -193,7 +193,7 @@ public static class EmbeddingValidation
 /// Только хранилище: без генерации эмбеддингов, классификации и политики кэша.
 /// Сырых SQL-строк нет; все чтения — LINQ с AsNoTracking.
 /// </summary>
-public sealed class EmbeddingStoreService
+public sealed class EmbeddingStoreService : IEmbeddingStoreService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;

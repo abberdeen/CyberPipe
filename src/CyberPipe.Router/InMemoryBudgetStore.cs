@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Router;
 
@@ -7,7 +8,7 @@ namespace CyberPipe.Router;
 /// Потокобезопасная реализация хранилища токен-бюджета в памяти (TASK-033).
 /// Используется по умолчанию и в тестах.
 /// </summary>
-public sealed class InMemoryBudgetStore : IBudgetStore
+public sealed class InMemoryBudgetStore : IBudgetLedgerService
 {
     private readonly ConcurrentDictionary<DateOnly, decimal> _dailySpentUsd = new();
     private readonly ConcurrentDictionary<DateOnly, int> _dailyTokens = new();

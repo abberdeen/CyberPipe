@@ -8,13 +8,13 @@ using Microsoft.Extensions.Logging;
 namespace CyberPipe.Router;
 
 /// <summary>
-/// Реализация семантического кэша маршрутизации поверх IEmbeddingStore (TASK-034).
+/// Реализация семантического кэша маршрутизации поверх IEmbeddingStoreService (TASK-034).
 /// Ключ — эмбеддинг запроса, значение — сохранённое решение RouteResult.
 /// Поддерживает порог близости, TTL, вытеснение по лимиту объёма и версионирование по модели.
 /// </summary>
 public sealed class SemanticCache : ISemanticCache
 {
-    private readonly EmbeddingStoreService _store;
+    private readonly IEmbeddingStoreService _store;
     private readonly CyberPipeOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SemanticCache>? _logger;
@@ -23,7 +23,7 @@ public sealed class SemanticCache : ISemanticCache
     private long _misses;
 
     public SemanticCache(
-        EmbeddingStoreService store,
+        IEmbeddingStoreService store,
         CyberPipeOptions? options = null,
         TimeProvider? timeProvider = null,
         ILogger<SemanticCache>? logger = null)

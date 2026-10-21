@@ -11,7 +11,7 @@ namespace CyberPipe.Data;
 /// (ChainId, IdempotencyKey), оптимистичная конкуренция по updated_at.
 /// Все чтения — LINQ с AsNoTracking, сырых SQL-строк нет.
 /// </summary>
-public sealed class ChainRunRecordService
+public sealed class ChainRunRecordService : IChainRunRecordService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>
     {

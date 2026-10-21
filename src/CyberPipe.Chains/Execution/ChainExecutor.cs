@@ -16,11 +16,11 @@ namespace CyberPipe.Chains.Execution;
 /// </summary>
 public sealed class ChainExecutor : IChainExecutor
 {
-    private readonly ChainExecutionStoreService _repository;
-    private readonly ChainCatalogService _chainDefinitions;
+    private readonly IChainExecutionStoreService _repository;
+    private readonly IChainCatalogService _chainDefinitions;
     private readonly ISkillInvoker _skillInvoker;
     private readonly IScriptRunnerRegistry _scriptRunners;
-    private readonly NetrunnerPackageStoreService _packageRegistry;
+    private readonly INetrunnerPackageStoreService _packageRegistry;
     private readonly IDeliveryPort _deliveryPort;
     private readonly IHitlApprovalGate? _hitlGate;
     private readonly IDelayedResumeScheduler? _resumeScheduler;
@@ -31,11 +31,11 @@ public sealed class ChainExecutor : IChainExecutor
     /// Создаёт экземпляр исполнителя цепочек.
     /// </summary>
     public ChainExecutor(
-        ChainExecutionStoreService repository,
-        ChainCatalogService chainDefinitions,
+        IChainExecutionStoreService repository,
+        IChainCatalogService chainDefinitions,
         ISkillInvoker skillInvoker,
         IScriptRunnerRegistry scriptRunners,
-        NetrunnerPackageStoreService packageRegistry,
+        INetrunnerPackageStoreService packageRegistry,
         IDeliveryPort deliveryPort,
         IHitlApprovalGate? hitlGate = null,
         IDelayedResumeScheduler? resumeScheduler = null,

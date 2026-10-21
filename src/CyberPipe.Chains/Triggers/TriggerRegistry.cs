@@ -10,7 +10,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class TriggerRegistry : ITriggerRegistry
 {
-    private readonly ChainCatalogService _repository;
+    private readonly IChainCatalogService _repository;
     private readonly CronTriggerManager? _cronManager;
     private readonly ConcurrentDictionary<ChainId, ChainDefinitionDto> _registeredChains = new();
 
@@ -18,7 +18,7 @@ public sealed class TriggerRegistry : ITriggerRegistry
     /// Инициализирует реестр триггеров.
     /// </summary>
     public TriggerRegistry(
-        ChainCatalogService repository,
+        IChainCatalogService repository,
         CronTriggerManager? cronManager = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));

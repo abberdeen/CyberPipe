@@ -1,12 +1,13 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Skills.Personal.Skills;
 
 #region Notes Skills
 
 /// <summary>Навык создания заметки (TASK-051).</summary>
-public sealed class NoteCreateSkill(INoteRepository repository) : ISkill
+public sealed class NoteCreateSkill(INoteStoreService repository) : ISkill
 {
     public string SkillId => "notes.create";
     public string Name => "Create Note";
@@ -83,7 +84,7 @@ public sealed class NoteCreateSkill(INoteRepository repository) : ISkill
 }
 
 /// <summary>Навык текстового поиска по заметкам (TASK-051).</summary>
-public sealed class NoteSearchSkill(INoteRepository repository) : ISkill
+public sealed class NoteSearchSkill(INoteStoreService repository) : ISkill
 {
     public string SkillId => "notes.search";
     public string Name => "Search Notes";
@@ -150,7 +151,7 @@ public sealed class NoteSearchSkill(INoteRepository repository) : ISkill
 }
 
 /// <summary>Навык получения заметки по ID (TASK-051).</summary>
-public sealed class NoteGetSkill(INoteRepository repository) : ISkill
+public sealed class NoteGetSkill(INoteStoreService repository) : ISkill
 {
     public string SkillId => "notes.get";
     public string Name => "Get Note";
@@ -207,7 +208,7 @@ public sealed class NoteGetSkill(INoteRepository repository) : ISkill
 }
 
 /// <summary>Навык обновления существующей заметки (TASK-051).</summary>
-public sealed class NoteUpdateSkill(INoteRepository repository) : ISkill
+public sealed class NoteUpdateSkill(INoteStoreService repository) : ISkill
 {
     public string SkillId => "notes.update";
     public string Name => "Update Note";
@@ -285,7 +286,7 @@ public sealed class NoteUpdateSkill(INoteRepository repository) : ISkill
 }
 
 /// <summary>Навык удаления заметки по ID (TASK-051).</summary>
-public sealed class NoteDeleteSkill(INoteRepository repository) : ISkill
+public sealed class NoteDeleteSkill(INoteStoreService repository) : ISkill
 {
     public string SkillId => "notes.delete";
     public string Name => "Delete Note";
@@ -341,7 +342,7 @@ public sealed class NoteDeleteSkill(INoteRepository repository) : ISkill
 #region Finance Skills
 
 /// <summary>Навык добавления расхода (TASK-051).</summary>
-public sealed class FinanceAddExpenseSkill(IFinanceRepository repository) : ISkill
+public sealed class FinanceAddExpenseSkill(IFinanceLedgerService repository) : ISkill
 {
     private static readonly HashSet<string> AllowedCurrencies = new(StringComparer.OrdinalIgnoreCase) { "RUB", "USD", "EUR" };
 
@@ -432,7 +433,7 @@ public sealed class FinanceAddExpenseSkill(IFinanceRepository repository) : ISki
 }
 
 /// <summary>Навык добавления дохода (TASK-051).</summary>
-public sealed class FinanceAddIncomeSkill(IFinanceRepository repository) : ISkill
+public sealed class FinanceAddIncomeSkill(IFinanceLedgerService repository) : ISkill
 {
     private static readonly HashSet<string> AllowedCurrencies = new(StringComparer.OrdinalIgnoreCase) { "RUB", "USD", "EUR" };
 
@@ -523,7 +524,7 @@ public sealed class FinanceAddIncomeSkill(IFinanceRepository repository) : ISkil
 }
 
 /// <summary>Навык запроса баланса (TASK-051).</summary>
-public sealed class FinanceBalanceSkill(IFinanceRepository repository) : ISkill
+public sealed class FinanceBalanceSkill(IFinanceLedgerService repository) : ISkill
 {
     public string SkillId => "finance.balance";
     public string Name => "Get Balance";
@@ -569,7 +570,7 @@ public sealed class FinanceBalanceSkill(IFinanceRepository repository) : ISkill
 }
 
 /// <summary>Навык построения финансового отчёта за период (TASK-051).</summary>
-public sealed class FinanceReportSkill(IFinanceRepository repository, TimeProvider? timeProvider = null) : ISkill
+public sealed class FinanceReportSkill(IFinanceLedgerService repository, TimeProvider? timeProvider = null) : ISkill
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -639,7 +640,7 @@ public sealed class FinanceReportSkill(IFinanceRepository repository, TimeProvid
 
 /// <summary>Навык создания персонального напоминания (TASK-051).</summary>
 public sealed class ReminderCreateSkill(
-    IReminderRepository repository,
+    IReminderStoreService repository,
     TimeProvider? timeProvider = null) : ISkill
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
@@ -726,7 +727,7 @@ public sealed class ReminderCreateSkill(
 }
 
 /// <summary>Навык получения списка напоминаний (TASK-051).</summary>
-public sealed class ReminderListSkill(IReminderRepository repository) : ISkill
+public sealed class ReminderListSkill(IReminderStoreService repository) : ISkill
 {
     public string SkillId => "reminders.list";
     public string Name => "List Reminders";
@@ -768,7 +769,7 @@ public sealed class ReminderListSkill(IReminderRepository repository) : ISkill
 }
 
 /// <summary>Навык отмены напоминания по ID (TASK-051).</summary>
-public sealed class ReminderCancelSkill(IReminderRepository repository) : ISkill
+public sealed class ReminderCancelSkill(IReminderStoreService repository) : ISkill
 {
     public string SkillId => "reminders.cancel";
     public string Name => "Cancel Reminder";
@@ -820,7 +821,7 @@ public sealed class ReminderCancelSkill(IReminderRepository repository) : ISkill
 }
 
 /// <summary>Навык отметки напоминания как выполненного (TASK-051).</summary>
-public sealed class ReminderCompleteSkill(IReminderRepository repository) : ISkill
+public sealed class ReminderCompleteSkill(IReminderStoreService repository) : ISkill
 {
     public string SkillId => "reminders.complete";
     public string Name => "Complete Reminder";
@@ -876,7 +877,7 @@ public sealed class ReminderCompleteSkill(IReminderRepository repository) : ISki
 #region CRM Skills
 
 /// <summary>Навык создания или обновления контакта CRM (TASK-051).</summary>
-public sealed class CrmContactUpsertSkill(IContactRepository repository) : ISkill
+public sealed class CrmContactUpsertSkill(IContactStoreService repository) : ISkill
 {
     public string SkillId => "crm.contact_upsert";
     public string Name => "Upsert Contact";
@@ -951,7 +952,7 @@ public sealed class CrmContactUpsertSkill(IContactRepository repository) : ISkil
 }
 
 /// <summary>Навык поиска контакта CRM (TASK-051).</summary>
-public sealed class CrmContactFindSkill(IContactRepository repository) : ISkill
+public sealed class CrmContactFindSkill(IContactStoreService repository) : ISkill
 {
     public string SkillId => "crm.find";
     public string Name => "Find Contact";
@@ -1002,7 +1003,7 @@ public sealed class CrmContactFindSkill(IContactRepository repository) : ISkill
 }
 
 /// <summary>Навык добавления записи взаимодействия с контактом (TASK-051).</summary>
-public sealed class CrmInteractionAddSkill(IContactRepository repository) : ISkill
+public sealed class CrmInteractionAddSkill(IContactStoreService repository) : ISkill
 {
     public string SkillId => "crm.interaction_add";
     public string Name => "Add CRM Interaction";
@@ -1076,7 +1077,7 @@ public sealed class CrmInteractionAddSkill(IContactRepository repository) : ISki
 }
 
 /// <summary>Навык получения истории взаимодействий с контактом (TASK-051).</summary>
-public sealed class CrmInteractionHistorySkill(IContactRepository repository) : ISkill
+public sealed class CrmInteractionHistorySkill(IContactStoreService repository) : ISkill
 {
     public string SkillId => "crm.history";
     public string Name => "CRM History";

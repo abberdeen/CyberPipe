@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Skills.Personal.Data;
 
 /// <summary>
 /// Репозиторий заметок в памяти (TASK-051).
 /// </summary>
-public sealed class InMemoryNoteRepository : INoteRepository
+public sealed class InMemoryNoteRepository : INoteStoreService
 {
     private readonly ConcurrentDictionary<Guid, NoteRecord> _notes = new();
     private readonly TimeProvider _timeProvider;
@@ -103,7 +104,7 @@ public sealed class InMemoryNoteRepository : INoteRepository
 /// <summary>
 /// Репозиторий учёта финансов в памяти (TASK-051).
 /// </summary>
-public sealed class InMemoryFinanceRepository : IFinanceRepository
+public sealed class InMemoryFinanceRepository : IFinanceLedgerService
 {
     private readonly ConcurrentBag<FinanceTransactionRecord> _transactions = [];
     private readonly TimeProvider _timeProvider;
@@ -220,7 +221,7 @@ public sealed class InMemoryFinanceRepository : IFinanceRepository
 /// <summary>
 /// Репозиторий напоминаний в памяти (TASK-051).
 /// </summary>
-public sealed class InMemoryReminderRepository : IReminderRepository
+public sealed class InMemoryReminderRepository : IReminderStoreService
 {
     private readonly ConcurrentDictionary<Guid, ReminderItemRecord> _reminders = new();
     private readonly TimeProvider _timeProvider;
@@ -317,7 +318,7 @@ public sealed class InMemoryReminderRepository : IReminderRepository
 /// <summary>
 /// Репозиторий контактов и истории CRM в памяти (TASK-051).
 /// </summary>
-public sealed class InMemoryContactRepository : IContactRepository
+public sealed class InMemoryContactRepository : IContactStoreService
 {
     private readonly ConcurrentDictionary<Guid, ContactRecord> _contacts = new();
     private readonly ConcurrentBag<InteractionRecord> _interactions = [];

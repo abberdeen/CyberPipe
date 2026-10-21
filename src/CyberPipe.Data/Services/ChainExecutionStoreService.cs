@@ -7,15 +7,15 @@ namespace CyberPipe.Data;
 /// Реализовано поверх сервисов записей запусков и чекпоинтов (та же SQL-логика
 /// их методов, по одному контексту на операцию); сырых SQL-строк нет.
 /// </summary>
-public sealed class ChainExecutionStoreService
+public sealed class ChainExecutionStoreService : IChainExecutionStoreService
 {
-    private readonly ChainRunRecordService _runs;
-    private readonly CheckpointStoreService _checkpoints;
+    private readonly IChainRunRecordService _runs;
+    private readonly ICheckpointStoreService _checkpoints;
 
     /// <summary>Создаёт хранилище выполнения поверх сервисов записей.</summary>
     /// <param name="runs">Сервис записей запусков.</param>
     /// <param name="checkpoints">Сервис контрольных точек.</param>
-    public ChainExecutionStoreService(ChainRunRecordService runs, CheckpointStoreService checkpoints)
+    public ChainExecutionStoreService(IChainRunRecordService runs, ICheckpointStoreService checkpoints)
     {
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
         _checkpoints = checkpoints ?? throw new ArgumentNullException(nameof(checkpoints));

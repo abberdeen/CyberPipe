@@ -12,7 +12,7 @@ namespace CyberPipe.Data;
 /// регистрации переживают рестарт. Все чтения — LINQ с AsNoTracking,
 /// сырых SQL-строк нет.
 /// </summary>
-public sealed class NetrunnerPackageStoreService
+public sealed class NetrunnerPackageStoreService : INetrunnerPackageStoreService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;

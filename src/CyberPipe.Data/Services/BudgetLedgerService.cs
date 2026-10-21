@@ -6,13 +6,13 @@ namespace CyberPipe.Data;
 /// Дневной бюджет губернатора поверх книги токен-бюджета: расход переживает
 /// рестарт службы. Сырых SQL-строк нет (вся SQL-логика — в книге).
 /// </summary>
-public sealed class BudgetLedgerService
+public sealed class BudgetLedgerService : IBudgetLedgerService
 {
-    private readonly TokenBudgetLedgerService _ledger;
+    private readonly ITokenBudgetLedgerService _ledger;
 
     /// <summary>Создаёт сервис дневного бюджета поверх книги токен-бюджета.</summary>
     /// <param name="ledger">Книга токен-бюджета.</param>
-    public BudgetLedgerService(TokenBudgetLedgerService ledger)
+    public BudgetLedgerService(ITokenBudgetLedgerService ledger)
     {
         _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
     }

@@ -10,7 +10,7 @@ namespace CyberPipe.Data;
 /// Книга токен-бюджета (таблица app.token_budget_ledger): итоги дня считаются
 /// LINQ-агрегатами. Все чтения — LINQ с AsNoTracking, сырых SQL-строк нет.
 /// </summary>
-public sealed class TokenBudgetLedgerService
+public sealed class TokenBudgetLedgerService : ITokenBudgetLedgerService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {

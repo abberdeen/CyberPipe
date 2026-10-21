@@ -7,7 +7,7 @@ using CyberPipe.Data.Persistence;
 namespace CyberPipe.Data;
 
 /// <summary>Заметки владельца (таблица personal_notes) на EF Core; удаление — мягкое.</summary>
-public sealed class NoteStoreService
+public sealed class NoteStoreService : INoteStoreService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
@@ -164,7 +164,7 @@ public sealed class NoteStoreService
 }
 
 /// <summary>Финансы владельца (таблица personal_finance) на EF Core.</summary>
-public sealed class FinanceLedgerService
+public sealed class FinanceLedgerService : IFinanceLedgerService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
@@ -303,7 +303,7 @@ public sealed class FinanceLedgerService
 }
 
 /// <summary>Напоминания владельца (таблица personal_reminders) на EF Core.</summary>
-public sealed class ReminderStoreService
+public sealed class ReminderStoreService : IReminderStoreService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
@@ -439,7 +439,7 @@ public sealed class ReminderStoreService
 }
 
 /// <summary>Контакты и история взаимодействий владельца (CRM) на EF Core.</summary>
-public sealed class ContactStoreService
+public sealed class ContactStoreService : IContactStoreService
 {
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;

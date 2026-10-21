@@ -274,14 +274,14 @@ public sealed class QuartzChainSchedulerService : IChainSchedulerService, ICronT
     Task IChainSchedulerService.SyncWithRepositoryAsync(
         IChainDefinitionRepository repository,
         CancellationToken cancellationToken) =>
-        throw new NotSupportedException("Scheduler sync uses ChainCatalogService; resolve QuartzChainSchedulerService directly.");
+        throw new NotSupportedException("Scheduler sync uses IChainCatalogService; resolve QuartzChainSchedulerService directly.");
 
     /// <summary>
     /// Синхронизирует расписание с каталогом цепочек: регистрирует включённые Cron-цепочки
     /// и снимает отключённые или отсутствующие.
     /// </summary>
     public async Task SyncWithRepositoryAsync(
-        ChainCatalogService repository,
+        IChainCatalogService repository,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(repository);

@@ -318,7 +318,7 @@ public sealed class RepositoryIntegrationTests
     }
 
     [SqliteIntegrationFact]
-    public async Task SqliteHitlApprovalRepository_AtomicTryResolve_OnlyOneSucceeds()
+    public async Task HitlApprovalStoreService_AtomicTryResolve_OnlyOneSucceeds()
     {
         await using Fixture fx = await CreateAsync();
         var hitl = new HitlApprovalStoreService(fx.DbFactory);
