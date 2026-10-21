@@ -1,10 +1,11 @@
 using CyberPipe.Contracts;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Data.Sqlite;
+using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>Маппинг статуса одобрения в текстовую колонку approvals.status.</summary>
+/// <summary>Соответствие статуса одобрения значению колонки status (строчные буквы).</summary>
 public static class ApprovalStatusMapping
 {
     /// <summary>Преобразует статус в значение колонки (строчными буквами).</summary>
@@ -33,98 +34,112 @@ public static class ApprovalStatusMapping
     };
 }
 
-/// <summary>Репозиторий approvals с оптимистичной конкуренцией по updated_at.</summary>
+/// <summary>Репозиторий одобрений на EF Core; фильтр статуса — точное совпадение lowercase-строки.</summary>
 public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["created_at"] = "created_at",
-        ["updated_at"] = "updated_at",
-        ["expires_at"] = "expires_at",
-        ["status"] = "status",
+        ["created_at"] = nameof(ApprovalEntity.CreatedAt),
+        ["updated_at"] = nameof(ApprovalEntity.UpdatedAt),
+        ["expires_at"] = nameof(ApprovalEntity.ExpiresAt),
+        ["status"] = nameof(ApprovalEntity.Status),
     };
 
-    private const string Columns =
-        "id, run_id, chain_id, step, status, payload_json, decision, decided_at, expires_at, created_at, updated_at";
-
-    /// <summary>Создаёт репозиторий одобрений.</summary>
-    /// <param name="connectionFactory">Фабрика соединений TASK-010.</param>
-    /// <param name="options">Опции репозиториев.</param>
-    /// <param name="logger">Логгер медленных запросов.</param>
-    /// <param name="metrics">Общие счётчики.</param>
-    public ApprovalRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
-        : base(connectionFactory, options, logger, metrics)
+    /// <summary>Создаёт репозиторий одобрений поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    public ApprovalRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null)
+        : base(dbFactory, options, logger, metrics)
     {
     }
 
     /// <inheritdoc />
     public Task<ApprovalRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("approvals.get", async (connection, transaction, token) =>
+        ExecuteAsync<ApprovalRecord?>("approvals.get", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM approvals WHERE id = @id");
-            Param(command, "id", id);
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
+            string key = GuidKey(id);
+            ApprovalEntity? entity = await db.Approvals
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<PagedResult<ApprovalRecord>> ListAsync(PagedQuery query, ApprovalStatus? status = null, RunId? runId = null, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("approvals.list", async (connection, transaction, token) =>
+        ExecuteAsync("approvals.list", async (db, token) =>
         {
-            string orderBy = OrderBy(query, Sorts, "id");
-            const string where = "WHERE (@status IS NULL OR status = @status) AND (@run_id IS NULL OR run_id = @run_id)";
-            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM approvals {where}");
-            TextParam(countCommand, "status", status is null ? null : ApprovalStatusMapping.ToDbValue(status.Value));
-            UuidParam(countCommand, "run_id", runId?.Value);
-            long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
-
-            await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM approvals {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
-            TextParam(command, "status", status is null ? null : ApprovalStatusMapping.ToDbValue(status.Value));
-            UuidParam(command, "run_id", runId?.Value);
-            Param(command, "limit", query.Limit);
-            Param(command, "offset", query.Offset);
-            var items = new List<ApprovalRecord>();
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            while (await reader.ReadAsync(token).ConfigureAwait(false))
-                items.Add(Map(reader));
-            return new PagedResult<ApprovalRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
+            string sort = ResolveSortKey(query, Sorts);
+            string? statusFilter = status?.ToString().ToLowerInvariant();
+            string? runKey = runId is null ? null : GuidKey(runId.Value.Value);
+            IQueryable<ApprovalEntity> filtered = db.Approvals
+                .AsNoTracking()
+                .Where(e => statusFilter == null || e.Status == statusFilter)
+                .Where(e => runKey == null || e.RunId == runKey);
+            IQueryable<ApprovalEntity> ordered = ApplyOrdering(filtered, sort, query.Descending, nameof(ApprovalEntity.Id));
+            long total = await filtered.LongCountAsync(token).ConfigureAwait(false);
+            List<ApprovalEntity> entities = await ordered
+                .Skip(query.Offset).Take(query.Limit)
+                .ToListAsync(token).ConfigureAwait(false);
+            return new PagedResult<ApprovalRecord>
+            {
+                Items = entities.Select(Map).ToList(),
+                TotalCount = total,
+                Offset = query.Offset,
+                Limit = query.Limit,
+            };
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<ApprovalRecord> AddAsync(ApprovalRecord approval, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(approval);
-        RequireText(approval.Step, nameof(approval.Step));
-        string payload = RepositoryJson.EnsureJson(approval.PayloadJson, nameof(approval.PayloadJson));
-        return ExecuteAsync("approvals.add", async (connection, transaction, token) =>
+        ValidateApproval(approval);
+        return ExecuteAsync("approvals.add", async (db, token) =>
         {
-            Guid id = approval.Id == Guid.Empty ? Guid.NewGuid() : approval.Id;
+            string key = approval.Id == Guid.Empty ? Guid.NewGuid().ToString("D") : GuidKey(approval.Id);
+            ApprovalEntity? existing = await db.Approvals
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            if (existing is not null)
+                return Map(existing);
+
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            await using var command = Command(connection, transaction, $"""
-                INSERT INTO approvals (id, run_id, chain_id, step, status, payload_json, decision, decided_at, expires_at, created_at, updated_at)
-                VALUES (@id, @run_id, @chain_id, @step, @status, @payload, @decision, @decided_at, @expires_at, @now, @now)
-                ON CONFLICT (id) DO NOTHING
-                RETURNING {Columns}
-                """);
-            TimeParam(command, "now", now);
-            Param(command, "id", id);
-            UuidParam(command, "run_id", approval.RunId?.Value);
-            UuidParam(command, "chain_id", approval.ChainId?.Value);
-            Param(command, "step", approval.Step);
-            Param(command, "status", ApprovalStatusMapping.ToDbValue(approval.Status));
-            JsonParam(command, "payload", payload);
-            TextParam(command, "decision", approval.Decision?.ToString());
-            TimeParam(command, "decided_at", approval.DecidedAtUtc);
-            TimeParam(command, "expires_at", approval.ExpiresAtUtc);
-            await using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+            var entity = new ApprovalEntity
             {
-                if (await reader.ReadAsync(token).ConfigureAwait(false))
-                    return Map(reader);
+                Id = key,
+                RunId = approval.RunId is null ? null : GuidKey(approval.RunId.Value.Value),
+                ChainId = approval.ChainId is null ? null : GuidKey(approval.ChainId.Value.Value),
+                Step = approval.Step,
+                Status = ApprovalStatusMapping.ToDbValue(approval.Status),
+                PayloadJson = RepositoryJson.EnsureJson(approval.PayloadJson, nameof(approval.PayloadJson)),
+                Decision = approval.Decision?.ToString(),
+                DecidedAt = approval.DecidedAtUtc,
+                ExpiresAt = approval.ExpiresAtUtc,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            db.Approvals.Add(entity);
+            try
+            {
+                await SaveAsync(db, token).ConfigureAwait(false);
+            }
+            catch (DbUpdateException)
+            {
+                ApprovalEntity? raced = await db.Approvals
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+                if (raced is null)
+                    throw;
+                return Map(raced);
             }
 
-            return await GetAsync(id, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Approval disappeared after conflict.");
+            return Map(entity);
         }, cancellationToken);
     }
 
@@ -132,54 +147,56 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
     public Task<ApprovalRecord> UpdateAsync(ApprovalRecord approval, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(approval);
-        RequireText(approval.Step, nameof(approval.Step));
-        string payload = RepositoryJson.EnsureJson(approval.PayloadJson, nameof(approval.PayloadJson));
-        return ExecuteAsync("approvals.update", async (connection, transaction, token) =>
+        ValidateApproval(approval);
+        return ExecuteAsync("approvals.update", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"""
-                UPDATE approvals
-                SET step = @step, status = @status, payload_json = @payload, decision = @decision,
-                    decided_at = @decided_at, expires_at = @expires_at, updated_at = @now
-                WHERE id = @id AND updated_at = @expected_version
-                RETURNING {Columns}
-                """);
-            TimeParam(command, "now", DateTimeOffset.UtcNow);
-            Param(command, "id", approval.Id);
-            Param(command, "step", approval.Step);
-            Param(command, "status", ApprovalStatusMapping.ToDbValue(approval.Status));
-            JsonParam(command, "payload", payload);
-            TextParam(command, "decision", approval.Decision?.ToString());
-            TimeParam(command, "decided_at", approval.DecidedAtUtc);
-            TimeParam(command, "expires_at", approval.ExpiresAtUtc);
-            TimeParam(command, "expected_version", expectedRowVersion);
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return Map(reader);
-            throw new OptimisticConcurrencyException("approvals", approval.Id.ToString());
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            string key = GuidKey(approval.Id);
+            int affected = await db.Approvals
+                .Where(e => e.Id == key && e.UpdatedAt == expectedRowVersion)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.Step, approval.Step)
+                    .SetProperty(e => e.Status, ApprovalStatusMapping.ToDbValue(approval.Status))
+                    .SetProperty(e => e.PayloadJson, RepositoryJson.EnsureJson(approval.PayloadJson, nameof(approval.PayloadJson)))
+                    .SetProperty(e => e.Decision, approval.Decision == null ? null : approval.Decision.ToString())
+                    .SetProperty(e => e.DecidedAt, approval.DecidedAtUtc)
+                    .SetProperty(e => e.ExpiresAt, approval.ExpiresAtUtc)
+                    .SetProperty(e => e.UpdatedAt, now), token).ConfigureAwait(false);
+            if (affected == 0)
+                throw new OptimisticConcurrencyException("approvals", approval.Id.ToString());
+            return approval with { RowVersion = now };
         }, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("approvals.delete", async (connection, transaction, token) =>
+        ExecuteAsync("approvals.delete", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM approvals WHERE id = @id");
-            Param(command, "id", id);
-            return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
+            string key = GuidKey(id);
+            int affected = await db.Approvals
+                .Where(e => e.Id == key)
+                .ExecuteDeleteAsync(token).ConfigureAwait(false);
+            return affected > 0;
         }, cancellationToken);
 
-    internal static ApprovalRecord Map(SqliteDataReader reader) => new()
+    private static void ValidateApproval(ApprovalRecord approval)
     {
-        Id = ReadGuid(reader, 0),
-        RunId = reader.IsDBNull(1) ? null : new RunId(ReadGuid(reader, 1)),
-        ChainId = reader.IsDBNull(2) ? null : new ChainId(ReadGuid(reader, 2)),
-        Step = reader.GetString(3),
-        Status = ApprovalStatusMapping.Parse(reader.GetString(4)),
-        PayloadJson = reader.GetString(5),
-        Decision = reader.IsDBNull(6) ? null : Enum.Parse<HitlDecision>(reader.GetString(6)),
-        DecidedAtUtc = ReadTime(reader, 7),
-        ExpiresAtUtc = ReadTime(reader, 8),
-        CreatedAtUtc = ReadRequiredTime(reader, 9),
-        RowVersion = ReadRequiredTime(reader, 10),
+        RequireText(approval.Step, nameof(approval.Step));
+        _ = RepositoryJson.EnsureJson(approval.PayloadJson, nameof(approval.PayloadJson));
+    }
+
+    internal static ApprovalRecord Map(ApprovalEntity entity) => new()
+    {
+        Id = Guid.Parse(entity.Id),
+        RunId = entity.RunId is null ? null : new RunId(Guid.Parse(entity.RunId)),
+        ChainId = entity.ChainId is null ? null : new ChainId(Guid.Parse(entity.ChainId)),
+        Step = entity.Step,
+        Status = ApprovalStatusMapping.Parse(entity.Status),
+        PayloadJson = entity.PayloadJson,
+        Decision = entity.Decision is null ? null : Enum.Parse<HitlDecision>(entity.Decision),
+        DecidedAtUtc = entity.DecidedAt,
+        ExpiresAtUtc = entity.ExpiresAt,
+        CreatedAtUtc = entity.CreatedAt,
+        RowVersion = entity.UpdatedAt,
     };
 }

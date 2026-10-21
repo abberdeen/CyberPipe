@@ -1,94 +1,108 @@
 using CyberPipe.Contracts;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Data.Sqlite;
+using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>Репозиторий chains: определение цепочки целиком в definition_json, колонки — проекция для поиска.</summary>
+/// <summary>Репозиторий цепочек на EF Core: определение целиком в definition_json.</summary>
 public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDefinitionRepository
 {
-    private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>
     {
-        ["created_at"] = "created_at",
-        ["updated_at"] = "updated_at",
-        ["name"] = "name",
-        ["version"] = "version",
+        ["created_at"] = nameof(ChainEntity.CreatedAt),
+        ["updated_at"] = nameof(ChainEntity.UpdatedAt),
+        ["name"] = nameof(ChainEntity.Name),
+        ["version"] = nameof(ChainEntity.Version),
     };
 
-    private const string SelectColumns = "definition_json, updated_at";
-
-    /// <summary>Создаёт репозиторий цепочек.</summary>
-    /// <param name="connectionFactory">Фабрика соединений TASK-010.</param>
-    /// <param name="options">Опции репозиториев.</param>
-    /// <param name="logger">Логгер медленных запросов.</param>
-    /// <param name="metrics">Общие счётчики.</param>
-    public ChainRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
-        : base(connectionFactory, options, logger, metrics)
+    /// <summary>Создаёт репозиторий цепочек поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    public ChainRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null)
+        : base(dbFactory, options, logger, metrics)
     {
     }
 
     /// <inheritdoc />
     public Task<ChainDefinitionDto?> GetAsync(ChainId id, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chains.get", async (connection, transaction, token) =>
+        ExecuteAsync<ChainDefinitionDto?>("chains.get", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {SelectColumns} FROM chains WHERE id = @id");
-            Param(command, "id", id.Value);
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            if (!await reader.ReadAsync(token).ConfigureAwait(false))
-                return null;
-            return Map(reader);
+            string key = GuidKey(id.Value);
+            ChainEntity? entity = await db.Chains
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<PagedResult<ChainDefinitionDto>> ListAsync(PagedQuery query, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chains.list", async (connection, transaction, token) =>
+        ExecuteAsync("chains.list", async (db, token) =>
         {
-            string orderBy = OrderBy(query, Sorts, "id");
-            await using var countCommand = Command(connection, transaction, "SELECT count(*) FROM chains");
-            long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
-
-            await using var command = Command(connection, transaction,
-                $"SELECT {SelectColumns} FROM chains ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
-            Param(command, "limit", query.Limit);
-            Param(command, "offset", query.Offset);
-            var items = new List<ChainDefinitionDto>();
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            while (await reader.ReadAsync(token).ConfigureAwait(false))
-                items.Add(Map(reader));
-            return new PagedResult<ChainDefinitionDto> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
+            string sort = ResolveSortKey(query, Sorts);
+            IQueryable<ChainEntity> source = ApplyOrdering(db.Chains.AsNoTracking(), sort, query.Descending, nameof(ChainEntity.Id));
+            long total = await source.LongCountAsync(token).ConfigureAwait(false);
+            List<ChainEntity> entities = await source
+                .Skip(query.Offset).Take(query.Limit)
+                .ToListAsync(token).ConfigureAwait(false);
+            return new PagedResult<ChainDefinitionDto>
+            {
+                Items = entities.Select(Map).ToList(),
+                TotalCount = total,
+                Offset = query.Offset,
+                Limit = query.Limit,
+            };
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<ChainDefinitionDto> AddAsync(ChainDefinitionDto chain, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(chain);
-        RequireText(chain.Name, nameof(chain.Name));
-        return ExecuteAsync("chains.add", async (connection, transaction, token) =>
+        return ExecuteAsync("chains.add", async (db, token) =>
         {
+            string key = GuidKey(chain.Id.Value);
+            ChainEntity? existing = await db.Chains
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            if (existing is not null)
+                return Map(existing);
+
             DateTimeOffset now = DateTimeOffset.UtcNow;
             DateTimeOffset created = chain.CreatedAtUtc == default ? now : chain.CreatedAtUtc;
             DateTimeOffset updated = chain.UpdatedAtUtc == default ? created : chain.UpdatedAtUtc;
-            string json = RepositoryJson.Serialize(chain with { CreatedAtUtc = created, UpdatedAtUtc = updated });
-            await using var command = Command(connection, transaction, """
-                INSERT INTO chains (id, name, definition_json, is_enabled, requires_hitl, version, created_at, updated_at)
-                VALUES (@id, @name, @definition, @is_enabled, @requires_hitl, @version, @created_at, @updated_at)
-                ON CONFLICT (id) DO NOTHING
-                RETURNING updated_at
-                """);
-            Param(command, "id", chain.Id.Value);
-            Param(command, "name", chain.Name);
-            JsonParam(command, "definition", json);
-            Param(command, "is_enabled", chain.IsEnabled);
-            Param(command, "requires_hitl", chain.RequiresHitl);
-            Param(command, "version", chain.Version);
-            TimeParam(command, "created_at", created);
-            TimeParam(command, "updated_at", updated);
-            object? inserted = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
-            if (inserted is not null)
-                return chain with { CreatedAtUtc = created, UpdatedAtUtc = updated };
-            // AlreadyExists: существующая запись возвращается без перезаписи.
-            return await GetAsync(chain.Id, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Chain disappeared after conflict.");
+            var entity = new ChainEntity
+            {
+                Id = key,
+                Name = chain.Name,
+                DefinitionJson = RepositoryJson.Serialize(chain),
+                IsEnabled = chain.IsEnabled,
+                RequiresHitl = chain.RequiresHitl,
+                Version = chain.Version,
+                CreatedAt = created,
+                UpdatedAt = updated,
+            };
+            db.Chains.Add(entity);
+            try
+            {
+                await SaveAsync(db, token).ConfigureAwait(false);
+            }
+            catch (DbUpdateException)
+            {
+                ChainEntity? raced = await db.Chains
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+                if (raced is null)
+                    throw;
+                return Map(raced);
+            }
+
+            return chain with { CreatedAtUtc = created, UpdatedAtUtc = updated };
         }, cancellationToken);
     }
 
@@ -96,38 +110,34 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
     public Task<ChainDefinitionDto> UpdateAsync(ChainDefinitionDto chain, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(chain);
-        RequireText(chain.Name, nameof(chain.Name));
-        return ExecuteAsync("chains.update", async (connection, transaction, token) =>
+        return ExecuteAsync("chains.update", async (db, token) =>
         {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
             string json = RepositoryJson.Serialize(chain);
-            await using var command = Command(connection, transaction, """
-                UPDATE chains
-                SET name = @name, definition_json = @definition, is_enabled = @is_enabled,
-                    requires_hitl = @requires_hitl, version = @version, updated_at = @now
-                WHERE id = @id
-                RETURNING updated_at
-                """);
-            TimeParam(command, "now", DateTimeOffset.UtcNow);
-            Param(command, "id", chain.Id.Value);
-            Param(command, "name", chain.Name);
-            JsonParam(command, "definition", json);
-            Param(command, "is_enabled", chain.IsEnabled);
-            Param(command, "requires_hitl", chain.RequiresHitl);
-            Param(command, "version", chain.Version);
-            object? result = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
-            if (result is null || result is DBNull)
+            int affected = await db.Chains
+                .Where(e => e.Id == GuidKey(chain.Id.Value))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.Name, chain.Name)
+                    .SetProperty(e => e.DefinitionJson, json)
+                    .SetProperty(e => e.IsEnabled, chain.IsEnabled)
+                    .SetProperty(e => e.RequiresHitl, chain.RequiresHitl)
+                    .SetProperty(e => e.Version, chain.Version)
+                    .SetProperty(e => e.UpdatedAt, now), token).ConfigureAwait(false);
+            if (affected == 0)
                 throw new OptimisticConcurrencyException("chains", chain.Id.ToString());
-            return chain with { UpdatedAtUtc = ToDateTimeOffset(result) };
+            return chain with { UpdatedAtUtc = now };
         }, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<bool> DeleteAsync(ChainId id, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chains.delete", async (connection, transaction, token) =>
+        ExecuteAsync("chains.delete", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM chains WHERE id = @id");
-            Param(command, "id", id.Value);
-            return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
+            string key = GuidKey(id.Value);
+            int affected = await db.Chains
+                .Where(e => e.Id == key)
+                .ExecuteDeleteAsync(token).ConfigureAwait(false);
+            return affected > 0;
         }, cancellationToken);
 
     /// <inheritdoc />
@@ -135,205 +145,210 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
         GetAsync(id, cancellationToken);
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ChainDefinitionDto>> ListEnabledAsync(CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chains.list_enabled", async (connection, transaction, token) =>
-        {
-            await using var command = Command(connection, transaction,
-                $"SELECT {SelectColumns} FROM chains WHERE is_enabled = true ORDER BY name");
-            var items = new List<ChainDefinitionDto>();
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            while (await reader.ReadAsync(token).ConfigureAwait(false))
-                items.Add(Map(reader));
-            return (IReadOnlyList<ChainDefinitionDto>)items;
-        }, cancellationToken);
-
-    /// <inheritdoc />
     public async Task<ChainDefinitionDto> UpsertAsync(ChainDefinitionDto definition, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ChainDefinitionDto? existing = await GetAsync(definition.Id, cancellationToken).ConfigureAwait(false);
         if (existing is null)
-        {
             return await AddAsync(definition, cancellationToken).ConfigureAwait(false);
-        }
 
         int nextVersion = existing.IsEnabled ? existing.Version + 1 : existing.Version;
         return await UpdateAsync(definition with { Version = nextVersion }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public Task<bool> SetEnabledAsync(ChainId id, bool isEnabled, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chains.set_enabled", async (connection, transaction, token) =>
+    public Task<IReadOnlyList<ChainDefinitionDto>> ListEnabledAsync(CancellationToken cancellationToken = default) =>
+        ExecuteAsync<IReadOnlyList<ChainDefinitionDto>>("chains.list_enabled", async (db, token) =>
         {
-            await using var command = Command(connection, transaction,
-                "UPDATE chains SET is_enabled = @is_enabled, updated_at = CURRENT_TIMESTAMP WHERE id = @id");
-            Param(command, "id", id.Value);
-            Param(command, "is_enabled", isEnabled);
-            return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
+            List<ChainEntity> entities = await db.Chains
+                .AsNoTracking()
+                .Where(e => e.IsEnabled)
+                .OrderBy(e => e.Name)
+                .ToListAsync(token).ConfigureAwait(false);
+            return entities.Select(Map).ToList();
         }, cancellationToken);
 
-    internal static ChainDefinitionDto Map(SqliteDataReader reader)
+    /// <inheritdoc />
+    public Task<bool> SetEnabledAsync(ChainId id, bool isEnabled, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("chains.set_enabled", async (db, token) =>
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            string key = GuidKey(id.Value);
+            int affected = await db.Chains
+                .Where(e => e.Id == key)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.IsEnabled, isEnabled)
+                    .SetProperty(e => e.UpdatedAt, now), token).ConfigureAwait(false);
+            return affected > 0;
+        }, cancellationToken);
+
+    internal static ChainDefinitionDto Map(ChainEntity entity)
     {
-        ChainDefinitionDto dto = RepositoryJson.Deserialize<ChainDefinitionDto>(reader.GetString(0));
-        DateTimeOffset updatedAt = ReadRequiredTime(reader, 1);
-        return dto.UpdatedAtUtc == updatedAt ? dto : dto with { UpdatedAtUtc = updatedAt };
+        ChainDefinitionDto dto = RepositoryJson.Deserialize<ChainDefinitionDto>(entity.DefinitionJson);
+        return dto.UpdatedAtUtc == entity.UpdatedAt ? dto : dto with { UpdatedAtUtc = entity.UpdatedAt };
     }
 }
 
-/// <summary>Репозиторий chain_runs с идемпотентностью по (chain_id, idempotency_key).</summary>
+/// <summary>Репозиторий запусков на EF Core.</summary>
 public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
 {
-    private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>
     {
-        ["created_at"] = "created_at",
-        ["updated_at"] = "updated_at",
-        ["started_at"] = "started_at",
-        ["status"] = "status",
+        ["created_at"] = nameof(ChainRunEntity.CreatedAt),
+        ["updated_at"] = nameof(ChainRunEntity.UpdatedAt),
+        ["started_at"] = nameof(ChainRunEntity.StartedAt),
+        ["status"] = nameof(ChainRunEntity.Status),
     };
 
-    private const string Columns =
-        "id, chain_id, trigger_event_id, idempotency_key, status, source, payload_json, started_at, finished_at, error_json, created_at, updated_at";
-
-    /// <summary>Создаёт репозиторий запусков.</summary>
-    /// <param name="connectionFactory">Фабрика соединений TASK-010.</param>
-    /// <param name="options">Опции репозиториев.</param>
-    /// <param name="logger">Логгер медленных запросов.</param>
-    /// <param name="metrics">Общие счётчики.</param>
-    public ChainRunRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
-        : base(connectionFactory, options, logger, metrics)
+    /// <summary>Создаёт репозиторий запусков поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    public ChainRunRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null)
+        : base(dbFactory, options, logger, metrics)
     {
     }
 
     /// <inheritdoc />
     public Task<ChainRunRecord?> GetAsync(RunId id, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chain_runs.get", async (connection, transaction, token) =>
+        ExecuteAsync<ChainRunRecord?>("chain_runs.get", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM chain_runs WHERE id = @id");
-            Param(command, "id", id.Value);
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
+            string key = GuidKey(id.Value);
+            ChainRunEntity? entity = await db.ChainRuns
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<PagedResult<ChainRunRecord>> ListAsync(PagedQuery query, ChainId? chainId = null, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chain_runs.list", async (connection, transaction, token) =>
+        ExecuteAsync("chain_runs.list", async (db, token) =>
         {
-            string orderBy = OrderBy(query, Sorts, "id");
-            const string where = "WHERE (@chain_id IS NULL OR chain_id = @chain_id)";
-            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM chain_runs {where}");
-            UuidParam(countCommand, "chain_id", chainId?.Value);
-            long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
-
-            await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM chain_runs {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
-            UuidParam(command, "chain_id", chainId?.Value);
-            Param(command, "limit", query.Limit);
-            Param(command, "offset", query.Offset);
-            var items = new List<ChainRunRecord>();
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            while (await reader.ReadAsync(token).ConfigureAwait(false))
-                items.Add(Map(reader));
-            return new PagedResult<ChainRunRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
+            string sort = ResolveSortKey(query, Sorts);
+            string? chainKey = chainId is null ? null : GuidKey(chainId.Value.Value);
+            IQueryable<ChainRunEntity> filtered = db.ChainRuns
+                .AsNoTracking()
+                .Where(e => chainKey == null || e.ChainId == chainKey);
+            IQueryable<ChainRunEntity> ordered = ApplyOrdering(filtered, sort, query.Descending, nameof(ChainRunEntity.Id));
+            long total = await filtered.LongCountAsync(token).ConfigureAwait(false);
+            List<ChainRunEntity> entities = await ordered
+                .Skip(query.Offset).Take(query.Limit)
+                .ToListAsync(token).ConfigureAwait(false);
+            return new PagedResult<ChainRunRecord>
+            {
+                Items = entities.Select(Map).ToList(),
+                TotalCount = total,
+                Offset = query.Offset,
+                Limit = query.Limit,
+            };
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<ChainRunRecord> AddAsync(ChainRunRecord run, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(run);
-        RequireText(run.IdempotencyKey, nameof(run.IdempotencyKey));
-        RequireText(run.Source, nameof(run.Source));
-        string payload = RepositoryJson.EnsureJson(run.PayloadJson, nameof(run.PayloadJson));
-        return ExecuteAsync("chain_runs.add", async (connection, transaction, token) =>
+        return ExecuteAsync("chain_runs.add", async (db, token) =>
         {
-            Guid id = run.Id.Value == Guid.Empty ? Guid.NewGuid() : run.Id.Value;
-            DateTimeOffset started = run.StartedAtUtc == default ? DateTimeOffset.UtcNow : run.StartedAtUtc;
+            string chainKey = GuidKey(run.ChainId.Value);
+            string key = run.Id.Value == Guid.Empty ? Guid.NewGuid().ToString("D") : GuidKey(run.Id.Value);
+            ChainRunEntity? existing = await db.ChainRuns
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    e => e.ChainId == chainKey && e.IdempotencyKey == run.IdempotencyKey, token)
+                .ConfigureAwait(false);
+            if (existing is not null)
+                return Map(existing);
+
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            await using var command = Command(connection, transaction, $"""
-                INSERT INTO chain_runs (id, chain_id, trigger_event_id, idempotency_key, status, source, payload_json, started_at, finished_at, error_json, created_at, updated_at)
-                VALUES (@id, @chain_id, @trigger_event_id, @idempotency_key, @status, @source, @payload, @started_at, @finished_at, @error, @now, @now)
-                ON CONFLICT (chain_id, idempotency_key) DO NOTHING
-                RETURNING {Columns}
-                """);
-            TimeParam(command, "now", now);
-            Param(command, "id", id);
-            Param(command, "chain_id", run.ChainId.Value);
-            Param(command, "trigger_event_id", run.TriggerEventId);
-            Param(command, "idempotency_key", run.IdempotencyKey);
-            Param(command, "status", run.Status.ToString());
-            Param(command, "source", run.Source);
-            JsonParam(command, "payload", payload);
-            TimeParam(command, "started_at", started);
-            TimeParam(command, "finished_at", run.FinishedAtUtc);
-            JsonParam(command, "error", run.Error is null ? null : RepositoryJson.Serialize(run.Error));
-            await using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+            DateTimeOffset started = run.StartedAtUtc == default ? now : run.StartedAtUtc;
+            var entity = new ChainRunEntity
             {
-                if (await reader.ReadAsync(token).ConfigureAwait(false))
-                    return Map(reader);
+                Id = key,
+                ChainId = chainKey,
+                TriggerEventId = run.TriggerEventId.HasValue ? GuidKey(run.TriggerEventId.Value) : null,
+                IdempotencyKey = run.IdempotencyKey,
+                Status = run.Status.ToString(),
+                Source = run.Source,
+                PayloadJson = RepositoryJson.EnsureJson(run.PayloadJson, "payload"),
+                StartedAt = started,
+                FinishedAt = run.FinishedAtUtc,
+                ErrorJson = run.Error is null ? null : RepositoryJson.Serialize(run.Error),
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            db.ChainRuns.Add(entity);
+            try
+            {
+                await SaveAsync(db, token).ConfigureAwait(false);
+            }
+            catch (DbUpdateException)
+            {
+                ChainRunEntity? raced = await db.ChainRuns
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        e => e.ChainId == chainKey && e.IdempotencyKey == run.IdempotencyKey, token)
+                    .ConfigureAwait(false);
+                if (raced is null)
+                    throw;
+                return Map(raced);
             }
 
-            // AlreadyExists по идемпотентному ключу: вернуть существующий запуск.
-            await using var select = Command(connection, transaction,
-                $"SELECT {Columns} FROM chain_runs WHERE chain_id = @chain_id AND idempotency_key = @idempotency_key");
-            Param(select, "chain_id", run.ChainId.Value);
-            Param(select, "idempotency_key", run.IdempotencyKey);
-            await using SqliteDataReader existing = await select.ExecuteReaderAsync(token).ConfigureAwait(false);
-            if (await existing.ReadAsync(token).ConfigureAwait(false))
-                return Map(existing);
-            throw new InvalidOperationException("Chain run disappeared after idempotency conflict.");
+            return run with { Id = new RunId(Guid.Parse(key)), StartedAtUtc = started };
         }, cancellationToken);
     }
 
     /// <inheritdoc />
-    public Task<ChainRunRecord> UpdateAsync(ChainRunRecord run, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default)
+    public Task<ChainRunRecord> UpdateAsync(ChainRunRecord run, DateTimeOffset expectedVersion, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(run);
-        string payload = RepositoryJson.EnsureJson(run.PayloadJson, nameof(run.PayloadJson));
-        return ExecuteAsync("chain_runs.update", async (connection, transaction, token) =>
+        return ExecuteAsync("chain_runs.update", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"""
-                UPDATE chain_runs
-                SET status = @status, source = @source, payload_json = @payload, finished_at = @finished_at,
-                    error_json = @error, updated_at = @now
-                WHERE id = @id AND updated_at = @expected_version
-                RETURNING {Columns}
-                """);
-            TimeParam(command, "now", DateTimeOffset.UtcNow);
-            Param(command, "id", run.Id.Value);
-            Param(command, "status", run.Status.ToString());
-            Param(command, "source", run.Source);
-            JsonParam(command, "payload", payload);
-            TimeParam(command, "finished_at", run.FinishedAtUtc);
-            JsonParam(command, "error", run.Error is null ? null : RepositoryJson.Serialize(run.Error));
-            TimeParam(command, "expected_version", expectedRowVersion);
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            if (await reader.ReadAsync(token).ConfigureAwait(false))
-                return Map(reader);
-            throw new OptimisticConcurrencyException("chain_runs", run.Id.ToString());
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            string key = GuidKey(run.Id.Value);
+            int affected = await db.ChainRuns
+                .Where(e => e.Id == key && e.UpdatedAt == expectedVersion)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.Status, run.Status.ToString())
+                    .SetProperty(e => e.Source, run.Source.ToString())
+                    .SetProperty(e => e.PayloadJson, RepositoryJson.EnsureJson(run.PayloadJson, "payload"))
+                    .SetProperty(e => e.FinishedAt, run.FinishedAtUtc)
+                    .SetProperty(e => e.ErrorJson, run.Error == null ? null : RepositoryJson.Serialize(run.Error))
+                    .SetProperty(e => e.UpdatedAt, now), token).ConfigureAwait(false);
+            if (affected == 0)
+                throw new OptimisticConcurrencyException("chain_runs", run.Id.ToString());
+            return run with { RowVersion = now };
         }, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<bool> DeleteAsync(RunId id, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("chain_runs.delete", async (connection, transaction, token) =>
+        ExecuteAsync("chain_runs.delete", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM chain_runs WHERE id = @id");
-            Param(command, "id", id.Value);
-            return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
+            string key = GuidKey(id.Value);
+            int affected = await db.ChainRuns
+                .Where(e => e.Id == key)
+                .ExecuteDeleteAsync(token).ConfigureAwait(false);
+            return affected > 0;
         }, cancellationToken);
 
-    internal static ChainRunRecord Map(SqliteDataReader reader) => new()
+    internal static ChainRunRecord Map(ChainRunEntity entity) => new()
     {
-        Id = new RunId(ReadGuid(reader, 0)),
-        ChainId = new ChainId(ReadGuid(reader, 1)),
-        TriggerEventId = reader.IsDBNull(2) ? null : ReadGuid(reader, 2),
-        IdempotencyKey = reader.GetString(3),
-        Status = Enum.Parse<ChainRunStatus>(reader.GetString(4)),
-        Source = reader.GetString(5),
-        PayloadJson = reader.GetString(6),
-        StartedAtUtc = ReadRequiredTime(reader, 7),
-        FinishedAtUtc = ReadTime(reader, 8),
-        Error = reader.IsDBNull(9) ? null : RepositoryJson.Deserialize<ErrorDto>(reader.GetString(9)),
-        CreatedAtUtc = ReadRequiredTime(reader, 10),
-        RowVersion = ReadRequiredTime(reader, 11),
+        Id = new RunId(Guid.Parse(entity.Id)),
+        ChainId = new ChainId(Guid.Parse(entity.ChainId)),
+        TriggerEventId = entity.TriggerEventId is null ? null : Guid.Parse(entity.TriggerEventId),
+        IdempotencyKey = entity.IdempotencyKey,
+        Status = Enum.Parse<ChainRunStatus>(entity.Status),
+        Source = entity.Source,
+        PayloadJson = entity.PayloadJson,
+        StartedAtUtc = entity.StartedAt,
+        FinishedAtUtc = entity.FinishedAt,
+        Error = entity.ErrorJson is null ? null : RepositoryJson.Deserialize<ErrorDto>(entity.ErrorJson),
+        CreatedAtUtc = entity.CreatedAt,
+        RowVersion = entity.UpdatedAt,
     };
 }

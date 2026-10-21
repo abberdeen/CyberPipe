@@ -1,16 +1,20 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
+using CyberPipe.Data.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
 
 public sealed class RepositoryUnitTests
 {
-    private sealed class NeverCalledFactory : IDatabaseConnectionFactory
+    private sealed class NeverCalledFactory : IDbContextFactory<CyberPipeDbContext>
     {
-        public Task<SqliteConnection> CreateOpenedConnectionAsync(CancellationToken cancellationToken = default) =>
+        public CyberPipeDbContext CreateDbContext() =>
+            throw new InvalidOperationException("Database must not be called in unit tests.");
+
+        public Task<CyberPipeDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Database must not be called in unit tests.");
     }
 
@@ -21,8 +25,8 @@ public sealed class RepositoryUnitTests
         {
         }
 
-        public string Order(PagedQuery query) =>
-            OrderBy(query, new Dictionary<string, string> { ["created_at"] = "created_at", ["name"] = "name" }, "id");
+        public string SortKey(PagedQuery query) =>
+            ResolveSortKey(query, new Dictionary<string, string> { ["created_at"] = "created_at", ["name"] = "name" });
     }
 
     private static ChainDefinitionDto SampleChain() => new()
@@ -63,13 +67,13 @@ public sealed class RepositoryUnitTests
     }
 
     [Fact]
-    public void OrderBy_WhitelistOnly_AndInjectionRejected()
+    public void SortKey_WhitelistOnly_AndInjectionRejected()
     {
         var probe = new ProbeRepository();
-        Assert.Contains("created_at DESC", probe.Order(new PagedQuery()));
-        Assert.Contains("name ASC", probe.Order(new PagedQuery { SortBy = "name", Descending = false }));
-        Assert.Throws<ArgumentException>(() => probe.Order(new PagedQuery { SortBy = "created_at; DROP TABLE app.chains" }));
-        Assert.Throws<ArgumentException>(() => probe.Order(new PagedQuery { SortBy = "definition_json" }));
+        Assert.Equal("created_at", probe.SortKey(new PagedQuery()));
+        Assert.Equal("name", probe.SortKey(new PagedQuery { SortBy = "name", Descending = false }));
+        Assert.Throws<ArgumentException>(() => probe.SortKey(new PagedQuery { SortBy = "created_at; DROP TABLE app.chains" }));
+        Assert.Throws<ArgumentException>(() => probe.SortKey(new PagedQuery { SortBy = "definition_json" }));
     }
 
     [Fact]

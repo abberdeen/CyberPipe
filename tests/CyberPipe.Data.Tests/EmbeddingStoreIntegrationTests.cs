@@ -1,6 +1,7 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
-using Microsoft.Data.Sqlite;
+using CyberPipe.Data.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -12,8 +13,8 @@ public sealed class EmbeddingStoreIntegrationTests
     {
         public SqliteTestDatabase Database { get; private set; } = null!;
 
-        public SqliteConnectionFactory Factory => Database.Factory;
-        public SqliteEmbeddingStore Embeddings => new(Factory, TestOptions);
+        public IDbContextFactory<CyberPipeDbContext> DbFactory => Database.DbFactory;
+        public SqliteEmbeddingStore Embeddings => new(DbFactory, TestOptions);
 
         public static readonly EmbeddingStoreOptions TestOptions = new()
         {
@@ -138,7 +139,7 @@ public sealed class EmbeddingStoreIntegrationTests
     public async Task Search_ApproximateStrategy_ReturnsSameOrder()
     {
         await using Fixture fx = await CreateAsync();
-        var store = new SqliteEmbeddingStore(fx.Factory, new EmbeddingStoreOptions
+        var store = new SqliteEmbeddingStore(fx.DbFactory, new EmbeddingStoreOptions
         {
             ModelDimensions = Fixture.TestOptions.ModelDimensions,
             SearchStrategy = EmbeddingSearchStrategy.ApproximateHnsw,

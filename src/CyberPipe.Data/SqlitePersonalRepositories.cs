@@ -1,144 +1,180 @@
-using System.Globalization;
 using System.Text.Json;
 using CyberPipe.Contracts;
-using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>SQLite заметки владельца (TASK-051).</summary>
-public sealed class SqliteNoteRepository : INoteRepository
+/// <summary>SQLite заметки владельца (TASK-051) на EF Core.</summary>
+public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
 {
-    private readonly IDatabaseConnectionFactory _factory;
     private readonly TimeProvider _time;
-    public SqliteNoteRepository(IDatabaseConnectionFactory factory, TimeProvider? time = null)
+
+    /// <summary>Создаёт репозиторий заметок поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    /// <param name="time">Поставщик времени; null — системное время.</param>
+    public SqliteNoteRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null,
+        TimeProvider? time = null)
+        : base(dbFactory, options, logger, metrics)
     {
-        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<NoteRecord> CreateAsync(string title, string content, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default)
-    {
-        DateTimeOffset now = _time.GetUtcNow();
-        var record = new NoteRecord { NoteId = Guid.NewGuid(), Title = title, Content = content, Tags = tags ?? [], CreatedAtUtc = now, UpdatedAtUtc = now };
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("INSERT INTO personal_notes (id,title,content,tags,created_at,updated_at) VALUES (@id,@t,@c,@tags,@at,@at)", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(record.NoteId));
-        cmd.Parameters.AddWithValue("@t", title);
-        cmd.Parameters.AddWithValue("@c", content);
-        cmd.Parameters.AddWithValue("@tags", SqliteRow.FormatTags(tags ?? []));
-        cmd.Parameters.AddWithValue("@at", SqliteRow.ToDbText(now));
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return record;
-    }
-
-    public async Task<NoteRecord?> GetAsync(Guid noteId, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,title,content,tags,created_at,updated_at FROM personal_notes WHERE id=@id AND NOT is_deleted", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(noteId));
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await r.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(r) : null;
-    }
-
-    public async Task<NoteRecord> UpdateAsync(Guid noteId, string? title, string? content, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default)
-    {
-        NoteRecord existing = await GetAsync(noteId, cancellationToken).ConfigureAwait(false)
-            ?? throw new KeyNotFoundException($"Note '{noteId}' not found.");
-        DateTimeOffset now = _time.GetUtcNow();
-        NoteRecord updated = existing with { Title = title ?? existing.Title, Content = content ?? existing.Content, Tags = tags ?? existing.Tags, UpdatedAtUtc = now };
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("UPDATE personal_notes SET title=@t,content=@c,tags=@tags,updated_at=@at WHERE id=@id", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(noteId));
-        cmd.Parameters.AddWithValue("@t", updated.Title);
-        cmd.Parameters.AddWithValue("@c", updated.Content);
-        cmd.Parameters.AddWithValue("@tags", SqliteRow.FormatTags(updated.Tags));
-        cmd.Parameters.AddWithValue("@at", SqliteRow.ToDbText(now));
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return updated;
-    }
-
-    public async Task<bool> DeleteAsync(Guid noteId, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("UPDATE personal_notes SET is_deleted=1,updated_at=CURRENT_TIMESTAMP WHERE id=@id AND NOT is_deleted", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(noteId));
-        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
-    }
-
-    public async Task<IReadOnlyList<NoteRecord>> SearchAsync(string query, IReadOnlyList<string>? tags = null, int limit = 20, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("""
-            SELECT id,title,content,tags,created_at,updated_at FROM personal_notes
-            WHERE NOT is_deleted AND (@q='' OR title LIKE @like COLLATE NOCASE OR content LIKE @like COLLATE NOCASE)
-            ORDER BY updated_at DESC LIMIT @limit
-            """, c);
-        cmd.Parameters.AddWithValue("@q", query ?? string.Empty);
-        cmd.Parameters.AddWithValue("@like", $"%{query}%");
-        cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
-        var list = new List<NoteRecord>();
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await r.ReadAsync(cancellationToken).ConfigureAwait(false))
-            list.Add(Map(r));
-        if (tags is { Count: > 0 })
+    /// <inheritdoc />
+    public Task<NoteRecord> CreateAsync(string title, string content, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("notes.create", async (db, token) =>
         {
-            var required = new HashSet<string>(tags, StringComparer.OrdinalIgnoreCase);
-            list = list.Where(n => n.Tags.Any(t => required.Contains(t))).ToList();
-        }
+            DateTimeOffset now = _time.GetUtcNow();
+            var entity = new NoteEntity
+            {
+                Id = Guid.NewGuid().ToString("D"),
+                Title = title,
+                Content = content,
+                Tags = (tags ?? []).ToList(),
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            db.Notes.Add(entity);
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return Map(entity);
+        }, cancellationToken);
 
-        return list;
-    }
+    /// <inheritdoc />
+    public Task<NoteRecord?> GetAsync(Guid noteId, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<NoteRecord?>("notes.get", async (db, token) =>
+        {
+            string key = GuidKey(noteId);
+            NoteEntity? entity = await db.Notes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key && !e.IsDeleted, token)
+                .ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
+        }, cancellationToken);
 
-    private static NoteRecord Map(SqliteDataReader r) => new()
+    /// <inheritdoc />
+    public Task<NoteRecord> UpdateAsync(Guid noteId, string? title, string? content, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("notes.update", async (db, token) =>
+        {
+            string key = GuidKey(noteId);
+            NoteEntity? entity = await db.Notes
+                .FirstOrDefaultAsync(e => e.Id == key && !e.IsDeleted, token)
+                .ConfigureAwait(false)
+                ?? throw new KeyNotFoundException($"Note '{noteId}' not found.");
+            DateTimeOffset now = _time.GetUtcNow();
+            entity.Title = title ?? entity.Title;
+            entity.Content = content ?? entity.Content;
+            if (tags is not null)
+                entity.Tags = tags.ToList();
+            entity.UpdatedAt = now;
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return Map(entity);
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<bool> DeleteAsync(Guid noteId, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("notes.delete", async (db, token) =>
+        {
+            string key = GuidKey(noteId);
+            int affected = await db.Notes
+                .Where(e => e.Id == key && !e.IsDeleted)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.IsDeleted, true)
+                    .SetProperty(e => e.UpdatedAt, _time.GetUtcNow()), token)
+                .ConfigureAwait(false);
+            return affected > 0;
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<NoteRecord>> SearchAsync(string query, IReadOnlyList<string>? tags = null, int limit = 20, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<IReadOnlyList<NoteRecord>>("notes.search", async (db, token) =>
+        {
+            string pattern = query ?? string.Empty;
+            List<NoteEntity> entities = await db.Notes
+                .AsNoTracking()
+                .Where(e => !e.IsDeleted && (pattern == "" || e.Title.Contains(pattern) || e.Content.Contains(pattern)))
+                .OrderByDescending(e => e.UpdatedAt)
+                .Take(Math.Max(1, limit))
+                .ToListAsync(token).ConfigureAwait(false);
+            IEnumerable<NoteRecord> results = entities.Select(Map);
+            if (tags is { Count: > 0 })
+            {
+                var required = new HashSet<string>(tags, StringComparer.OrdinalIgnoreCase);
+                results = results.Where(n => n.Tags.Any(required.Contains));
+            }
+
+            return results.ToList();
+        }, cancellationToken);
+
+    private static NoteRecord Map(NoteEntity entity) => new()
     {
-        NoteId = SqliteRow.ReadGuid(r, 0),
-        Title = r.GetString(1),
-        Content = r.GetString(2),
-        Tags = SqliteRow.ParseTags(r.GetString(3)),
-        CreatedAtUtc = SqliteRow.ReadRequiredTime(r, 4),
-        UpdatedAtUtc = SqliteRow.ReadRequiredTime(r, 5),
+        NoteId = Guid.Parse(entity.Id),
+        Title = entity.Title,
+        Content = entity.Content,
+        Tags = entity.Tags,
+        CreatedAtUtc = entity.CreatedAt,
+        UpdatedAtUtc = entity.UpdatedAt,
     };
 }
 
-/// <summary>SQLite финансы владельца (TASK-051).</summary>
-public sealed class SqliteFinanceRepository : IFinanceRepository
+/// <summary>SQLite финансы владельца (TASK-051) на EF Core.</summary>
+public sealed class SqliteFinanceRepository : RepositoryBase, IFinanceRepository
 {
-    private readonly IDatabaseConnectionFactory _factory;
     private readonly TimeProvider _time;
-    public SqliteFinanceRepository(IDatabaseConnectionFactory factory, TimeProvider? time = null)
+
+    /// <summary>Создаёт репозиторий финансов поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    /// <param name="time">Поставщик времени; null — системное время.</param>
+    public SqliteFinanceRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null,
+        TimeProvider? time = null)
+        : base(dbFactory, options, logger, metrics)
     {
-        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<FinanceTransactionRecord> AddTransactionAsync(FinanceTransactionKind kind, decimal amount, string currency, string category, string? description = null, DateTimeOffset? occurredAtUtc = null, CancellationToken cancellationToken = default)
-    {
-        DateTimeOffset now = _time.GetUtcNow();
-        var record = new FinanceTransactionRecord
+    /// <inheritdoc />
+    public Task<FinanceTransactionRecord> AddTransactionAsync(FinanceTransactionKind kind, decimal amount, string currency, string category, string? description = null, DateTimeOffset? occurredAtUtc = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("finance.add", async (db, token) =>
         {
-            TransactionId = Guid.NewGuid(), Kind = kind, Amount = amount, Currency = currency,
-            Category = category, Description = description, OccurredAtUtc = occurredAtUtc ?? now, CreatedAtUtc = now,
-        };
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("INSERT INTO personal_finance (id,kind,amount,currency,category,description,occurred_at,created_at) VALUES (@id,@k,@a,@cur,@cat,@d,@occ,@at)", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(record.TransactionId));
-        cmd.Parameters.AddWithValue("@k", (int)kind);
-        cmd.Parameters.AddWithValue("@a", SqliteRow.ToDbText(amount));
-        cmd.Parameters.AddWithValue("@cur", currency);
-        cmd.Parameters.AddWithValue("@cat", category);
-        cmd.Parameters.AddWithValue("@d", (object?)description ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@occ", SqliteRow.ToDbText(record.OccurredAtUtc));
-        cmd.Parameters.AddWithValue("@at", SqliteRow.ToDbText(now));
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return record;
-    }
+            DateTimeOffset now = _time.GetUtcNow();
+            var entity = new FinanceEntity
+            {
+                Id = Guid.NewGuid().ToString("D"),
+                Kind = (int)kind,
+                Amount = amount,
+                Currency = currency,
+                Category = category,
+                Description = description,
+                OccurredAt = occurredAtUtc ?? now,
+                CreatedAt = now,
+            };
+            db.Finance.Add(entity);
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return Map(entity);
+        }, cancellationToken);
 
+    /// <inheritdoc />
     public async Task<decimal> GetBalanceAsync(string currency, CancellationToken cancellationToken = default)
     {
         IReadOnlyList<FinanceTransactionRecord> all = await ListTransactionsAsync(null, null, currency, int.MaxValue, cancellationToken).ConfigureAwait(false);
         return all.Sum(t => t.Kind == FinanceTransactionKind.Income ? t.Amount : -t.Amount);
     }
 
+    /// <inheritdoc />
     public async Task<FinanceReportDto> GetReportAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, string currency, CancellationToken cancellationToken = default)
     {
         IReadOnlyList<FinanceTransactionRecord> items = await ListTransactionsAsync(fromUtc, toUtc, currency, int.MaxValue, cancellationToken).ConfigureAwait(false);
@@ -151,299 +187,293 @@ public sealed class SqliteFinanceRepository : IFinanceRepository
         }).ToList();
         return new FinanceReportDto
         {
-            FromUtc = fromUtc, ToUtc = toUtc, Currency = currency,
+            FromUtc = fromUtc,
+            ToUtc = toUtc,
+            Currency = currency,
             TotalIncome = items.Where(t => t.Kind == FinanceTransactionKind.Income).Sum(t => t.Amount),
             TotalExpense = items.Where(t => t.Kind == FinanceTransactionKind.Expense).Sum(t => t.Amount),
             Categories = categories,
         };
     }
 
-    public async Task<IReadOnlyList<FinanceTransactionRecord>> ListTransactionsAsync(DateTimeOffset? fromUtc = null, DateTimeOffset? toUtc = null, string? currency = null, int limit = 50, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("""
-            SELECT id,kind,amount,currency,category,description,occurred_at,created_at FROM personal_finance
-            WHERE (@from IS NULL OR occurred_at>=@from) AND (@to IS NULL OR occurred_at<=@to) AND (@cur IS NULL OR currency=@cur)
-            ORDER BY occurred_at DESC LIMIT @limit
-            """, c);
-        cmd.Parameters.AddWithValue("@from", fromUtc.HasValue ? SqliteRow.ToDbText(fromUtc.Value) : DBNull.Value);
-        cmd.Parameters.AddWithValue("@to", toUtc.HasValue ? SqliteRow.ToDbText(toUtc.Value) : DBNull.Value);
-        cmd.Parameters.AddWithValue("@cur", (object?)currency ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@limit", limit == int.MaxValue ? int.MaxValue : Math.Max(1, limit));
-        var list = new List<FinanceTransactionRecord>();
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await r.ReadAsync(cancellationToken).ConfigureAwait(false))
+    /// <inheritdoc />
+    public Task<IReadOnlyList<FinanceTransactionRecord>> ListTransactionsAsync(DateTimeOffset? fromUtc = null, DateTimeOffset? toUtc = null, string? currency = null, int limit = 50, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<IReadOnlyList<FinanceTransactionRecord>>("finance.list", async (db, token) =>
         {
-            list.Add(new FinanceTransactionRecord
-            {
-                TransactionId = SqliteRow.ReadGuid(r, 0), Kind = (FinanceTransactionKind)r.GetInt32(1), Amount = SqliteRow.ToDecimal(r.GetValue(2)),
-                Currency = r.GetString(3), Category = r.GetString(4), Description = r.IsDBNull(5) ? null : r.GetString(5),
-                OccurredAtUtc = SqliteRow.ReadRequiredTime(r, 6), CreatedAtUtc = SqliteRow.ReadRequiredTime(r, 7),
-            });
-        }
+            string? currencyFilter = OptionalFilter(currency);
+            List<FinanceEntity> entities = await db.Finance
+                .AsNoTracking()
+                .Where(e => (fromUtc == null || e.OccurredAt >= fromUtc.Value)
+                    && (toUtc == null || e.OccurredAt <= toUtc.Value)
+                    && (currencyFilter == null || e.Currency == currencyFilter))
+                .OrderByDescending(e => e.OccurredAt)
+                .Take(limit == int.MaxValue ? int.MaxValue : Math.Max(1, limit))
+                .ToListAsync(token).ConfigureAwait(false);
+            return entities.Select(Map).ToList();
+        }, cancellationToken);
 
-        return list;
-    }
+    private static FinanceTransactionRecord Map(FinanceEntity entity) => new()
+    {
+        TransactionId = Guid.Parse(entity.Id),
+        Kind = (FinanceTransactionKind)entity.Kind,
+        Amount = entity.Amount,
+        Currency = entity.Currency,
+        Category = entity.Category,
+        Description = entity.Description,
+        OccurredAtUtc = entity.OccurredAt,
+        CreatedAtUtc = entity.CreatedAt,
+    };
 }
 
-/// <summary>SQLite напоминания владельца (TASK-051).</summary>
-public sealed class SqliteReminderRepository : IReminderRepository
+/// <summary>SQLite напоминания владельца (TASK-051) на EF Core.</summary>
+public sealed class SqliteReminderRepository : RepositoryBase, IReminderRepository
 {
-    private readonly IDatabaseConnectionFactory _factory;
     private readonly TimeProvider _time;
-    public SqliteReminderRepository(IDatabaseConnectionFactory factory, TimeProvider? time = null)
+
+    /// <summary>Создаёт репозиторий напоминаний поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    /// <param name="time">Поставщик времени; null — системное время.</param>
+    public SqliteReminderRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null,
+        TimeProvider? time = null)
+        : base(dbFactory, options, logger, metrics)
     {
-        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<ReminderItemRecord> CreateAsync(string title, DateTimeOffset? dueTimeUtc, string? cronExpression = null, CancellationToken cancellationToken = default)
-    {
-        DateTimeOffset now = _time.GetUtcNow();
-        var record = new ReminderItemRecord { ReminderId = Guid.NewGuid(), Title = title, DueTimeUtc = dueTimeUtc, CronExpression = cronExpression, Status = ReminderStatus.Pending, CreatedAtUtc = now };
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("INSERT INTO personal_reminders (id,title,due_time,cron_expression,status,created_at) VALUES (@id,@t,@due,@cron,0,@at)", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(record.ReminderId));
-        cmd.Parameters.AddWithValue("@t", title);
-        cmd.Parameters.AddWithValue("@due", dueTimeUtc.HasValue ? SqliteRow.ToDbText(dueTimeUtc.Value) : DBNull.Value);
-        cmd.Parameters.AddWithValue("@cron", (object?)cronExpression ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@at", SqliteRow.ToDbText(now));
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return record;
-    }
+    /// <inheritdoc />
+    public Task<ReminderItemRecord> CreateAsync(string title, DateTimeOffset? dueTimeUtc, string? cronExpression = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("reminders.create", async (db, token) =>
+        {
+            DateTimeOffset now = _time.GetUtcNow();
+            var entity = new ReminderEntity
+            {
+                Id = Guid.NewGuid().ToString("D"),
+                Title = title,
+                DueTime = dueTimeUtc,
+                CronExpression = cronExpression,
+                Status = (int)ReminderStatus.Pending,
+                CreatedAt = now,
+            };
+            db.Reminders.Add(entity);
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return Map(entity);
+        }, cancellationToken);
 
-    public async Task<ReminderItemRecord?> GetAsync(Guid reminderId, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,title,due_time,cron_expression,status,created_at,completed_at FROM personal_reminders WHERE id=@id", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(reminderId));
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await r.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(r) : null;
-    }
+    /// <inheritdoc />
+    public Task<ReminderItemRecord?> GetAsync(Guid reminderId, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<ReminderItemRecord?>("reminders.get", async (db, token) =>
+        {
+            string key = GuidKey(reminderId);
+            ReminderEntity? entity = await db.Reminders
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
+        }, cancellationToken);
 
-    public async Task<IReadOnlyList<ReminderItemRecord>> ListAsync(ReminderStatus? status = null, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,title,due_time,cron_expression,status,created_at,completed_at FROM personal_reminders WHERE (@s IS NULL OR status=@s) ORDER BY due_time IS NULL, due_time, created_at", c);
-        cmd.Parameters.AddWithValue("@s", status.HasValue ? (object)(int)status.Value : DBNull.Value);
-        var list = new List<ReminderItemRecord>();
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await r.ReadAsync(cancellationToken).ConfigureAwait(false))
-            list.Add(Map(r));
-        return list;
-    }
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ReminderItemRecord>> ListAsync(ReminderStatus? status = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<IReadOnlyList<ReminderItemRecord>>("reminders.list", async (db, token) =>
+        {
+            List<ReminderEntity> entities = await db.Reminders
+                .AsNoTracking()
+                .Where(e => status == null || e.Status == (int)status.Value)
+                .OrderBy(e => e.DueTime == null)
+                .ThenBy(e => e.DueTime)
+                .ThenBy(e => e.CreatedAt)
+                .ToListAsync(token).ConfigureAwait(false);
+            return entities.Select(Map).ToList();
+        }, cancellationToken);
 
+    /// <inheritdoc />
     public Task<bool> CompleteAsync(Guid reminderId, CancellationToken cancellationToken = default) =>
         SetStatusAsync(reminderId, ReminderStatus.Completed, cancellationToken);
 
+    /// <inheritdoc />
     public Task<bool> CancelAsync(Guid reminderId, CancellationToken cancellationToken = default) =>
         SetStatusAsync(reminderId, ReminderStatus.Cancelled, cancellationToken);
 
-    private async Task<bool> SetStatusAsync(Guid id, ReminderStatus status, CancellationToken ct)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(ct).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("UPDATE personal_reminders SET status=@s, completed_at=CASE WHEN @s=1 THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id=@id AND status=0", c);
-        cmd.Parameters.AddWithValue("@s", (int)status);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(id));
-        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
-    }
+    private Task<bool> SetStatusAsync(Guid id, ReminderStatus status, CancellationToken cancellationToken) =>
+        ExecuteAsync("reminders.set_status", async (db, token) =>
+        {
+            string key = GuidKey(id);
+            ReminderEntity? entity = await db.Reminders
+                .FirstOrDefaultAsync(e => e.Id == key && e.Status == (int)ReminderStatus.Pending, token)
+                .ConfigureAwait(false);
+            if (entity is null)
+                return false;
+            DateTimeOffset now = _time.GetUtcNow();
+            entity.Status = (int)status;
+            if (status == ReminderStatus.Completed)
+                entity.CompletedAt = now;
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return true;
+        }, cancellationToken);
 
-    private static ReminderItemRecord Map(SqliteDataReader r) => new()
+    private static ReminderItemRecord Map(ReminderEntity entity) => new()
     {
-        ReminderId = SqliteRow.ReadGuid(r, 0), Title = r.GetString(1),
-        DueTimeUtc = SqliteRow.ReadTime(r, 2),
-        CronExpression = r.IsDBNull(3) ? null : r.GetString(3),
-        Status = (ReminderStatus)r.GetInt32(4),
-        CreatedAtUtc = SqliteRow.ReadRequiredTime(r, 5),
-        CompletedAtUtc = SqliteRow.ReadTime(r, 6),
+        ReminderId = Guid.Parse(entity.Id),
+        Title = entity.Title,
+        DueTimeUtc = entity.DueTime,
+        CronExpression = entity.CronExpression,
+        Status = (ReminderStatus)entity.Status,
+        CreatedAtUtc = entity.CreatedAt,
+        CompletedAtUtc = entity.CompletedAt,
     };
 }
 
-/// <summary>SQLite контакты/CRM владельца (TASK-051).</summary>
-public sealed class SqliteContactRepository : IContactRepository
+/// <summary>SQLite контакты/CRM владельца (TASK-051) на EF Core.</summary>
+public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
 {
-    private readonly IDatabaseConnectionFactory _factory;
     private readonly TimeProvider _time;
-    public SqliteContactRepository(IDatabaseConnectionFactory factory, TimeProvider? time = null)
+
+    /// <summary>Создаёт репозиторий контактов поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    /// <param name="time">Поставщик времени; null — системное время.</param>
+    public SqliteContactRepository(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null,
+        TimeProvider? time = null)
+        : base(dbFactory, options, logger, metrics)
     {
-        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _time = time ?? TimeProvider.System;
     }
 
-    public async Task<ContactRecord> UpsertContactAsync(string name, IReadOnlyDictionary<string, string>? channels = null, string? notes = null, Guid? contactId = null, CancellationToken cancellationToken = default)
-    {
-        DateTimeOffset now = _time.GetUtcNow();
-        ContactRecord? existing = contactId.HasValue
-            ? await GetAsync(contactId.Value, cancellationToken).ConfigureAwait(false)
-            : await FindByNameAsync(name, cancellationToken).ConfigureAwait(false);
-        if (existing is not null)
+    /// <inheritdoc />
+    public Task<ContactRecord> UpsertContactAsync(string name, IReadOnlyDictionary<string, string>? channels = null, string? notes = null, Guid? contactId = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("contacts.upsert", async (db, token) =>
         {
-            ContactRecord updated = existing with { Name = name, Channels = channels ?? existing.Channels, Notes = notes ?? existing.Notes, UpdatedAtUtc = now };
-            await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-            await using var cmd = new SqliteCommand("UPDATE personal_contacts SET name=@n,channels=@ch,notes=@notes,updated_at=@at WHERE id=@id", c);
-            cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(existing.ContactId));
-            cmd.Parameters.AddWithValue("@n", updated.Name);
-            cmd.Parameters.AddWithValue("@ch", JsonSerializer.Serialize(updated.Channels));
-            cmd.Parameters.AddWithValue("@notes", (object?)updated.Notes ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@at", SqliteRow.ToDbText(now));
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            return updated;
-        }
-
-        var record = new ContactRecord
-        {
-            ContactId = contactId ?? Guid.NewGuid(), Name = name,
-            Channels = channels ?? new Dictionary<string, string>(), Notes = notes, CreatedAtUtc = now, UpdatedAtUtc = now,
-        };
-        await using SqliteConnection conn = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var insert = new SqliteCommand("INSERT INTO personal_contacts (id,name,channels,notes,created_at,updated_at) VALUES (@id,@n,@ch,@notes,@at,@at)", conn);
-        insert.Parameters.AddWithValue("@id", SqliteRow.GuidText(record.ContactId));
-        insert.Parameters.AddWithValue("@n", name);
-        insert.Parameters.AddWithValue("@ch", JsonSerializer.Serialize(record.Channels));
-        insert.Parameters.AddWithValue("@notes", (object?)notes ?? DBNull.Value);
-        insert.Parameters.AddWithValue("@at", SqliteRow.ToDbText(now));
-        await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return record;
-    }
-
-    public async Task<ContactRecord?> FindByNameAsync(string name, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,name,channels,notes,created_at,updated_at FROM personal_contacts WHERE lower(name)=lower(@n) AND NOT is_deleted LIMIT 1", c);
-        cmd.Parameters.AddWithValue("@n", name);
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await r.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(r) : null;
-    }
-
-    public async Task<ContactRecord?> GetAsync(Guid contactId, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,name,channels,notes,created_at,updated_at FROM personal_contacts WHERE id=@id AND NOT is_deleted", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(contactId));
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        return await r.ReadAsync(cancellationToken).ConfigureAwait(false) ? Map(r) : null;
-    }
-
-    public async Task<IReadOnlyList<ContactRecord>> SearchAsync(string query, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,name,channels,notes,created_at,updated_at FROM personal_contacts WHERE NOT is_deleted AND (@q='' OR name LIKE @like COLLATE NOCASE) ORDER BY name", c);
-        cmd.Parameters.AddWithValue("@q", query ?? string.Empty);
-        cmd.Parameters.AddWithValue("@like", $"%{query}%");
-        var list = new List<ContactRecord>();
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await r.ReadAsync(cancellationToken).ConfigureAwait(false))
-            list.Add(Map(r));
-        return list;
-    }
-
-    public async Task<InteractionRecord> AddInteractionAsync(Guid contactId, string channel, string note, DateTimeOffset? occurredAtUtc = null, CancellationToken cancellationToken = default)
-    {
-        var record = new InteractionRecord { InteractionId = Guid.NewGuid(), ContactId = contactId, Channel = channel, Note = note, OccurredAtUtc = occurredAtUtc ?? _time.GetUtcNow() };
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("INSERT INTO personal_interactions (id,contact_id,channel,note,occurred_at) VALUES (@id,@cid,@ch,@n,@at)", c);
-        cmd.Parameters.AddWithValue("@id", SqliteRow.GuidText(record.InteractionId));
-        cmd.Parameters.AddWithValue("@cid", SqliteRow.GuidText(contactId));
-        cmd.Parameters.AddWithValue("@ch", channel);
-        cmd.Parameters.AddWithValue("@n", note);
-        cmd.Parameters.AddWithValue("@at", SqliteRow.ToDbText(record.OccurredAtUtc));
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        return record;
-    }
-
-    public async Task<IReadOnlyList<InteractionRecord>> GetHistoryAsync(Guid contactId, int limit = 50, CancellationToken cancellationToken = default)
-    {
-        await using SqliteConnection c = await _factory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = new SqliteCommand("SELECT id,contact_id,channel,note,occurred_at FROM personal_interactions WHERE contact_id=@cid ORDER BY occurred_at DESC LIMIT @limit", c);
-        cmd.Parameters.AddWithValue("@cid", SqliteRow.GuidText(contactId));
-        cmd.Parameters.AddWithValue("@limit", Math.Max(1, limit));
-        var list = new List<InteractionRecord>();
-        await using SqliteDataReader r = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await r.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            list.Add(new InteractionRecord
+            DateTimeOffset now = _time.GetUtcNow();
+            ContactEntity? existing = contactId.HasValue
+                ? await db.Contacts.FirstOrDefaultAsync(
+                    e => e.Id == GuidKey(contactId.Value) && !e.IsDeleted, token).ConfigureAwait(false)
+                : await db.Contacts.FirstOrDefaultAsync(
+                    e => e.Name.ToLower() == name.ToLower() && !e.IsDeleted, token).ConfigureAwait(false);
+            if (existing is not null)
             {
-                InteractionId = SqliteRow.ReadGuid(r, 0), ContactId = SqliteRow.ReadGuid(r, 1), Channel = r.GetString(2),
-                Note = r.GetString(3), OccurredAtUtc = SqliteRow.ReadRequiredTime(r, 4),
-            });
-        }
+                existing.Name = name;
+                if (channels is not null)
+                    existing.Channels = new Dictionary<string, string>(channels);
+                existing.Notes = notes ?? existing.Notes;
+                existing.UpdatedAt = now;
+                await SaveAsync(db, token).ConfigureAwait(false);
+                return Map(existing);
+            }
 
-        return list;
-    }
+            var entity = new ContactEntity
+            {
+                Id = GuidKey(contactId ?? Guid.NewGuid()),
+                Name = name,
+                Channels = new Dictionary<string, string>(channels ?? new Dictionary<string, string>()),
+                Notes = notes,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            db.Contacts.Add(entity);
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return Map(entity);
+        }, cancellationToken);
 
-    private static ContactRecord Map(SqliteDataReader r) => new()
+    /// <inheritdoc />
+    public Task<ContactRecord?> FindByNameAsync(string name, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<ContactRecord?>("contacts.find_by_name", async (db, token) =>
+        {
+            ContactEntity? entity = await db.Contacts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Name.ToLower() == name.ToLower() && !e.IsDeleted, token)
+                .ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<ContactRecord?> GetAsync(Guid contactId, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<ContactRecord?>("contacts.get", async (db, token) =>
+        {
+            string key = GuidKey(contactId);
+            ContactEntity? entity = await db.Contacts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key && !e.IsDeleted, token)
+                .ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<ContactRecord>> SearchAsync(string query, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<IReadOnlyList<ContactRecord>>("contacts.search", async (db, token) =>
+        {
+            string pattern = query ?? string.Empty;
+            List<ContactEntity> entities = await db.Contacts
+                .AsNoTracking()
+                .Where(e => !e.IsDeleted && (pattern == "" || e.Name.Contains(pattern)))
+                .OrderBy(e => e.Name)
+                .ToListAsync(token).ConfigureAwait(false);
+            return entities.Select(Map).ToList();
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<InteractionRecord> AddInteractionAsync(Guid contactId, string channel, string note, DateTimeOffset? occurredAtUtc = null, CancellationToken cancellationToken = default) =>
+        ExecuteAsync("contacts.add_interaction", async (db, token) =>
+        {
+            DateTimeOffset at = occurredAtUtc ?? _time.GetUtcNow();
+            var entity = new InteractionEntity
+            {
+                Id = Guid.NewGuid().ToString("D"),
+                ContactId = GuidKey(contactId),
+                Channel = channel,
+                Note = note,
+                OccurredAt = at,
+            };
+            db.Interactions.Add(entity);
+            await SaveAsync(db, token).ConfigureAwait(false);
+            return new InteractionRecord
+            {
+                InteractionId = Guid.Parse(entity.Id),
+                ContactId = contactId,
+                Channel = channel,
+                Note = note,
+                OccurredAtUtc = at,
+            };
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<InteractionRecord>> GetHistoryAsync(Guid contactId, int limit = 50, CancellationToken cancellationToken = default) =>
+        ExecuteAsync<IReadOnlyList<InteractionRecord>>("contacts.history", async (db, token) =>
+        {
+            string key = GuidKey(contactId);
+            List<InteractionEntity> entities = await db.Interactions
+                .AsNoTracking()
+                .Where(e => e.ContactId == key)
+                .OrderByDescending(e => e.OccurredAt)
+                .Take(Math.Max(1, limit))
+                .ToListAsync(token).ConfigureAwait(false);
+            return entities.Select(e => new InteractionRecord
+            {
+                InteractionId = Guid.Parse(e.Id),
+                ContactId = Guid.Parse(e.ContactId),
+                Channel = e.Channel,
+                Note = e.Note,
+                OccurredAtUtc = e.OccurredAt,
+            }).ToList();
+        }, cancellationToken);
+
+    private static ContactRecord Map(ContactEntity entity) => new()
     {
-        ContactId = SqliteRow.ReadGuid(r, 0), Name = r.GetString(1),
-        Channels = JsonSerializer.Deserialize<Dictionary<string, string>>(r.GetString(2)) ?? new Dictionary<string, string>(),
-        Notes = r.IsDBNull(3) ? null : r.GetString(3),
-        CreatedAtUtc = SqliteRow.ReadRequiredTime(r, 4), UpdatedAtUtc = SqliteRow.ReadRequiredTime(r, 5),
+        ContactId = Guid.Parse(entity.Id),
+        Name = entity.Name,
+        Channels = entity.Channels,
+        Notes = entity.Notes,
+        CreatedAtUtc = entity.CreatedAt,
+        UpdatedAtUtc = entity.UpdatedAt,
     };
-}
-
-/// <summary>Локальные конвертеры строк SQLite для standalone-репозиториев.</summary>
-internal static class SqliteRow
-{
-    private const string TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff";
-
-    internal static string GuidText(Guid value) =>
-        value.ToString("D", CultureInfo.InvariantCulture);
-
-    internal static string ToDbText(DateTimeOffset value) =>
-        value.UtcDateTime.ToString(TimestampFormat, CultureInfo.InvariantCulture);
-
-    internal static string ToDbText(decimal value) =>
-        value.ToString(CultureInfo.InvariantCulture);
-
-    internal static string FormatTags(IReadOnlyList<string> tags) =>
-        JsonSerializer.Serialize(tags);
-
-    internal static IReadOnlyList<string> ParseTags(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return [];
-        try
-        {
-            return JsonSerializer.Deserialize<List<string>>(text) ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    internal static decimal ToDecimal(object value) =>
-        Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-
-    internal static Guid ReadGuid(SqliteDataReader reader, int ordinal)
-    {
-        if (reader.IsDBNull(ordinal))
-            throw new InvalidOperationException("Unexpected NULL guid.");
-        object value = reader.GetValue(ordinal);
-        return value switch
-        {
-            Guid guid => guid,
-            string s => Guid.Parse(s),
-            byte[] bytes when bytes.Length == 16 => new Guid(bytes),
-            _ => reader.GetGuid(ordinal),
-        };
-    }
-
-    internal static DateTimeOffset? ReadTime(SqliteDataReader reader, int ordinal)
-    {
-        if (reader.IsDBNull(ordinal))
-            return null;
-        object value = reader.GetValue(ordinal);
-        return value switch
-        {
-            DateTimeOffset dto => dto,
-            DateTime dt => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)),
-            string s when DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out DateTimeOffset parsed) => parsed,
-            string s when DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out DateTime parsedDt) => new DateTimeOffset(DateTime.SpecifyKind(parsedDt, DateTimeKind.Utc)),
-            long unix => DateTimeOffset.FromUnixTimeSeconds(unix),
-            _ => throw new InvalidOperationException($"Unexpected timestamp value of type {value.GetType().Name}."),
-        };
-    }
-
-    internal static DateTimeOffset ReadRequiredTime(SqliteDataReader reader, int ordinal) =>
-        ReadTime(reader, ordinal) ?? throw new InvalidOperationException("Unexpected NULL timestamp.");
 }

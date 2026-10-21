@@ -1,5 +1,7 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
+using CyberPipe.Data.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -21,10 +23,10 @@ public sealed class RepositoryIntegrationTests
     {
         public SqliteTestDatabase Database { get; private set; } = null!;
 
-        public SqliteConnectionFactory Factory => Database.Factory;
+        public IDbContextFactory<CyberPipeDbContext> DbFactory => Database.DbFactory;
 
         public RepositorySet Repos(RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null) =>
-            RepositorySet.Create(Factory, options: options, logger: logger, metrics: metrics);
+            RepositorySet.Create(DbFactory, options: options, logger: logger, metrics: metrics);
 
         public static async Task<Fixture> CreateAsync()
         {
@@ -199,7 +201,7 @@ public sealed class RepositoryIntegrationTests
         await using Fixture fx = await CreateAsync();
         var metrics = new UnitOfWorkMetrics();
         RepositorySet repos = fx.Repos(metrics: metrics);
-        var factory = new UnitOfWorkFactory(fx.Factory, repos);
+        var factory = new UnitOfWorkFactory(fx.DbFactory, repos);
         ChainDefinitionDto doomed = Chain("doomed");
 
         long rolledBefore = metrics.RolledBackTransactions;
@@ -234,7 +236,7 @@ public sealed class RepositoryIntegrationTests
     {
         await using Fixture fx = await CreateAsync();
         RepositorySet repos = fx.Repos();
-        var factory = new UnitOfWorkFactory(fx.Factory, repos);
+        var factory = new UnitOfWorkFactory(fx.DbFactory, repos);
         ChainDefinitionDto chain = Chain("cancelled-commit");
         using var cts = new CancellationTokenSource();
         await using IUnitOfWork uow = await factory.CreateAsync();
@@ -268,7 +270,7 @@ public sealed class RepositoryIntegrationTests
     public async Task SqliteHitlApprovalRepository_AtomicTryResolve_OnlyOneSucceeds()
     {
         await using Fixture fx = await CreateAsync();
-        var hitlRepo = new SqliteHitlApprovalRepository(fx.Factory);
+        var hitlRepo = new SqliteHitlApprovalRepository(fx.DbFactory);
         await hitlRepo.EnsureTableCreatedAsync();
 
         var approvalId = Guid.NewGuid();

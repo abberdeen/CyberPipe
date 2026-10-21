@@ -1,9 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
 using CyberPipe.Contracts;
-using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
@@ -194,230 +195,205 @@ public static class EmbeddingValidation
 /// Вектор хранится текстом (JSON-массив float), косинусное сходство считается в C# полным
 /// перебором кандидатов; порядок и контракт не зависят от стратегии поиска.
 /// </summary>
-public sealed class SqliteEmbeddingStore : IEmbeddingStore
+public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
 {
-    private const string UpsertSql = """
-        INSERT INTO embeddings (id, namespace, source_ref, model_id, dimension, embedding, text_hash, metadata, created_at, updated_at)
-        VALUES (@id, @namespace, @source_ref, @model_id, @dimension, @embedding, @text_hash, @metadata, COALESCE(@created_at, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP)
-        ON CONFLICT (namespace, source_ref, model_id) DO UPDATE
-        SET dimension = EXCLUDED.dimension,
-            embedding = EXCLUDED.embedding,
-            text_hash = EXCLUDED.text_hash,
-            metadata = EXCLUDED.metadata,
-            updated_at = CURRENT_TIMESTAMP
-        """;
-
-    private readonly IDatabaseConnectionFactory _connectionFactory;
     private readonly EmbeddingStoreOptions _options;
-    private readonly ILogger<SqliteEmbeddingStore> _logger;
+    private readonly ILogger _storeLogger;
 
-    /// <summary>Создаёт хранилище поверх фабрики соединений SQLite.</summary>
-    /// <param name="connectionFactory">Фабрика открытых соединений.</param>
+    /// <summary>Создаёт хранилище поверх фабрики контекстов SQLite.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
     /// <param name="options">Опции размерностей и стратегии; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; векторы и метаданные в логи не пишутся.</param>
     public SqliteEmbeddingStore(
-        IDatabaseConnectionFactory connectionFactory,
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
         EmbeddingStoreOptions? options = null,
         ILogger<SqliteEmbeddingStore>? logger = null)
+        : base(dbFactory)
     {
-        _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
         _options = options ?? new EmbeddingStoreOptions();
-        _logger = logger ?? NullLogger<SqliteEmbeddingStore>.Instance;
+        _storeLogger = logger ?? NullLogger<SqliteEmbeddingStore>.Instance;
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+    }
+
+    /// <summary>Создаёт хранилище поверх фабрики контекстов с опциями репозиториев.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="repositoryOptions">Опции репозиториев (таймауты/ретраи).</param>
+    /// <param name="options">Опции размерностей и стратегии; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; векторы и метаданные в логи не пишутся.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
+    public SqliteEmbeddingStore(
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
+        RepositoryOptions repositoryOptions,
+        EmbeddingStoreOptions? options = null,
+        ILogger? logger = null,
+        UnitOfWorkMetrics? metrics = null)
+        : base(dbFactory, repositoryOptions, logger, metrics)
+    {
+        _options = options ?? new EmbeddingStoreOptions();
+        _storeLogger = logger ?? NullLogger<SqliteEmbeddingStore>.Instance;
         IReadOnlyList<string> errors = _options.Validate();
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
     }
 
     /// <inheritdoc />
-    public async Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default)
+    public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default)
     {
         EmbeddingValidation.ValidateRecord(record, _options);
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = CreateUpsertCommand(connection, null, record);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return ExecuteAsync("embeddings.upsert", (db, token) => UpsertCoreAsync(db, record, token), cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default)
+    public Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(records);
         foreach (EmbeddingRecord record in records)
             EmbeddingValidation.ValidateRecord(record, _options);
         if (records.Count == 0)
-            return;
-
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using SqliteTransaction transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        foreach (EmbeddingRecord record in records)
+            return Task.CompletedTask;
+        return ExecuteAsync("embeddings.upsert_many", async (db, token) =>
         {
-            await using var command = CreateUpsertCommand(connection, transaction, record);
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogDebug("Upserted {Count} embeddings.", records.Count);
+            foreach (EmbeddingRecord record in records)
+                await UpsertCoreAsync(db, record, token).ConfigureAwait(false);
+            await SaveAsync(db, token).ConfigureAwait(false);
+            _storeLogger.LogDebug("Upserted {Count} embeddings.", records.Count);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default)
     {
         EmbeddingValidation.ValidateQuery(query, _options);
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-
-        // SQLite без pgvector: кандидаты фильтруются SQL, сходство считается в C#.
-        const string sql = """
-            SELECT id, source_ref, embedding, metadata
-            FROM embeddings
-            WHERE namespace = @namespace
-              AND dimension = @dimension
-              AND (@model_id IS NULL OR model_id = @model_id)
-            """;
-        await using var command = new SqliteCommand(sql, connection);
-        command.Parameters.AddWithValue("@namespace", query.Namespace);
-        command.Parameters.AddWithValue("@dimension", query.Vector.Count);
-        command.Parameters.AddWithValue("@model_id",
-            string.IsNullOrWhiteSpace(query.ModelId) ? DBNull.Value : query.ModelId);
-
-        var scored = new List<(Guid Id, string SourceRef, double Score, string Metadata)>();
-        await using (SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        return ExecuteAsync<IReadOnlyList<EmbeddingMatch>>("embeddings.search", async (db, token) =>
         {
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                float[] stored = ParseVector(reader.GetString(2));
-                if (stored.Length != query.Vector.Count)
-                    continue;
-                double score = CosineScore.Similarity(query.Vector, stored);
-                if (score < query.MinScore)
-                    continue;
-                scored.Add((ReadId(reader, 0), reader.GetString(1), score, reader.GetString(3)));
-            }
-        }
-
-        return scored
-            .OrderByDescending(m => m.Score)
-            .Take(query.TopK)
-            .Select(m => new EmbeddingMatch
-            {
-                Id = m.Id,
-                SourceRef = m.SourceRef,
-                Score = m.Score,
-                Metadata = DeserializeMetadata(m.Metadata),
-            })
-            .ToList();
+            // SQLite без pgvector: кандидаты фильтруются LINQ, сходство считается в C#.
+            string? modelId = string.IsNullOrWhiteSpace(query.ModelId) ? null : query.ModelId;
+            List<EmbeddingEntity> candidates = await db.Embeddings
+                .AsNoTracking()
+                .Where(e => e.Namespace == query.Namespace
+                    && e.Dimension == query.Vector.Count
+                    && (modelId == null || e.ModelId == modelId))
+                .ToListAsync(token).ConfigureAwait(false);
+            return candidates
+                .Select(e => (Entity: e, Stored: ParseVector(e.Embedding)))
+                .Where(t => t.Stored.Length == query.Vector.Count)
+                .Select(t => (t.Entity, Score: CosineScore.Similarity(query.Vector, t.Stored)))
+                .Where(t => t.Score >= query.MinScore)
+                .OrderByDescending(t => t.Score)
+                .Take(query.TopK)
+                .Select(t => new EmbeddingMatch
+                {
+                    Id = Guid.Parse(t.Entity.Id),
+                    SourceRef = t.Entity.SourceRef,
+                    Score = t.Score,
+                    Metadata = DeserializeMetadata(t.Entity.Metadata),
+                })
+                .ToList();
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default)
+    public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
             throw new ArgumentException("Namespace must not be empty.", nameof(@namespace));
         if (string.IsNullOrWhiteSpace(sourceRef))
             throw new ArgumentException("SourceRef must not be empty.", nameof(sourceRef));
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new SqliteCommand(
-            "DELETE FROM embeddings WHERE namespace = @namespace AND source_ref = @source_ref", connection);
-        command.Parameters.AddWithValue("@namespace", @namespace);
-        command.Parameters.AddWithValue("@source_ref", sourceRef);
-        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+        return ExecuteAsync("embeddings.delete", async (db, token) =>
+        {
+            int affected = await db.Embeddings
+                .Where(e => e.Namespace == @namespace && e.SourceRef == sourceRef)
+                .ExecuteDeleteAsync(token).ConfigureAwait(false);
+            return affected > 0;
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default)
+    public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
             throw new ArgumentException("Namespace must not be empty.", nameof(@namespace));
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new SqliteCommand(
-            "DELETE FROM embeddings WHERE namespace = @namespace", connection);
-        command.Parameters.AddWithValue("@namespace", @namespace);
-        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return ExecuteAsync("embeddings.delete_scope", (db, token) => db.Embeddings
+            .Where(e => e.Namespace == @namespace)
+            .ExecuteDeleteAsync(token), cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default)
+    public Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
             throw new ArgumentException("Namespace must not be empty.", nameof(@namespace));
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = new SqliteCommand(
-            "SELECT count(*) FROM embeddings WHERE namespace = @namespace", connection);
-        command.Parameters.AddWithValue("@namespace", @namespace);
-        object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return Convert.ToInt64(result, CultureInfo.InvariantCulture);
+        return ExecuteAsync("embeddings.count", (db, token) => db.Embeddings
+            .AsNoTracking()
+            .LongCountAsync(e => e.Namespace == @namespace, token), cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
+    public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
             throw new ArgumentException("Namespace must not be empty.", nameof(@namespace));
         if (keepCount < 0)
             throw new ArgumentOutOfRangeException(nameof(keepCount));
-        await using SqliteConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var countCommand = new SqliteCommand(
-            "SELECT count(*) FROM embeddings WHERE namespace = @namespace", connection);
-        countCommand.Parameters.AddWithValue("@namespace", @namespace);
-        long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
-        long excess = total - keepCount;
-        if (excess <= 0)
-            return 0;
-        await using var command = new SqliteCommand("""
-            DELETE FROM embeddings
-            WHERE namespace = @namespace
-              AND id IN (
-                  SELECT id FROM embeddings
-                  WHERE namespace = @namespace
-                  ORDER BY created_at ASC, id ASC
-                  LIMIT @excess)
-            """, connection);
-        command.Parameters.AddWithValue("@namespace", @namespace);
-        command.Parameters.AddWithValue("@excess", excess);
-        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return ExecuteAsync("embeddings.delete_oldest", async (db, token) =>
+        {
+            long total = await db.Embeddings
+                .AsNoTracking()
+                .LongCountAsync(e => e.Namespace == @namespace, token).ConfigureAwait(false);
+            long excess = total - keepCount;
+            if (excess <= 0)
+                return 0;
+            List<string> oldestIds = await db.Embeddings
+                .AsNoTracking()
+                .Where(e => e.Namespace == @namespace)
+                .OrderBy(e => e.CreatedAt)
+                .ThenBy(e => e.Id)
+                .Take((int)excess)
+                .Select(e => e.Id)
+                .ToListAsync(token).ConfigureAwait(false);
+            return await db.Embeddings
+                .Where(e => oldestIds.Contains(e.Id))
+                .ExecuteDeleteAsync(token).ConfigureAwait(false);
+        }, cancellationToken);
+    }
+
+    private static async Task UpsertCoreAsync(CyberPipeDbContext db, EmbeddingRecord record, CancellationToken token)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        EmbeddingEntity? existing = await db.Embeddings
+            .FirstOrDefaultAsync(e => e.Namespace == record.Namespace
+                && e.SourceRef == record.SourceRef
+                && e.ModelId == record.ModelId, token).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            existing.Dimension = record.Vector.Count;
+            existing.Embedding = FormatVector(record.Vector);
+            existing.TextHash = record.TextHash;
+            existing.Metadata = JsonSerializer.Serialize(record.Metadata ?? new Dictionary<string, string>());
+            existing.UpdatedAt = now;
+            return;
+        }
+
+        Guid id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id;
+        db.Embeddings.Add(new EmbeddingEntity
+        {
+            Id = GuidKey(id),
+            Namespace = record.Namespace,
+            SourceRef = record.SourceRef,
+            ModelId = record.ModelId,
+            Dimension = record.Vector.Count,
+            Embedding = FormatVector(record.Vector),
+            TextHash = record.TextHash,
+            Metadata = JsonSerializer.Serialize(record.Metadata ?? new Dictionary<string, string>()),
+            CreatedAt = record.CreatedAt == default ? now : record.CreatedAt,
+            UpdatedAt = now,
+        });
     }
 
     internal static string FormatVector(IReadOnlyList<float> vector) =>
         "[" + string.Join(",", vector.Select(v => v.ToString("R", CultureInfo.InvariantCulture))) + "]";
-
-    private static SqliteCommand CreateUpsertCommand(
-        SqliteConnection connection, SqliteTransaction? transaction, EmbeddingRecord record)
-    {
-        var command = new SqliteCommand(UpsertSql, connection, transaction);
-        Guid id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id;
-        command.Parameters.AddWithValue("@id", id.ToString("D", CultureInfo.InvariantCulture));
-        command.Parameters.AddWithValue("@namespace", record.Namespace);
-        command.Parameters.AddWithValue("@source_ref", record.SourceRef);
-        command.Parameters.AddWithValue("@model_id", record.ModelId);
-        command.Parameters.AddWithValue("@dimension", record.Vector.Count);
-        command.Parameters.AddWithValue("@embedding", FormatVector(record.Vector));
-        command.Parameters.AddWithValue("@text_hash", record.TextHash);
-        command.Parameters.AddWithValue("@metadata",
-            JsonSerializer.Serialize(record.Metadata ?? new Dictionary<string, string>()));
-        command.Parameters.AddWithValue("@created_at",
-            record.CreatedAt == default ? DBNull.Value : record.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture));
-        return command;
-    }
-
-    private static Guid ReadId(SqliteDataReader reader, int ordinal)
-    {
-        if (reader.IsDBNull(ordinal))
-            throw new InvalidOperationException("Unexpected NULL embedding id.");
-        object value = reader.GetValue(ordinal);
-        return value switch
-        {
-            Guid guid => guid,
-            string s => Guid.Parse(s),
-            byte[] bytes when bytes.Length == 16 => new Guid(bytes),
-            _ => reader.GetGuid(ordinal),
-        };
-    }
 
     internal static float[] ParseVector(string text)
     {

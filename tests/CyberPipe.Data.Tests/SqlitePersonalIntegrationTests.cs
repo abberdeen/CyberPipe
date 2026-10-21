@@ -1,5 +1,6 @@
 using CyberPipe.Contracts;
-using Microsoft.Data.Sqlite;
+using CyberPipe.Data.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -12,7 +13,7 @@ public sealed class SqlitePersonalIntegrationTests
     public async Task PersonalAndPackageRepositories_PersistInSqlite()
     {
         await using SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
-        var factory = db.Factory;
+        IDbContextFactory<CyberPipeDbContext> factory = db.DbFactory;
 
             var notes = new SqliteNoteRepository(factory);
             NoteRecord note = await notes.CreateAsync("Shopping", "Buy milk", ["home"]);

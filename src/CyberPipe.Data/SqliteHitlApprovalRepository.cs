@@ -1,229 +1,179 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Data.Sqlite;
+using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>
-/// SQLite реализация репозитория HITL-подтверждений (TASK-046).
-/// Реализует атомарное разрешение запросов (TryResolveAsync) с проверкой статуса 'Pending' на уровне SQL UPDATE.
+/// <summary>SQLite реализация репозитория HITL-подтверждений (TASK-046) на EF Core.
+/// Атомарное разрешение запросов: UPDATE выполняется одним оператором с проверкой
+/// статуса 'Pending', поэтому побеждает ровно один конкурент.
 /// </summary>
 public sealed class SqliteHitlApprovalRepository : RepositoryBase, IHitlApprovalRepository
 {
-    private const string Columns = "id, run_id, chain_id, title, preview_text, payload_json, attach_files_json, status, resolution_json, created_at, expires_at";
-
-    /// <summary>
-    /// Создаёт репозиторий HITL-подтверждений на базе SQLite.
-    /// </summary>
+    /// <summary>Создаёт репозиторий HITL-подтверждений поверх фабрики контекстов.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="logger">Логгер; null — без логирования.</param>
+    /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
     public SqliteHitlApprovalRepository(
-        IDatabaseConnectionFactory connectionFactory,
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger? logger = null,
         UnitOfWorkMetrics? metrics = null)
-        : base(connectionFactory, options, logger, metrics)
+        : base(dbFactory, options, logger, metrics)
     {
     }
 
     /// <summary>
-    /// Обеспечивает существование таблицы chain_hitl_approvals в схеме 
+    /// Обеспечивает существование таблицы chain_hitl_approvals: схема покрыта EF-миграцией,
+    /// поэтому метод доводит базу до актуального состояния миграций (идемпотентно).
     /// </summary>
     public Task EnsureTableCreatedAsync(CancellationToken cancellationToken = default) =>
-        ExecuteAsync("hitl_approvals.ensure_table", async (connection, transaction, token) =>
+        ExecuteAsync("hitl_approvals.ensure_table", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"""
-                CREATE TABLE IF NOT EXISTS chain_hitl_approvals (
-                    id text PRIMARY KEY,
-                    run_id text NOT NULL,
-                    chain_id text NOT NULL,
-                    title text NOT NULL,
-                    preview_text text NOT NULL,
-                    payload_json text NOT NULL,
-                    attach_files_json text NOT NULL DEFAULT '[]',
-                    status text NOT NULL DEFAULT 'Pending',
-                    resolution_json text,
-                    created_at text NOT NULL,
-                    expires_at text NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS ix_chain_hitl_approvals_status_expires ON chain_hitl_approvals (status, expires_at);
-                """);
-
-            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-            return true;
+            await db.Database.MigrateAsync(token).ConfigureAwait(false);
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<HitlApprovalRecord> CreateAsync(HitlApprovalRecord record, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
-        string filesJson = JsonSerializer.Serialize(record.AttachFiles);
-        string payloadJson = RepositoryJson.EnsureJson(record.PayloadJson, nameof(record.PayloadJson));
-
-        return ExecuteAsync("hitl_approvals.create", async (connection, transaction, token) =>
+        return ExecuteAsync("hitl_approvals.create", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"""
-                INSERT INTO chain_hitl_approvals
-                    (id, run_id, chain_id, title, preview_text, payload_json, attach_files_json, status, created_at, expires_at)
-                VALUES
-                    (@id, @run_id, @chain_id, @title, @preview_text, @payload, @files, @status, @created_at, @expires_at)
-                ON CONFLICT (id) DO UPDATE SET
-                    title = EXCLUDED.title,
-                    preview_text = EXCLUDED.preview_text,
-                    payload_json = EXCLUDED.payload_json,
-                    attach_files_json = EXCLUDED.attach_files_json,
-                    expires_at = EXCLUDED.expires_at
-                RETURNING {Columns}
-                """);
-
-            Param(command, "id", record.ApprovalId);
-            Param(command, "run_id", record.RunId.Value);
-            Param(command, "chain_id", record.ChainId.Value);
-            Param(command, "title", record.Title);
-            Param(command, "preview_text", record.PreviewText);
-            JsonParam(command, "payload", payloadJson);
-            JsonParam(command, "files", filesJson);
-            Param(command, "status", record.Status.ToString());
-            TimeParam(command, "created_at", record.CreatedAtUtc);
-            TimeParam(command, "expires_at", record.ExpiresAtUtc);
-
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            if (await reader.ReadAsync(token).ConfigureAwait(false))
+            string key = GuidKey(record.ApprovalId);
+            HitlEntity? existing = await db.HitlApprovals
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            var entity = new HitlEntity
             {
-                return Map(reader);
+                Id = key,
+                RunId = GuidKey(record.RunId.Value),
+                ChainId = GuidKey(record.ChainId.Value),
+                Title = record.Title,
+                PreviewText = record.PreviewText,
+                PayloadJson = record.PayloadJson,
+                AttachFilesJson = JsonSerializer.Serialize(record.AttachFiles),
+                Status = record.Status.ToString(),
+                ResolutionJson = record.Resolution is null ? null : JsonSerializer.Serialize(record.Resolution),
+                CreatedAt = record.CreatedAtUtc,
+                ExpiresAt = record.ExpiresAtUtc,
+            };
+            if (existing is null)
+            {
+                db.HitlApprovals.Add(entity);
+            }
+            else
+            {
+                existing.RunId = entity.RunId;
+                existing.ChainId = entity.ChainId;
+                existing.Title = entity.Title;
+                existing.PreviewText = entity.PreviewText;
+                existing.PayloadJson = entity.PayloadJson;
+                existing.AttachFilesJson = entity.AttachFilesJson;
+                existing.Status = entity.Status;
+                existing.ResolutionJson = entity.ResolutionJson;
+                existing.CreatedAt = entity.CreatedAt;
+                existing.ExpiresAt = entity.ExpiresAt;
             }
 
-            return record;
+            await SaveAsync(db, token).ConfigureAwait(false);
+            HitlEntity? stored = await db.HitlApprovals
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            return stored is null ? Map(entity) : Map(stored);
         }, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<HitlApprovalRecord?> GetAsync(Guid approvalId, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("hitl_approvals.get", async (connection, transaction, token) =>
+        ExecuteAsync<HitlApprovalRecord?>("hitl_approvals.get", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM chain_hitl_approvals WHERE id = @id");
-            Param(command, "id", approvalId);
-
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
+            string key = GuidKey(approvalId);
+            HitlEntity? entity = await db.HitlApprovals
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
+            return entity is null ? null : Map(entity);
         }, cancellationToken);
 
     /// <inheritdoc />
     public Task<bool> TryResolveAsync(Guid approvalId, HitlApprovalResult result, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
-
-        HitlStatus newStatus = result.Decision == HitlDecision.Expired
-            ? HitlStatus.Expired
-            : HitlStatus.Resolved;
-
-        string resolutionJson = JsonSerializer.Serialize(result);
-
-        return ExecuteAsync("hitl_approvals.try_resolve", async (connection, transaction, token) =>
+        return ExecuteAsync("hitl_approvals.resolve", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"""
-                UPDATE chain_hitl_approvals
-                SET status = @status,
-                    resolution_json = @resolution,
-                    payload_json = CASE WHEN @edited_payload IS NOT NULL THEN @edited_payload ELSE payload_json END
-                WHERE id = @id AND status = 'Pending'
-                """);
-
-            Param(command, "id", approvalId);
-            Param(command, "status", newStatus.ToString());
-            JsonParam(command, "resolution", resolutionJson);
-            if (result.Decision == HitlDecision.Edited && !string.IsNullOrWhiteSpace(result.EditedPayloadJson))
-            {
-                JsonParam(command, "edited_payload", result.EditedPayloadJson);
-            }
-            else
-            {
-                JsonParam(command, "edited_payload", null);
-            }
-
-            int affected = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            string key = GuidKey(approvalId);
+            HitlStatus newStatus = result.Decision == HitlDecision.Expired
+                ? HitlStatus.Expired
+                : HitlStatus.Resolved;
+            string resolutionJson = JsonSerializer.Serialize(result);
+            int affected = await db.HitlApprovals
+                .Where(e => e.Id == key && e.Status == nameof(HitlStatus.Pending))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.Status, newStatus.ToString())
+                    .SetProperty(e => e.ResolutionJson, resolutionJson), token)
+                .ConfigureAwait(false);
             return affected > 0;
         }, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task<IReadOnlyList<HitlApprovalRecord>> ListPendingExpiredAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default) =>
-        ExecuteAsync("hitl_approvals.list_expired", async (connection, transaction, token) =>
+        ExecuteAsync<IReadOnlyList<HitlApprovalRecord>>("hitl_approvals.list_pending_expired", async (db, token) =>
         {
-            await using var command = Command(connection, transaction, $"""
-                SELECT {Columns} FROM chain_hitl_approvals
-                WHERE status = 'Pending' AND expires_at <= @now
-                ORDER BY expires_at ASC
-                """);
-
-            TimeParam(command, "now", nowUtc);
-
-            var list = new List<HitlApprovalRecord>();
-            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
-            while (await reader.ReadAsync(token).ConfigureAwait(false))
-            {
-                list.Add(Map(reader));
-            }
-
-            return (IReadOnlyList<HitlApprovalRecord>)list;
+            List<HitlEntity> entities = await db.HitlApprovals
+                .AsNoTracking()
+                .Where(e => e.Status == nameof(HitlStatus.Pending) && e.ExpiresAt <= nowUtc)
+                .OrderBy(e => e.ExpiresAt)
+                .ToListAsync(token).ConfigureAwait(false);
+            return entities.Select(Map).ToList();
         }, cancellationToken);
 
-    internal static HitlApprovalRecord Map(SqliteDataReader reader)
+    internal static HitlApprovalRecord Map(HitlEntity entity)
     {
-        Guid id = ReadGuid(reader, 0);
-        Guid runId = ReadGuid(reader, 1);
-        Guid chainId = ReadGuid(reader, 2);
-        string title = reader.GetString(3);
-        string previewText = reader.GetString(4);
-        string payloadJson = reader.GetString(5);
-        string attachFilesJson = reader.GetString(6);
-        string statusStr = reader.GetString(7);
-        string? resolutionJson = reader.IsDBNull(8) ? null : reader.GetString(8);
-        DateTimeOffset createdAt = ReadRequiredTime(reader, 9);
-        DateTimeOffset expiresAt = ReadRequiredTime(reader, 10);
-
         IReadOnlyList<MessageAttachmentDto>? files = null;
-        if (!string.IsNullOrWhiteSpace(attachFilesJson))
+        if (!string.IsNullOrWhiteSpace(entity.AttachFilesJson))
         {
             try
             {
-                files = JsonSerializer.Deserialize<IReadOnlyList<MessageAttachmentDto>>(attachFilesJson);
+                files = JsonSerializer.Deserialize<IReadOnlyList<MessageAttachmentDto>>(entity.AttachFilesJson);
             }
-            catch
+            catch (JsonException)
             {
                 files = null;
             }
         }
 
         HitlApprovalResult? resolution = null;
-        if (!string.IsNullOrWhiteSpace(resolutionJson))
+        if (!string.IsNullOrWhiteSpace(entity.ResolutionJson))
         {
             try
             {
-                resolution = JsonSerializer.Deserialize<HitlApprovalResult>(resolutionJson);
+                resolution = JsonSerializer.Deserialize<HitlApprovalResult>(entity.ResolutionJson);
             }
-            catch
+            catch (JsonException)
             {
                 resolution = null;
             }
         }
 
-        HitlStatus status = Enum.TryParse<HitlStatus>(statusStr, ignoreCase: true, out var parsedStatus)
+        HitlStatus status = Enum.TryParse<HitlStatus>(entity.Status, ignoreCase: true, out HitlStatus parsedStatus)
             ? parsedStatus
             : HitlStatus.Pending;
 
         return new HitlApprovalRecord
         {
-            ApprovalId = id,
-            RunId = new RunId(runId),
-            ChainId = new ChainId(chainId),
-            Title = title,
-            PreviewText = previewText,
-            PayloadJson = payloadJson,
+            ApprovalId = Guid.Parse(entity.Id),
+            RunId = new RunId(Guid.Parse(entity.RunId)),
+            ChainId = new ChainId(Guid.Parse(entity.ChainId)),
+            Title = entity.Title,
+            PreviewText = entity.PreviewText,
+            PayloadJson = entity.PayloadJson,
             AttachFiles = files ?? [],
+            CreatedAtUtc = entity.CreatedAt,
+            ExpiresAtUtc = entity.ExpiresAt,
             Status = status,
             Resolution = resolution,
-            CreatedAtUtc = createdAt,
-            ExpiresAtUtc = expiresAt,
         };
     }
 }

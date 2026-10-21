@@ -1,6 +1,7 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
-using Microsoft.Data.Sqlite;
+using CyberPipe.Data.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -8,10 +9,16 @@ namespace CyberPipe.Data.Tests;
 /// <summary>Unit: валидация до БД и преобразование расстояние→score. Фейк фабрики падает при обращении к БД.</summary>
 public sealed class EmbeddingStoreValidationTests
 {
-    private sealed class ThrowingFactory : IDatabaseConnectionFactory
+    private sealed class ThrowingFactory : IDbContextFactory<CyberPipeDbContext>
     {
         public int CallCount { get; private set; }
-        public Task<SqliteConnection> CreateOpenedConnectionAsync(CancellationToken cancellationToken = default)
+        public CyberPipeDbContext CreateDbContext()
+        {
+            CallCount++;
+            throw new InvalidOperationException("DB must not be called for invalid input.");
+        }
+
+        public Task<CyberPipeDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
         {
             CallCount++;
             throw new InvalidOperationException("DB must not be called for invalid input.");

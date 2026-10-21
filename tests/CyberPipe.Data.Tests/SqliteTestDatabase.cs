@@ -1,8 +1,26 @@
 using CyberPipe.Data;
+using CyberPipe.Data.Persistence;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
+
+/// <summary>Фабрика контекстов поверх временного файла тестовой базы (WAL через общие опции).</summary>
+internal sealed class TestDbContextFactory : IDbContextFactory<CyberPipeDbContext>
+{
+    private readonly SqliteOptions _options;
+
+    public TestDbContextFactory(SqliteOptions options)
+    {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+    }
+
+    public CyberPipeDbContext CreateDbContext() => new(CyberPipeDbOptions.Create(_options));
+
+    public Task<CyberPipeDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(CreateDbContext());
+}
 
 /// <summary>Fact категории Integration для SQLite: всегда выполняется (временный файл, сервер не нужен).</summary>
 public sealed class SqliteIntegrationFactAttribute : FactAttribute
@@ -15,12 +33,14 @@ internal sealed class SqliteTestDatabase : IAsyncDisposable
     public string Path { get; }
     public SqliteOptions Options { get; }
     public SqliteConnectionFactory Factory { get; }
+    public IDbContextFactory<CyberPipeDbContext> DbFactory { get; }
 
     private SqliteTestDatabase(string path)
     {
         Path = path;
         Options = new SqliteOptions { Path = path };
         Factory = new SqliteConnectionFactory(Options);
+        DbFactory = new TestDbContextFactory(Options);
     }
 
     public static async Task<SqliteTestDatabase> CreateAsync(CancellationToken cancellationToken = default)

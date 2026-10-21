@@ -1,13 +1,15 @@
 using CyberPipe.Contracts;
-using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
+using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
 /// <summary>
-/// Транзакционная граница TASK-013: одно соединение и одна транзакция на несколько репозиториев.
-/// Репозитории этого unit-of-work получают соединение только из активного unit-of-work;
-/// вне его каждый репозиторий работает на собственном соединении фабрики.
+/// Транзакционная граница TASK-013: один контекст и одна транзакция на несколько репозиториев.
+/// Репозитории этого unit-of-work получают контекст только из активного unit-of-work;
+/// вне его каждый репозиторий работает на собственном контексте фабрики.
 /// Отмена токена не переживается транзакцией: Commit/Rollback при отменённом токене откатывают.
 /// </summary>
 public interface IUnitOfWork : IAsyncDisposable
@@ -42,7 +44,7 @@ public interface IUnitOfWork : IAsyncDisposable
     /// <summary>Транзакция завершена коммитом или откатом.</summary>
     bool IsCompleted { get; }
 
-    /// <summary>Открывает соединение и начинает транзакцию; репозитории подхватывают её амбиентно.</summary>
+    /// <summary>Открывает контекст и начинает транзакцию; репозитории подхватывают её амбиентно.</summary>
     /// <param name="cancellationToken">Токен отмены.</param>
     /// <returns>Задача начала транзакции.</returns>
     Task BeginAsync(CancellationToken cancellationToken = default);
@@ -67,7 +69,7 @@ public interface IUnitOfWorkFactory
     Task<IUnitOfWork> CreateAsync(CancellationToken cancellationToken = default);
 }
 
-/// <summary>Набор репозиториев и векторного хранилища на общих опциях, метриках и фабрике соединений.</summary>
+/// <summary>Набор репозиториев и векторного хранилища на общих опциях, метриках и фабрике контекстов.</summary>
 public sealed record RepositorySet
 {
     /// <summary>Репозиторий цепочек.</summary>
@@ -97,15 +99,15 @@ public sealed record RepositorySet
     /// <summary>Общие счётчики транзакций и медленных запросов.</summary>
     public required UnitOfWorkMetrics Metrics { get; init; }
 
-    internal IDatabaseConnectionFactory? ConnectionFactory { get; init; }
+    internal IDbContextFactory<CyberPipeDbContext>? DbFactory { get; init; }
     internal RepositoryOptions? BoundOptions { get; init; }
     internal ILogger? BoundLogger { get; init; }
 
     internal RepositorySet BindTo(Func<UnitOfWorkSession?> sessionProvider)
     {
-        if (ConnectionFactory is null)
+        if (DbFactory is null)
             return this;
-        RepositorySet bound = Create(ConnectionFactory, Embeddings, BoundOptions, BoundLogger, Metrics);
+        RepositorySet bound = Create(DbFactory, Embeddings, BoundOptions, BoundLogger, Metrics);
         (bound.Chains as RepositoryBase)!.SessionProvider = sessionProvider;
         (bound.ChainRuns as RepositoryBase)!.SessionProvider = sessionProvider;
         (bound.Checkpoints as RepositoryBase)!.SessionProvider = sessionProvider;
@@ -116,66 +118,67 @@ public sealed record RepositorySet
         return bound;
     }
 
-    /// <summary>Создаёт набор репозиториев поверх фабрики соединений SQLite.</summary>
-    /// <param name="connectionFactory">Фабрика соединений.</param>
+    /// <summary>Создаёт набор репозиториев поверх фабрики контекстов SQLite.</summary>
+    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
     /// <param name="embeddingStore">Векторное хранилище; null — SqliteEmbeddingStore поверх той же фабрики.</param>
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики; null — новый экземпляр.</param>
     /// <returns>Набор репозиториев.</returns>
     public static RepositorySet Create(
-        IDatabaseConnectionFactory connectionFactory,
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
         IEmbeddingStore? embeddingStore = null,
         RepositoryOptions? options = null,
         ILogger? logger = null,
         UnitOfWorkMetrics? metrics = null)
     {
-        ArgumentNullException.ThrowIfNull(connectionFactory);
+        ArgumentNullException.ThrowIfNull(dbFactory);
         UnitOfWorkMetrics shared = metrics ?? new UnitOfWorkMetrics();
         return new RepositorySet
         {
-            Chains = new ChainRepository(connectionFactory, options, logger, shared),
-            ChainRuns = new ChainRunRepository(connectionFactory, options, logger, shared),
-            Checkpoints = new CheckpointRepository(connectionFactory, options, logger, shared),
-            Approvals = new ApprovalRepository(connectionFactory, options, logger, shared),
-            TokenBudget = new TokenBudgetRepository(connectionFactory, options, logger, shared),
-            Settings = new KeyValueSettingsRepository(connectionFactory, options, logger, shared),
-            AuditLog = new AuditLogRepository(connectionFactory, options, logger, shared),
-            Embeddings = embeddingStore ?? new SqliteEmbeddingStore(connectionFactory),
+            Chains = new ChainRepository(dbFactory, options, logger, shared),
+            ChainRuns = new ChainRunRepository(dbFactory, options, logger, shared),
+            Checkpoints = new CheckpointRepository(dbFactory, options, logger, shared),
+            Approvals = new ApprovalRepository(dbFactory, options, logger, shared),
+            TokenBudget = new TokenBudgetRepository(dbFactory, options, logger, shared),
+            Settings = new KeyValueSettingsRepository(dbFactory, options, logger, shared),
+            AuditLog = new AuditLogRepository(dbFactory, options, logger, shared),
+            Embeddings = embeddingStore ?? new SqliteEmbeddingStore(
+                dbFactory, options ?? new RepositoryOptions(), null, logger, shared),
             Metrics = shared,
-            ConnectionFactory = connectionFactory,
+            DbFactory = dbFactory,
             BoundOptions = options,
             BoundLogger = logger,
         };
     }
 }
 
-/// <summary>Фабрика <see cref="IUnitOfWork" /> поверх фабрики соединений SQLite.</summary>
+/// <summary>Фабрика <see cref="IUnitOfWork" /> поверх фабрики контекстов SQLite.</summary>
 public sealed class UnitOfWorkFactory : IUnitOfWorkFactory
 {
-    private readonly IDatabaseConnectionFactory _connectionFactory;
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositorySet _repositories;
 
     /// <summary>Создаёт фабрику с готовым набором репозиториев.</summary>
-    /// <param name="connectionFactory">Фабрика соединений.</param>
+    /// <param name="dbFactory">Фабрика контекстов SQLite.</param>
     /// <param name="repositories">Набор репозиториев с общими метриками.</param>
-    public UnitOfWorkFactory(IDatabaseConnectionFactory connectionFactory, RepositorySet repositories)
+    public UnitOfWorkFactory(IDbContextFactory<CyberPipeDbContext> dbFactory, RepositorySet repositories)
     {
-        _connectionFactory = connectionFactory;
+        _dbFactory = dbFactory;
         _repositories = repositories ?? throw new ArgumentNullException(nameof(repositories));
     }
 
     /// <summary>Создаёт фабрику и набор репозиториев по умолчанию.</summary>
-    /// <param name="connectionFactory">Фабрика соединений.</param>
+    /// <param name="dbFactory">Фабрика контекстов SQLite.</param>
     /// <param name="embeddingStore">Векторное хранилище TASK-012.</param>
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     public UnitOfWorkFactory(
-        IDatabaseConnectionFactory connectionFactory,
+        IDbContextFactory<CyberPipeDbContext> dbFactory,
         IEmbeddingStore? embeddingStore = null,
         RepositoryOptions? options = null,
         ILogger? logger = null)
-        : this(connectionFactory, RepositorySet.Create(connectionFactory, embeddingStore, options, logger))
+        : this(dbFactory, RepositorySet.Create(dbFactory, embeddingStore, options, logger))
     {
     }
 
@@ -183,23 +186,23 @@ public sealed class UnitOfWorkFactory : IUnitOfWorkFactory
     public Task<IUnitOfWork> CreateAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IUnitOfWork unitOfWork = new UnitOfWork(_connectionFactory, _repositories);
+        IUnitOfWork unitOfWork = new UnitOfWork(_dbFactory, _repositories);
         return Task.FromResult(unitOfWork);
     }
 }
 
 internal sealed class UnitOfWork : IUnitOfWork
 {
-    private readonly IDatabaseConnectionFactory _connectionFactory;
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositorySet _repositories;
-    private SqliteConnection? _connection;
-    private SqliteTransaction? _transaction;
+    private CyberPipeDbContext? _context;
+    private IDbContextTransaction? _transaction;
     private UnitOfWorkSession? _session;
     private bool _completed;
 
-    public UnitOfWork(IDatabaseConnectionFactory connectionFactory, RepositorySet repositories)
+    public UnitOfWork(IDbContextFactory<CyberPipeDbContext> dbFactory, RepositorySet repositories)
     {
-        _connectionFactory = connectionFactory;
+        _dbFactory = dbFactory;
         _repositories = repositories.BindTo(() => _session);
     }
 
@@ -220,19 +223,19 @@ internal sealed class UnitOfWork : IUnitOfWork
             throw new InvalidOperationException("Unit of work is already completed.");
         if (_transaction is not null)
             throw new InvalidOperationException("Unit of work transaction is already begun.");
-        _connection = await _connectionFactory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
+        _context = await _dbFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _transaction = (SqliteTransaction)await _connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            _transaction = await _context.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
-            await _connection.DisposeAsync().ConfigureAwait(false);
-            _connection = null;
+            await _context.DisposeAsync().ConfigureAwait(false);
+            _context = null;
             throw;
         }
 
-        _session = new UnitOfWorkSession { Connection = _connection, Transaction = _transaction };
+        _session = new UnitOfWorkSession { Context = _context };
         AmbientUnitOfWork.Set(_session);
     }
 
@@ -241,18 +244,19 @@ internal sealed class UnitOfWork : IUnitOfWork
         EnsureActive();
         if (cancellationToken.IsCancellationRequested)
         {
-            await RollbackCoreAsync().ConfigureAwait(false);
+            await RollbackCoreAsync(default).ConfigureAwait(false);
             throw new OperationCanceledException(cancellationToken);
         }
 
         try
         {
+            await _context!.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await _transaction!.CommitAsync(cancellationToken).ConfigureAwait(false);
             _repositories.Metrics.IncrementCommitted();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await RollbackCoreAsync().ConfigureAwait(false);
+            await RollbackCoreAsync(default).ConfigureAwait(false);
             throw;
         }
 
@@ -262,7 +266,7 @@ internal sealed class UnitOfWork : IUnitOfWork
     public async Task RollbackAsync(CancellationToken cancellationToken = default)
     {
         EnsureActive();
-        await RollbackCoreAsync().ConfigureAwait(false);
+        await RollbackCoreAsync(cancellationToken).ConfigureAwait(false);
         await CompleteAsync().ConfigureAwait(false);
     }
 
@@ -284,13 +288,13 @@ internal sealed class UnitOfWork : IUnitOfWork
         await CompleteAsync().ConfigureAwait(false);
     }
 
-    private async Task RollbackCoreAsync()
+    private async Task RollbackCoreAsync(CancellationToken cancellationToken = default)
     {
         if (_transaction is null)
             return;
         try
         {
-            await _transaction.RollbackAsync().ConfigureAwait(false);
+            await _transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -310,10 +314,10 @@ internal sealed class UnitOfWork : IUnitOfWork
             _transaction = null;
         }
 
-        if (_connection is not null)
+        if (_context is not null)
         {
-            await _connection.DisposeAsync().ConfigureAwait(false);
-            _connection = null;
+            await _context.DisposeAsync().ConfigureAwait(false);
+            _context = null;
         }
     }
 
