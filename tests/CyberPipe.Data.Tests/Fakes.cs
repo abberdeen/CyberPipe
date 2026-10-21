@@ -54,11 +54,9 @@ internal sealed class FakeSecretPrompt(params string?[] answers) : ISecretPrompt
 /// Фейковый шлюз: успешен только для пароля "correct-password". Эмулирует создание базы и маркер
 /// данных, чтобы проверять идемпотентность без реальной БД.
 /// </summary>
-internal sealed class FakePostgresGateway : IPostgresBootstrapGateway
+internal sealed class FakeSqliteGateway : IDatabaseBootstrapGateway
 {
-    public const string CorrectPassword = "correct-password";
-
-    public BootstrapReasonCode Failure { get; set; } = BootstrapReasonCode.AuthenticationFailed;
+    public BootstrapReasonCode Failure { get; set; } = BootstrapReasonCode.ServerUnavailable;
 
     public bool UseFailure { get; set; }
 
@@ -70,36 +68,27 @@ internal sealed class FakePostgresGateway : IPostgresBootstrapGateway
 
     public string DataMarker { get; private set; } = "initial-data";
 
-    public List<string?> AttemptedPasswords { get; } = [];
-
-    public Task<PostgresServerInfo> EnsureReadyAsync(
-        SecretValue? password,
-        CancellationToken cancellationToken = default)
+    public Task<SqliteServerInfo> EnsureReadyAsync(CancellationToken cancellationToken = default)
     {
         EnsureCallCount++;
-        AttemptedPasswords.Add(password?.Reveal());
         if (UseFailure)
-            throw new PostgresUnavailableException(Failure);
-        if (password?.Reveal() != CorrectPassword)
-            throw new PostgresUnavailableException(BootstrapReasonCode.AuthenticationFailed);
+            throw new SqliteUnavailableException(Failure);
 
         DatabaseCreated = true;
-        return Task.FromResult(new PostgresServerInfo("16.4", "0.8.0"));
+        return Task.FromResult(new SqliteServerInfo("3.50.0"));
     }
 
-    public Task ProbeAsync(SecretValue? password, CancellationToken cancellationToken = default)
+    public Task ProbeAsync(CancellationToken cancellationToken = default)
     {
         ProbeCallCount++;
         if (UseFailure)
-            throw new PostgresUnavailableException(Failure);
-        if (password?.Reveal() != CorrectPassword)
-            throw new PostgresUnavailableException(BootstrapReasonCode.AuthenticationFailed);
+            throw new SqliteUnavailableException(Failure);
         return Task.CompletedTask;
     }
 }
 
 /// <summary>Логгер, захватывающий форматированные сообщения для проверки отсутствия секретов.</summary>
-internal sealed class CapturingLogger : ILogger<PostgresBootstrapper>
+internal sealed class CapturingLogger : ILogger<SqliteBootstrapper>
 {
     public List<string> Messages { get; } = [];
 

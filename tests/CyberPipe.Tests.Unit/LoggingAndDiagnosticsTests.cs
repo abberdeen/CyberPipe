@@ -177,9 +177,8 @@ public sealed class LoggingAndDiagnosticsTests : IDisposable
         Assert.Equal("Running", report.ProcessState);
         Assert.Equal("1.2.3", report.Version);
         Assert.Equal(HealthStatus.Healthy, report.Database.Status);
-        Assert.Equal("localhost", report.Database.Host);
-        Assert.Equal(5432, report.Database.Port);
-        Assert.Equal("cyberpipe", report.Database.Database);
+        Assert.Equal("data/cyberpipe.db", report.Database.Path);
+        Assert.Equal("data/cyberpipe.db", report.Database.Database);
         Assert.Equal(typeof(FakeTransport).FullName, report.Transport.ImplementationType);
         Assert.Equal(1, report.PerformanceTargets.Tier0TargetMilliseconds);
         Assert.Equal(50, report.PerformanceTargets.StopTargetMilliseconds);

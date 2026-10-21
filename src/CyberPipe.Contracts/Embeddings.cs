@@ -80,7 +80,7 @@ public sealed record EmbeddingMatch
     /// <summary>Ссылка на источник записи.</summary>
     public required string SourceRef { get; init; }
 
-    /// <summary>Косинусное сходство в [-1, 1] (не расстояние pgvector).</summary>
+    /// <summary>Косинусное сходство в [-1, 1] (не расстояние косинусного расстояния).</summary>
     public required double Score { get; init; }
 
     /// <summary>Метаданные записи.</summary>

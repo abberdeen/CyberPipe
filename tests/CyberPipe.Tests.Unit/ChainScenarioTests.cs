@@ -310,7 +310,7 @@ public sealed class ChainScenarioTests
             new QuartzSchedulerOptions
             {
                 InstanceName = "E2E" + Guid.NewGuid().ToString("N"),
-                UsePostgres = false,
+                UseSqlite = false,
             },
             (chainId, fireTime) => manager!.FireCronAsync(chainId, fireTime));
         manager = new CronTriggerManager(fixture.Definitions, fixture.Executor, service, fixture.Idempotency);

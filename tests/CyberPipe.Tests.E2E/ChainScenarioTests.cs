@@ -10,7 +10,7 @@ using Xunit;
 
 /// <summary>
 /// Сквозные сценарии цепочек Trigger → Skill → Script → Delivery (TASK-092)
-/// на реальной композиции TASK-090 и тестовой PostgreSQL. Настоящие: определения
+/// на реальной композиции TASK-090 и тестовой SQLite. Настоящие: определения
 /// (PG), валидаторы, Python-раннер через песочницу, исполнитель, PG-репозитории
 /// запусков/чекпоинтов, Quartz, HITL. Фейки: скиллы и доставка.
 /// </summary>
@@ -168,7 +168,7 @@ public sealed class ChainScenarioTests
             new QuartzSchedulerOptions
             {
                 InstanceName = "E2EChain" + Guid.NewGuid().ToString("N"),
-                UsePostgres = false,
+                UseSqlite = false,
             },
             (firedId, fireTime) => manager!.FireCronAsync(firedId, fireTime));
         manager = new CronTriggerManager(
@@ -234,9 +234,11 @@ public sealed class ChainScenarioTests
     {
         ChainId chainId = new(Guid.NewGuid());
         RunId runId;
+        string dbPath;
         try
         {
             await using var host = await ChainE2EHost.CreateAsync();
+            dbPath = host.DatabasePath;
             await host.RegisterAsync(host.BuildDefinition(
                 chainId,
                 new ChainTriggerDto { Kind = ChainTriggerKind.FunctionCall, FunctionName = "e2e_restart" },
@@ -260,7 +262,7 @@ public sealed class ChainScenarioTests
 
         // Рестарт на той же БД без зачистки определений: приостановленный
         // запуск и его чекпоинты должны пережить пересоздание хоста.
-        await using var restarted = await ChainE2EHost.CreateAsync("111", cleanDefinitions: false);
+        await using var restarted = await ChainE2EHost.CreateAsync("111", cleanDefinitions: false, databasePath: dbPath);
         var recovery = new ChainRecoveryService(restarted.Executions, restarted.Executor);
         int recovered = await recovery.RecoverAsync();
         Assert.True(recovered >= 1);
@@ -283,9 +285,11 @@ public sealed class ChainScenarioTests
         ChainId chainId = new(Guid.NewGuid());
         Guid approvalId;
         RunId runId;
+        string dbPath;
 
         await using (var host = await ChainE2EHost.CreateAsync("111"))
         {
+            dbPath = host.DatabasePath;
             await host.RegisterAsync(host.BuildDefinition(
                 chainId,
                 new ChainTriggerDto { Kind = ChainTriggerKind.FunctionCall, FunctionName = "e2e_hitl" },
@@ -311,7 +315,7 @@ public sealed class ChainScenarioTests
             _ = startTask;
         }
 
-        await using var restarted = await ChainE2EHost.CreateAsync("111", cleanDefinitions: false);
+        await using var restarted = await ChainE2EHost.CreateAsync("111", cleanDefinitions: false, databasePath: dbPath);
 
         IReadOnlyList<RunId> unfinished = await restarted.Executions.ListUnfinishedRunsAsync();
         Assert.Contains(runId, unfinished);
@@ -346,9 +350,11 @@ public sealed class ChainScenarioTests
         ChainId chainId = new(Guid.NewGuid());
         Guid approvalId;
         RunId runId;
+        string dbPath;
 
         await using (var host = await ChainE2EHost.CreateAsync("111"))
         {
+            dbPath = host.DatabasePath;
             await host.RegisterAsync(host.BuildDefinition(
                 chainId,
                 new ChainTriggerDto { Kind = ChainTriggerKind.FunctionCall, FunctionName = "e2e_hitl_no" },
@@ -373,7 +379,7 @@ public sealed class ChainScenarioTests
             _ = startTask;
         }
 
-        await using var restarted = await ChainE2EHost.CreateAsync("111", cleanDefinitions: false);
+        await using var restarted = await ChainE2EHost.CreateAsync("111", cleanDefinitions: false, databasePath: dbPath);
 
         IReadOnlyList<RunId> unfinished = await restarted.Executions.ListUnfinishedRunsAsync();
         Assert.Contains(runId, unfinished);

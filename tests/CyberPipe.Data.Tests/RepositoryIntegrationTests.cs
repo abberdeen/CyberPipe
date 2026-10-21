@@ -1,7 +1,6 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -20,52 +19,23 @@ public sealed class RepositoryIntegrationTests
 
     private sealed class Fixture : IAsyncDisposable
     {
-        public required PostgresOptions Options { get; init; }
-        public required FakeSecretStore Store { get; init; }
-        public required string AdminConnection { get; init; }
-        public required string DatabaseName { get; init; }
-        public PostgresConnectionFactory Factory => new(Options, Store);
+        public SqliteTestDatabase Database { get; private set; } = null!;
+
+        public SqliteConnectionFactory Factory => Database.Factory;
+
         public RepositorySet Repos(RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null) =>
             RepositorySet.Create(Factory, options: options, logger: logger, metrics: metrics);
 
-        public async ValueTask DisposeAsync()
+        public static async Task<Fixture> CreateAsync()
         {
-            var builder = new NpgsqlConnectionStringBuilder(AdminConnection) { Database = PostgresConnectionFactory.MaintenanceDatabase };
-            await using var connection = new NpgsqlConnection(builder.ConnectionString);
-            await connection.OpenAsync();
-            await using (var terminate = new NpgsqlCommand(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = @name AND pid <> pg_backend_pid()", connection))
-            {
-                terminate.Parameters.AddWithValue("name", DatabaseName);
-                await terminate.ExecuteNonQueryAsync();
-            }
-            await using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{DatabaseName}\"", connection);
-            await drop.ExecuteNonQueryAsync();
+            var fx = new Fixture { Database = await SqliteTestDatabase.CreateAsync() };
+            return fx;
         }
+
+        public async ValueTask DisposeAsync() => await Database.DisposeAsync();
     }
 
-    private static async Task<Fixture> CreateAsync()
-    {
-        string adminConnection = Environment.GetEnvironmentVariable(PostgresIntegrationTests.EnvVariable)
-            ?? throw new InvalidOperationException("env not set");
-        var admin = new NpgsqlConnectionStringBuilder(adminConnection);
-        string databaseName = "cyberpipe_repo_" + Guid.NewGuid().ToString("N")[..12];
-        var options = new PostgresOptions
-        {
-            Host = admin.Host ?? "localhost",
-            Port = admin.Port,
-            Database = databaseName,
-            Username = admin.Username ?? "postgres",
-            PasswordSecretKey = SecretKeys.DatabasePassword,
-        };
-        var store = new FakeSecretStore();
-        store.Seed(SecretKeys.DatabasePassword, admin.Password ?? string.Empty);
-        var fx = new Fixture { Options = options, Store = store, AdminConnection = adminConnection, DatabaseName = databaseName };
-        BootstrapResult bootstrap = await new PostgresBootstrapper(options, store, new FakeSecretPrompt()).EnsureReadyAsync();
-        Assert.Equal(BootstrapStatus.Ready, bootstrap.Status);
-        await new SchemaMigrator(fx.Factory).MigrateAsync();
-        return fx;
-    }
+    private static Task<Fixture> CreateAsync() => Fixture.CreateAsync();
 
     private static ChainDefinitionDto Chain(string name)
     {
@@ -96,7 +66,7 @@ public sealed class RepositoryIntegrationTests
         return (chain, run);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Chain_CrudPaginationAndMissingSemantics()
     {
         await using Fixture fx = await CreateAsync();
@@ -125,10 +95,10 @@ public sealed class RepositoryIntegrationTests
         Assert.True(await repos.Chains.DeleteAsync(added[0].Id));
         Assert.False(await repos.Chains.DeleteAsync(added[0].Id));
         Assert.Null(await repos.Chains.GetAsync(added[0].Id));
-        await Assert.ThrowsAsync<ArgumentException>(() => repos.Chains.ListAsync(new PagedQuery { SortBy = "name; DROP TABLE app.chains" }));
+        await Assert.ThrowsAsync<ArgumentException>(() => repos.Chains.ListAsync(new PagedQuery { SortBy = "name; DROP TABLE chains" }));
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task RunCheckpointApprovalBudgetSettingsAudit_Crud()
     {
         await using Fixture fx = await CreateAsync();
@@ -203,7 +173,7 @@ public sealed class RepositoryIntegrationTests
         Assert.False(await repos.AuditLog.DeleteAsync(audit.Id));
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task OptimisticConcurrency_StaleVersion_Throws()
     {
         await using Fixture fx = await CreateAsync();
@@ -223,7 +193,7 @@ public sealed class RepositoryIntegrationTests
         Assert.Equal("2", (await repos.Settings.GetAsync("occ.test"))!.ValueJson);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task UnitOfWork_TwoRepositories_RollbackLeavesNeither_AndCommitLeavesBoth()
     {
         await using Fixture fx = await CreateAsync();
@@ -259,7 +229,7 @@ public sealed class RepositoryIntegrationTests
         Assert.True(metrics.CommittedTransactions > committedBefore);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task UnitOfWork_CancelledCommit_RollsBack()
     {
         await using Fixture fx = await CreateAsync();
@@ -275,13 +245,13 @@ public sealed class RepositoryIntegrationTests
         Assert.Null(await repos.Chains.GetAsync(chain.Id));
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Injection_IsStoredLiterally_AndSlowLog_HasNoSecretValues()
     {
         await using Fixture fx = await CreateAsync();
         var logger = new CapturingDataLogger();
         RepositorySet repos = fx.Repos(new RepositoryOptions { SlowQueryThreshold = TimeSpan.Zero }, logger);
-        const string injection = "x' OR 1=1; DROP TABLE app.chains; --";
+        const string injection = "x' OR 1=1; DROP TABLE chains; --";
         ChainDefinitionDto chain = await repos.Chains.AddAsync(Chain(injection));
         Assert.Equal(injection, (await repos.Chains.GetAsync(chain.Id))!.Name);
         Assert.Equal(1, (await repos.Chains.ListAsync(new PagedQuery())).TotalCount);
@@ -294,11 +264,11 @@ public sealed class RepositoryIntegrationTests
         Assert.DoesNotContain(logger.Messages, m => m.Contains("chain.created", StringComparison.Ordinal) && m.Contains(secretValue, StringComparison.Ordinal));
     }
 
-    [PostgresIntegrationFact]
-    public async Task PostgresHitlApprovalRepository_AtomicTryResolve_OnlyOneSucceeds()
+    [SqliteIntegrationFact]
+    public async Task SqliteHitlApprovalRepository_AtomicTryResolve_OnlyOneSucceeds()
     {
         await using Fixture fx = await CreateAsync();
-        var hitlRepo = new PostgresHitlApprovalRepository(fx.Factory);
+        var hitlRepo = new SqliteHitlApprovalRepository(fx.Factory);
         await hitlRepo.EnsureTableCreatedAsync();
 
         var approvalId = Guid.NewGuid();
@@ -311,7 +281,7 @@ public sealed class RepositoryIntegrationTests
             ApprovalId = approvalId,
             RunId = runId,
             ChainId = chainId,
-            Title = "Postgres HITL Test",
+            Title = "SQLite HITL Test",
             PreviewText = "Preview data",
             PayloadJson = "{\"count\": 10}",
             Status = HitlStatus.Pending,

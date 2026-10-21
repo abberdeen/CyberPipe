@@ -5,7 +5,7 @@ namespace CyberPipe.Setup;
 
 /// <summary>
 /// Репозиторий состояния мастера первого запуска (TASK-063).
-/// Хранит состояние в памяти с возможностью подключения постоянного хранилища (PostgreSQL app.kv_settings).
+/// Хранит состояние в памяти с возможностью подключения постоянного хранилища (SQLite kv_settings).
 /// Секреты (пароли, токены) в состояние никогда не записываются.
 /// </summary>
 public sealed class DefaultSetupStateRepository : ISetupStateRepository
@@ -33,7 +33,7 @@ public sealed class DefaultSetupStateRepository : ISetupStateRepository
     }
 
     /// <summary>
-    /// Создаёт репозиторий с подключением к хранилищу ключ-значение (PostgreSQL app.kv_settings).
+    /// Создаёт репозиторий с подключением к хранилищу ключ-значение (SQLite kv_settings).
     /// </summary>
     /// <param name="readSetting">Чтение значения настройки по ключу.</param>
     /// <param name="writeSetting">Запись значения настройки по ключу.</param>

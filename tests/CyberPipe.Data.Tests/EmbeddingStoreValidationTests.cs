@@ -1,6 +1,6 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -8,10 +8,10 @@ namespace CyberPipe.Data.Tests;
 /// <summary>Unit: валидация до БД и преобразование расстояние→score. Фейк фабрики падает при обращении к БД.</summary>
 public sealed class EmbeddingStoreValidationTests
 {
-    private sealed class ThrowingFactory : IPostgresConnectionFactory
+    private sealed class ThrowingFactory : IDatabaseConnectionFactory
     {
         public int CallCount { get; private set; }
-        public Task<NpgsqlConnection> CreateOpenedConnectionAsync(CancellationToken cancellationToken = default)
+        public Task<SqliteConnection> CreateOpenedConnectionAsync(CancellationToken cancellationToken = default)
         {
             CallCount++;
             throw new InvalidOperationException("DB must not be called for invalid input.");
@@ -37,7 +37,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task Upsert_EmptyVector_ThrowsArgumentBeforeDb()
     {
         var factory = new ThrowingFactory();
-        var store = new PgVectorEmbeddingStore(factory, Options);
+        var store = new SqliteEmbeddingStore(factory, Options);
         await Assert.ThrowsAsync<ArgumentException>(() => store.UpsertAsync(Record([])));
         Assert.Equal(0, factory.CallCount);
     }
@@ -45,7 +45,7 @@ public sealed class EmbeddingStoreValidationTests
     [Fact]
     public async Task Upsert_WrongDimensionForConfiguredModel_ThrowsMismatch()
     {
-        var store = new PgVectorEmbeddingStore(new ThrowingFactory(), Options);
+        var store = new SqliteEmbeddingStore(new ThrowingFactory(), Options);
         EmbeddingDimensionMismatchException ex = await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(
             () => store.UpsertAsync(Record([1f, 0f])));
         Assert.Equal(3, ex.Expected);
@@ -57,7 +57,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task Upsert_DeclaredDimensionDiffersFromVector_ThrowsMismatch()
     {
         // Модель не в конфигурации: ожидаемая размерность — поле Dimension записи.
-        var store = new PgVectorEmbeddingStore(new ThrowingFactory(), new EmbeddingStoreOptions());
+        var store = new SqliteEmbeddingStore(new ThrowingFactory(), new EmbeddingStoreOptions());
         EmbeddingDimensionMismatchException ex = await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(
             () => store.UpsertAsync(Record([1f, 0f], dimension: 4, modelId: "unknown-model")));
         Assert.Equal(4, ex.Expected);
@@ -68,7 +68,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task Search_EmptyVectorAndZeroTopK_ThrowArgumentBeforeDb()
     {
         var factory = new ThrowingFactory();
-        var store = new PgVectorEmbeddingStore(factory, Options);
+        var store = new SqliteEmbeddingStore(factory, Options);
         await Assert.ThrowsAsync<ArgumentException>(() => store.SearchAsync(new EmbeddingQuery
         {
             Namespace = "router", Vector = [], TopK = 5,
@@ -83,7 +83,7 @@ public sealed class EmbeddingStoreValidationTests
     [Fact]
     public async Task Search_WrongDimensionForModelFilter_ThrowsMismatch()
     {
-        var store = new PgVectorEmbeddingStore(new ThrowingFactory(), Options);
+        var store = new SqliteEmbeddingStore(new ThrowingFactory(), Options);
         EmbeddingDimensionMismatchException ex = await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(
             () => store.SearchAsync(new EmbeddingQuery
             {
@@ -97,7 +97,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task UpsertMany_OneBadRecord_ThrowsBeforeDb()
     {
         var factory = new ThrowingFactory();
-        var store = new PgVectorEmbeddingStore(factory, Options);
+        var store = new SqliteEmbeddingStore(factory, Options);
         await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(() => store.UpsertManyAsync(
             [Record([1f, 0f, 0f]), Record([1f, 0f])]));
         Assert.Equal(0, factory.CallCount);

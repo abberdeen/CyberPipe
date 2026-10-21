@@ -1,10 +1,10 @@
 using CyberPipe.Contracts;
 using Microsoft.Extensions.Logging;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 
 namespace CyberPipe.Data;
 
-/// <summary>Репозиторий app.chains: определение цепочки целиком в definition_json, колонки — проекция для поиска.</summary>
+/// <summary>Репозиторий chains: определение цепочки целиком в definition_json, колонки — проекция для поиска.</summary>
 public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDefinitionRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -22,7 +22,7 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики.</param>
-    public ChainRepository(IPostgresConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
+    public ChainRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
         : base(connectionFactory, options, logger, metrics)
     {
     }
@@ -31,9 +31,9 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
     public Task<ChainDefinitionDto?> GetAsync(ChainId id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("chains.get", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {SelectColumns} FROM app.chains WHERE id = @id");
+            await using var command = Command(connection, transaction, $"SELECT {SelectColumns} FROM chains WHERE id = @id");
             Param(command, "id", id.Value);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (!await reader.ReadAsync(token).ConfigureAwait(false))
                 return null;
             return Map(reader);
@@ -44,15 +44,15 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
         ExecuteAsync("chains.list", async (connection, transaction, token) =>
         {
             string orderBy = OrderBy(query, Sorts, "id");
-            await using var countCommand = Command(connection, transaction, "SELECT count(*) FROM app.chains");
+            await using var countCommand = Command(connection, transaction, "SELECT count(*) FROM chains");
             long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
 
             await using var command = Command(connection, transaction,
-                $"SELECT {SelectColumns} FROM app.chains ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
+                $"SELECT {SelectColumns} FROM chains ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
             Param(command, "limit", query.Limit);
             Param(command, "offset", query.Offset);
             var items = new List<ChainDefinitionDto>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return new PagedResult<ChainDefinitionDto> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
@@ -70,7 +70,7 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
             DateTimeOffset updated = chain.UpdatedAtUtc == default ? created : chain.UpdatedAtUtc;
             string json = RepositoryJson.Serialize(chain with { CreatedAtUtc = created, UpdatedAtUtc = updated });
             await using var command = Command(connection, transaction, """
-                INSERT INTO app.chains (id, name, definition_json, is_enabled, requires_hitl, version, created_at, updated_at)
+                INSERT INTO chains (id, name, definition_json, is_enabled, requires_hitl, version, created_at, updated_at)
                 VALUES (@id, @name, @definition, @is_enabled, @requires_hitl, @version, @created_at, @updated_at)
                 ON CONFLICT (id) DO NOTHING
                 RETURNING updated_at
@@ -101,12 +101,13 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
         {
             string json = RepositoryJson.Serialize(chain);
             await using var command = Command(connection, transaction, """
-                UPDATE app.chains
+                UPDATE chains
                 SET name = @name, definition_json = @definition, is_enabled = @is_enabled,
-                    requires_hitl = @requires_hitl, version = @version, updated_at = now()
+                    requires_hitl = @requires_hitl, version = @version, updated_at = @now
                 WHERE id = @id
                 RETURNING updated_at
                 """);
+            TimeParam(command, "now", DateTimeOffset.UtcNow);
             Param(command, "id", chain.Id.Value);
             Param(command, "name", chain.Name);
             JsonParam(command, "definition", json);
@@ -114,12 +115,9 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
             Param(command, "requires_hitl", chain.RequiresHitl);
             Param(command, "version", chain.Version);
             object? result = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
-            if (result is null)
+            if (result is null || result is DBNull)
                 throw new OptimisticConcurrencyException("chains", chain.Id.ToString());
-            DateTimeOffset updatedAt = result is DateTimeOffset dto
-                ? dto
-                : new DateTimeOffset(DateTime.SpecifyKind((DateTime)result, DateTimeKind.Utc));
-            return chain with { UpdatedAtUtc = updatedAt };
+            return chain with { UpdatedAtUtc = ToDateTimeOffset(result) };
         }, cancellationToken);
     }
 
@@ -127,7 +125,7 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
     public Task<bool> DeleteAsync(ChainId id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("chains.delete", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM app.chains WHERE id = @id");
+            await using var command = Command(connection, transaction, "DELETE FROM chains WHERE id = @id");
             Param(command, "id", id.Value);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
@@ -141,9 +139,9 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
         ExecuteAsync("chains.list_enabled", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction,
-                $"SELECT {SelectColumns} FROM app.chains WHERE is_enabled = true ORDER BY name");
+                $"SELECT {SelectColumns} FROM chains WHERE is_enabled = true ORDER BY name");
             var items = new List<ChainDefinitionDto>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return (IReadOnlyList<ChainDefinitionDto>)items;
@@ -168,13 +166,13 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
         ExecuteAsync("chains.set_enabled", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction,
-                "UPDATE app.chains SET is_enabled = @is_enabled, updated_at = now() WHERE id = @id");
+                "UPDATE chains SET is_enabled = @is_enabled, updated_at = CURRENT_TIMESTAMP WHERE id = @id");
             Param(command, "id", id.Value);
             Param(command, "is_enabled", isEnabled);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
 
-    internal static ChainDefinitionDto Map(NpgsqlDataReader reader)
+    internal static ChainDefinitionDto Map(SqliteDataReader reader)
     {
         ChainDefinitionDto dto = RepositoryJson.Deserialize<ChainDefinitionDto>(reader.GetString(0));
         DateTimeOffset updatedAt = ReadRequiredTime(reader, 1);
@@ -182,7 +180,7 @@ public sealed class ChainRepository : RepositoryBase, IChainRepository, IChainDe
     }
 }
 
-/// <summary>Репозиторий app.chain_runs с идемпотентностью по (chain_id, idempotency_key).</summary>
+/// <summary>Репозиторий chain_runs с идемпотентностью по (chain_id, idempotency_key).</summary>
 public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -201,7 +199,7 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики.</param>
-    public ChainRunRepository(IPostgresConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
+    public ChainRunRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
         : base(connectionFactory, options, logger, metrics)
     {
     }
@@ -210,9 +208,9 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
     public Task<ChainRunRecord?> GetAsync(RunId id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("chain_runs.get", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM app.chain_runs WHERE id = @id");
+            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM chain_runs WHERE id = @id");
             Param(command, "id", id.Value);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
         }, cancellationToken);
 
@@ -222,17 +220,17 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
         {
             string orderBy = OrderBy(query, Sorts, "id");
             const string where = "WHERE (@chain_id IS NULL OR chain_id = @chain_id)";
-            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM app.chain_runs {where}");
+            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM chain_runs {where}");
             UuidParam(countCommand, "chain_id", chainId?.Value);
             long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
 
             await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM app.chain_runs {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
+                $"SELECT {Columns} FROM chain_runs {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
             UuidParam(command, "chain_id", chainId?.Value);
             Param(command, "limit", query.Limit);
             Param(command, "offset", query.Offset);
             var items = new List<ChainRunRecord>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return new PagedResult<ChainRunRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
@@ -249,12 +247,14 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
         {
             Guid id = run.Id.Value == Guid.Empty ? Guid.NewGuid() : run.Id.Value;
             DateTimeOffset started = run.StartedAtUtc == default ? DateTimeOffset.UtcNow : run.StartedAtUtc;
+            DateTimeOffset now = DateTimeOffset.UtcNow;
             await using var command = Command(connection, transaction, $"""
-                INSERT INTO app.chain_runs (id, chain_id, trigger_event_id, idempotency_key, status, source, payload_json, started_at, finished_at, error_json)
-                VALUES (@id, @chain_id, @trigger_event_id, @idempotency_key, @status, @source, @payload, @started_at, @finished_at, @error)
+                INSERT INTO chain_runs (id, chain_id, trigger_event_id, idempotency_key, status, source, payload_json, started_at, finished_at, error_json, created_at, updated_at)
+                VALUES (@id, @chain_id, @trigger_event_id, @idempotency_key, @status, @source, @payload, @started_at, @finished_at, @error, @now, @now)
                 ON CONFLICT (chain_id, idempotency_key) DO NOTHING
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", now);
             Param(command, "id", id);
             Param(command, "chain_id", run.ChainId.Value);
             Param(command, "trigger_event_id", run.TriggerEventId);
@@ -265,7 +265,7 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
             TimeParam(command, "started_at", started);
             TimeParam(command, "finished_at", run.FinishedAtUtc);
             JsonParam(command, "error", run.Error is null ? null : RepositoryJson.Serialize(run.Error));
-            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+            await using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
             {
                 if (await reader.ReadAsync(token).ConfigureAwait(false))
                     return Map(reader);
@@ -273,10 +273,10 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
 
             // AlreadyExists по идемпотентному ключу: вернуть существующий запуск.
             await using var select = Command(connection, transaction,
-                $"SELECT {Columns} FROM app.chain_runs WHERE chain_id = @chain_id AND idempotency_key = @idempotency_key");
+                $"SELECT {Columns} FROM chain_runs WHERE chain_id = @chain_id AND idempotency_key = @idempotency_key");
             Param(select, "chain_id", run.ChainId.Value);
             Param(select, "idempotency_key", run.IdempotencyKey);
-            await using NpgsqlDataReader existing = await select.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader existing = await select.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await existing.ReadAsync(token).ConfigureAwait(false))
                 return Map(existing);
             throw new InvalidOperationException("Chain run disappeared after idempotency conflict.");
@@ -291,12 +291,13 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
         return ExecuteAsync("chain_runs.update", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction, $"""
-                UPDATE app.chain_runs
+                UPDATE chain_runs
                 SET status = @status, source = @source, payload_json = @payload, finished_at = @finished_at,
-                    error_json = @error, updated_at = now()
+                    error_json = @error, updated_at = @now
                 WHERE id = @id AND updated_at = @expected_version
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", DateTimeOffset.UtcNow);
             Param(command, "id", run.Id.Value);
             Param(command, "status", run.Status.ToString());
             Param(command, "source", run.Source);
@@ -304,7 +305,7 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
             TimeParam(command, "finished_at", run.FinishedAtUtc);
             JsonParam(command, "error", run.Error is null ? null : RepositoryJson.Serialize(run.Error));
             TimeParam(command, "expected_version", expectedRowVersion);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
                 return Map(reader);
             throw new OptimisticConcurrencyException("chain_runs", run.Id.ToString());
@@ -315,16 +316,16 @@ public sealed class ChainRunRepository : RepositoryBase, IChainRunRepository
     public Task<bool> DeleteAsync(RunId id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("chain_runs.delete", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM app.chain_runs WHERE id = @id");
+            await using var command = Command(connection, transaction, "DELETE FROM chain_runs WHERE id = @id");
             Param(command, "id", id.Value);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
 
-    internal static ChainRunRecord Map(NpgsqlDataReader reader) => new()
+    internal static ChainRunRecord Map(SqliteDataReader reader) => new()
     {
-        Id = new RunId(reader.GetGuid(0)),
-        ChainId = new ChainId(reader.GetGuid(1)),
-        TriggerEventId = reader.IsDBNull(2) ? null : reader.GetGuid(2),
+        Id = new RunId(ReadGuid(reader, 0)),
+        ChainId = new ChainId(ReadGuid(reader, 1)),
+        TriggerEventId = reader.IsDBNull(2) ? null : ReadGuid(reader, 2),
         IdempotencyKey = reader.GetString(3),
         Status = Enum.Parse<ChainRunStatus>(reader.GetString(4)),
         Source = reader.GetString(5),

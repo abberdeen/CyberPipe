@@ -32,7 +32,7 @@ public sealed record ComponentHealthDto
 }
 
 /// <summary>
-/// Подключение к PostgreSQL без строки подключения и без секретов: только хост, порт и имя базы.
+/// Подключение к SQLite без строки подключения и без секретов: только хост, порт и имя базы.
 /// Реальная проверка подключения — TASK-010 через <see cref="IDatabaseHealthProbe" />.
 /// </summary>
 public sealed record DatabaseHealthDto
@@ -40,10 +40,13 @@ public sealed record DatabaseHealthDto
     /// <summary>Состояние подключения.</summary>
     public required HealthStatus Status { get; init; }
 
-    /// <summary>Хост PostgreSQL из конфигурации; не секрет.</summary>
+    /// <summary>Путь к файлу SQLite из конфигурации; не секрет.</summary>
+    public string? Path { get; init; }
+
+    /// <summary>Хост сервера; для SQLite всегда null (встроенная база).</summary>
     public string? Host { get; init; }
 
-    /// <summary>Порт PostgreSQL из конфигурации.</summary>
+    /// <summary>Порт сервера; для SQLite всегда null (встроенная база).</summary>
     public int? Port { get; init; }
 
     /// <summary>Имя базы данных из конфигурации; не секрет.</summary>
@@ -115,7 +118,7 @@ public sealed record HealthReportDto
     /// <summary>Момент сбора отчёта (UTC).</summary>
     public required DateTimeOffset CheckedAtUtc { get; init; }
 
-    /// <summary>Подключение к PostgreSQL без строки подключения.</summary>
+    /// <summary>Подключение к SQLite без строки подключения.</summary>
     public required DatabaseHealthDto Database { get; init; }
 
     /// <summary>Транспорт сообщений: тип реализации без секретов.</summary>
@@ -129,7 +132,7 @@ public sealed record HealthReportDto
 }
 
 /// <summary>
-/// Проверка подключения к PostgreSQL для диагностики. Реальная реализация — TASK-010;
+/// Проверка подключения к SQLite для диагностики. Реальная реализация — TASK-010;
 /// в тестах и до TASK-010 используются fake-реализации и заглушка недоступности.
 /// </summary>
 public interface IDatabaseHealthProbe

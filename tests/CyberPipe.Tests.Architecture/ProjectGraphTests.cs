@@ -31,7 +31,7 @@ public sealed class ProjectGraphTests
     [
         "DevTools",
         "Guest",
-        "SQLite",
+        "Npgsql",
         "Hangfire",
     ];
 
@@ -158,10 +158,10 @@ public sealed class ProjectGraphTests
     public void SrcProjects_HaveNoForbiddenPackageReferences()
     {
         // TASK-090/TASK-093 G3: no fixed broker, no Hangfire, no gRPC packages;
-        // Npgsql (PostgreSQL driver) is allowed only in Data and Chains
-        // (Quartz in the same PostgreSQL).
+        // Microsoft.Data.Sqlite (SQLite WAL driver) is allowed only in Data and Chains
+        // (Quartz in the same SQLite file); Npgsql must not be referenced anywhere.
         string root = FindSolutionRoot();
-        string[] forbiddenEverywhere = ["Hangfire", "RabbitMQ", "Kafka", "MassTransit", "NServiceBus", "Grpc"];
+        string[] forbiddenEverywhere = ["Hangfire", "RabbitMQ", "Kafka", "MassTransit", "NServiceBus", "Grpc", "Npgsql"];
         foreach (string projectFile in Directory.GetFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories))
         {
             string name = Path.GetFileNameWithoutExtension(projectFile);
@@ -180,16 +180,11 @@ public sealed class ProjectGraphTests
                         $"{name} references forbidden package {package}");
                 }
 
-                if (package.Contains("Npgsql", StringComparison.OrdinalIgnoreCase))
+                if (package.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
                 {
                     Assert.True(
                         name is "CyberPipe.Data" or "CyberPipe.Chains",
-                        $"{name} must not reference the PostgreSQL driver");
-                }
-
-                if (package.Contains("SQLite", StringComparison.OrdinalIgnoreCase))
-                {
-                    Assert.Fail($"{name} must not reference SQLite");
+                        $"{name} must not reference the SQLite driver");
                 }
             }
         }

@@ -1,16 +1,16 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
 using Microsoft.Extensions.Logging;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
 
 public sealed class RepositoryUnitTests
 {
-    private sealed class NeverCalledFactory : IPostgresConnectionFactory
+    private sealed class NeverCalledFactory : IDatabaseConnectionFactory
     {
-        public Task<NpgsqlConnection> CreateOpenedConnectionAsync(CancellationToken cancellationToken = default) =>
+        public Task<SqliteConnection> CreateOpenedConnectionAsync(CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Database must not be called in unit tests.");
     }
 

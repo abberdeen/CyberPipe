@@ -16,7 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 /// <summary>
-/// PostgreSQL-адаптер <see cref="IChainExecutionRepository"/> поверх настоящих
+/// SQLite-адаптер <see cref="IChainExecutionRepository"/> поверх настоящих
 /// PG-репозиториев (TASK-092, фикстура тестового проекта): прогоны — через
 /// <see cref="IChainRunRepository"/>, чекпоинты — через <see cref="ICheckpointRepository"/>.
 /// Семантика повторяет <c>InMemoryChainExecutionRepository</c> (идемпотентность
@@ -25,7 +25,7 @@ using Xunit;
 /// событие восстанавливается из записи (вид триггера в конвейере не используется,
 /// нужны только нагрузка, ключ идемпотентности и источник).
 /// </summary>
-internal sealed class PostgresChainExecutionRepository(
+internal sealed class StubChainExecutionRepository(
     IChainRunRepository runs,
     ICheckpointRepository checkpoints) : IChainExecutionRepository
 {
@@ -619,7 +619,7 @@ internal static class ChainPackageFixture
 
 /// <summary>
 /// Хост E2E-сценариев цепочек (TASK-092): полная композиция TASK-090 на тестовой
-/// PostgreSQL. Настоящие: определения (PG), валидаторы, раннеры (включая Python
+/// SQLite. Настоящие: определения (PG), валидаторы, раннеры (включая Python
 /// через песочницу), исполнитель, PG-адаптер запусков/чекпоинтов, Quartz, HITL.
 /// Фейки: скиллы, доставка, пакетный реестр поверх настоящего пакета на диске.
 /// </summary>
@@ -657,14 +657,19 @@ internal sealed class ChainE2EHost : IAsyncDisposable
 
     public IChainSchedulerService SchedulerService { get; }
 
+    /// <summary>Путь файла SQLite этого хоста; рестарт-тесты переиспользуют его.</summary>
+    public string DatabasePath { get; }
+
     private ChainE2EHost(
         ServiceProvider provider,
         ChainCountingSkillInvoker skills,
         ChainCapturingDeliveryPort delivery,
         CountingScriptRunnerRegistry scripts,
-        CapturingHitlCardSender hitlCards)
+        CapturingHitlCardSender hitlCards,
+        string databasePath)
     {
         _provider = provider;
+        DatabasePath = databasePath;
         Skills = skills;
         Delivery = delivery;
         Scripts = scripts;
@@ -681,22 +686,21 @@ internal sealed class ChainE2EHost : IAsyncDisposable
         SchedulerService = provider.GetRequiredService<IChainSchedulerService>();
     }
 
-    public static async Task<ChainE2EHost> CreateAsync(string ownerId = "111", bool cleanDefinitions = true)
+    public static async Task<ChainE2EHost> CreateAsync(string ownerId = "111", bool cleanDefinitions = true, string? databasePath = null)
     {
-        await E2EDatabase.EnsureReadyAsync().ConfigureAwait(false);
         string packageDir = ChainPackageFixture.EnsurePackage();
         // Флаги НЕ чистим здесь: тесты ставят fail/defer-флаги, скрипт читает их
         // во время прогона; зачистка при создании хоста стирала бы флаги,
         // поставленные до CreateAsync. Каждый тест чистит флаги сам (finally).
+        // Рестарт-тесты передают databasePath первого хоста: новая БД на каждый
+        // хост означала бы потерю приостановленного запуска.
 
+        string dbPath = databasePath ?? E2EDatabase.NewDatabasePath();
         var options = new CyberPipeOptions
         {
             Database = new DatabaseOptions
             {
-                Host = E2EDatabase.Host,
-                Port = E2EDatabase.Port,
-                Database = E2EDatabase.Database,
-                Username = E2EDatabase.Username,
+                Path = dbPath,
             },
             Owner = new OwnerOptions { TelegramOwnerIds = [ownerId] },
         };
@@ -704,8 +708,6 @@ internal sealed class ChainE2EHost : IAsyncDisposable
         string secretPath = Path.Combine(
             Path.GetTempPath(), "cyberpipe-e2e-chain-secrets-" + Guid.NewGuid().ToString("N") + ".json");
         var secrets = new FileSecretStore(secretPath);
-        await secrets.SetAsync(SecretKeys.DatabasePassword, SecretValue.FromPlainText(E2EDatabase.Password))
-            .ConfigureAwait(false);
 
         var skills = new ChainCountingSkillInvoker();
         var delivery = new ChainCapturingDeliveryPort();
@@ -717,7 +719,7 @@ internal sealed class ChainE2EHost : IAsyncDisposable
         services.AddSingleton<ISandboxLauncher, DirectProcessSandboxLauncher>();
         services.AddSingleton<IHitlCardSender>(hitlCards);
         services.AddSingleton<IChainExecutionRepository>(sp =>
-            new PostgresChainExecutionRepository(
+            new SqliteChainExecutionRepository(
                 sp.GetRequiredService<IChainRunRepository>(),
                 sp.GetRequiredService<ICheckpointRepository>()));
         services.AddSingleton<ISkillInvoker>(skills);
@@ -804,7 +806,7 @@ internal sealed class ChainE2EHost : IAsyncDisposable
                 .ConfigureAwait(false);
 
             var scripts = (CountingScriptRunnerRegistry)provider.GetRequiredService<IScriptRunnerRegistry>();
-            return new ChainE2EHost(provider, skills, delivery, scripts, hitlCards);
+            return new ChainE2EHost(provider, skills, delivery, scripts, hitlCards, dbPath);
         }
         catch (Exception)
         {

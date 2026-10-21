@@ -3,15 +3,15 @@ using CyberPipe.Contracts;
 namespace CyberPipe.Data;
 
 /// <summary>
-/// PostgreSQL backing для <see cref="IBudgetStore"/> (TASK-033): дневной расход переживает
+/// SQLite backing для <see cref="IBudgetStore"/> (TASK-033): дневной расход переживает
 /// рестарт службы, в отличие от InMemoryBudgetStore роутера (тот остаётся fallback-ом
 /// для standalone-композиций без Data).
 /// </summary>
-public sealed class PostgresBudgetStore : IBudgetStore
+public sealed class SqliteBudgetStore : IBudgetStore
 {
     private readonly ITokenBudgetRepository _repository;
 
-    public PostgresBudgetStore(ITokenBudgetRepository repository)
+    public SqliteBudgetStore(ITokenBudgetRepository repository)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
     }

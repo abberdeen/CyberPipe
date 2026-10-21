@@ -67,57 +67,30 @@ public sealed class SetupWizardEngine : ISetupWizardEngine
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (string.IsNullOrWhiteSpace(request.Host))
+        if (string.IsNullOrWhiteSpace(request.Path))
         {
-            return Result<SetupWizardStateDto>.Failure("InvalidArgument", "Database host must not be empty.");
-        }
-
-        if (request.Port is < 1 or > 65535)
-        {
-            return Result<SetupWizardStateDto>.Failure("InvalidArgument", "Database port must be between 1 and 65535.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Database))
-        {
-            return Result<SetupWizardStateDto>.Failure("InvalidArgument", "Database name must not be empty.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Username))
-        {
-            return Result<SetupWizardStateDto>.Failure("InvalidArgument", "Database username must not be empty.");
-        }
-
-        if (request.Password is null || string.IsNullOrWhiteSpace(request.Password.Reveal()))
-        {
-            return Result<SetupWizardStateDto>.Failure("InvalidArgument", "Database password must not be empty.");
+            return Result<SetupWizardStateDto>.Failure("InvalidArgument", "Database path must not be empty.");
         }
 
         var dbOptions = new DatabaseOptions
         {
-            Host = request.Host,
-            Port = request.Port,
-            Database = request.Database,
-            Username = request.Username,
-            PasswordSecretKey = SecretKeys.DatabasePassword,
+            Path = request.Path,
         };
 
-        _logger.LogInformation("Testing PostgreSQL connectivity to host {Host}:{Port} database {Database}...", request.Host, request.Port, request.Database);
+        _logger.LogInformation("Testing SQLite database at path {Path}...", request.Path);
 
         Result<bool> connectionResult = await _databaseBootstrap.CheckConnectionAsync(dbOptions, request.Password, cancellationToken).ConfigureAwait(false);
         if (!connectionResult.IsSuccess || !connectionResult.Value)
         {
-            string error = connectionResult.Error?.Message ?? "Failed to connect to PostgreSQL with provided parameters.";
-            _logger.LogWarning("PostgreSQL connectivity test failed: {Error}", error);
+            string error = connectionResult.Error?.Message ?? "Failed to open SQLite database at the provided path.";
+            _logger.LogWarning("SQLite connectivity test failed: {Error}", error);
             return Result<SetupWizardStateDto>.Failure(
                 connectionResult.Error?.Code ?? "DatabaseConnectionFailed",
                 error);
         }
 
-        // Сохраняем пароль базы данных в защищённое хранилище секретов
-        await _secretStore.SetAsync(SecretKeys.DatabasePassword, request.Password, cancellationToken).ConfigureAwait(false);
-
         // Применяем миграции
-        _logger.LogInformation("Applying database migrations for {Database}...", request.Database);
+        _logger.LogInformation("Applying database migrations for {Path}...", request.Path);
         Result<int> migrationResult = await _databaseBootstrap.ApplyMigrationsAsync(dbOptions, request.Password, cancellationToken).ConfigureAwait(false);
         if (!migrationResult.IsSuccess)
         {
@@ -132,10 +105,7 @@ public sealed class SetupWizardEngine : ISetupWizardEngine
         SetupWizardStateDto updated = current with
         {
             DatabaseConfigured = true,
-            DatabaseHost = request.Host,
-            DatabasePort = request.Port,
-            DatabaseName = request.Database,
-            DatabaseUsername = request.Username,
+            DatabasePath = request.Path,
             CurrentStep = SetupStep.Owner,
         };
 

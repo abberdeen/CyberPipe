@@ -11,17 +11,14 @@ public sealed class QuartzSchedulerOptions
     /// <summary>Идентификатор экземпляра (по умолчанию AUTO).</summary>
     public string InstanceId { get; set; } = "AUTO";
 
-    /// <summary>Строка подключения к PostgreSQL.</summary>
+    /// <summary>Строка подключения к SQLite (файл базы).</summary>
     public string? ConnectionString { get; set; }
 
-    /// <summary>Схема базы данных для таблиц Quartz (по умолчанию quartz).</summary>
-    public string Schema { get; set; } = "quartz";
+    /// <summary>Префикс таблиц Quartz (по умолчанию qrtz_). Схемы в SQLite нет.</summary>
+    public string TablePrefix { get; set; } = "qrtz_";
 
-    /// <summary>Префикс таблиц Quartz (по умолчанию quartz.qrtz_).</summary>
-    public string TablePrefix { get; set; } = "quartz.qrtz_";
-
-    /// <summary>Признак использования PostgreSQL (JobStoreTX). Если false, используется RAMJobStore.</summary>
-    public bool UsePostgres { get; set; }
+    /// <summary>Признак использования SQLite (JobStoreTX). Если false, используется RAMJobStore.</summary>
+    public bool UseSqlite { get; set; }
 
     /// <summary>Порог опоздания в минутах для политики SkipIfLate и AskUser по умолчанию.</summary>
     public int DefaultMisfireLateMinutes { get; set; } = 5;

@@ -5,10 +5,10 @@ using CyberPipe.Data;
 using Xunit;
 
 /// <summary>
-/// Пагинация <see cref="PostgresChainExecutionRepository"/> обязана заканчиваться:
+/// Пагинация <see cref="StubChainExecutionRepository"/> обязана заканчиваться:
 /// полная страница при завышенном TotalCount раньше крутила цикл без выхода.
 /// </summary>
-public sealed class PostgresChainExecutionPaginationTests
+public sealed class SqliteChainExecutionPaginationTests
 {
     private static readonly ChainId Chain = new(Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
 
@@ -16,32 +16,32 @@ public sealed class PostgresChainExecutionPaginationTests
     public async Task FindRunByIdempotencyKey_stops_when_every_page_is_full()
     {
         var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other"));
-        var repository = new PostgresChainExecutionRepository(runs, new UnusedCheckpointRepository());
+        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
 
         InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             repository.FindRunByIdempotencyKeyAsync(Chain, "missing"));
 
-        Assert.Equal(PostgresChainExecutionRepository.MaxRunListPages, runs.ListCalls);
-        Assert.Contains(PostgresChainExecutionRepository.MaxRunListPages.ToString(), ex.Message, StringComparison.Ordinal);
+        Assert.Equal(StubChainExecutionRepository.MaxRunListPages, runs.ListCalls);
+        Assert.Contains(StubChainExecutionRepository.MaxRunListPages.ToString(), ex.Message, StringComparison.Ordinal);
     }
 
     [Fact(Timeout = 5000)]
     public async Task ListUnfinishedRuns_stops_when_every_page_is_full()
     {
         var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other", ChainRunStatus.Running));
-        var repository = new PostgresChainExecutionRepository(runs, new UnusedCheckpointRepository());
+        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             repository.ListUnfinishedRunsAsync());
 
-        Assert.Equal(PostgresChainExecutionRepository.MaxRunListPages, runs.ListCalls);
+        Assert.Equal(StubChainExecutionRepository.MaxRunListPages, runs.ListCalls);
     }
 
     [Fact]
     public async Task FindRunByIdempotencyKey_stops_on_exact_page_boundary()
     {
-        var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other", totalCount: PostgresChainExecutionRepository.RunPageSize));
-        var repository = new PostgresChainExecutionRepository(runs, new UnusedCheckpointRepository());
+        var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other", totalCount: StubChainExecutionRepository.RunPageSize));
+        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
 
         RunId? found = await repository.FindRunByIdempotencyKeyAsync(Chain, "missing");
 
@@ -57,7 +57,7 @@ public sealed class PostgresChainExecutionPaginationTests
         {
             if (query.Offset == 0)
             {
-                return FullPage(Chain, "other", totalCount: PostgresChainExecutionRepository.RunPageSize + 1);
+                return FullPage(Chain, "other", totalCount: StubChainExecutionRepository.RunPageSize + 1);
             }
 
             return new PagedResult<ChainRunRecord>
@@ -66,12 +66,12 @@ public sealed class PostgresChainExecutionPaginationTests
                 [
                     Run(Chain, expected, "target"),
                 ],
-                TotalCount = PostgresChainExecutionRepository.RunPageSize + 1,
+                TotalCount = StubChainExecutionRepository.RunPageSize + 1,
                 Offset = query.Offset,
                 Limit = query.Limit,
             };
         });
-        var repository = new PostgresChainExecutionRepository(runs, new UnusedCheckpointRepository());
+        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
 
         RunId? found = await repository.FindRunByIdempotencyKeyAsync(Chain, "target");
 
@@ -85,7 +85,7 @@ public sealed class PostgresChainExecutionPaginationTests
         ChainRunStatus status = ChainRunStatus.Completed,
         long totalCount = long.MaxValue)
     {
-        ChainRunRecord[] items = new ChainRunRecord[PostgresChainExecutionRepository.RunPageSize];
+        ChainRunRecord[] items = new ChainRunRecord[StubChainExecutionRepository.RunPageSize];
         for (int i = 0; i < items.Length; i++)
         {
             items[i] = Run(chainId, new RunId(Guid.NewGuid()), idempotencyKey, status);
@@ -96,7 +96,7 @@ public sealed class PostgresChainExecutionPaginationTests
             Items = items,
             TotalCount = totalCount,
             Offset = 0,
-            Limit = PostgresChainExecutionRepository.RunPageSize,
+            Limit = StubChainExecutionRepository.RunPageSize,
         };
     }
 

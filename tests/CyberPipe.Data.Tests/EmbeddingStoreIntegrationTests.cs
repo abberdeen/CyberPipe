@@ -1,6 +1,6 @@
 using CyberPipe.Contracts;
 using CyberPipe.Data;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -10,56 +10,26 @@ public sealed class EmbeddingStoreIntegrationTests
 {
     private sealed class Fixture : IAsyncDisposable
     {
-        public required PostgresOptions Options { get; init; }
-        public required FakeSecretStore Store { get; init; }
-        public required string AdminConnection { get; init; }
-        public required string DatabaseName { get; init; }
-        public PostgresConnectionFactory Factory => new(Options, Store);
-        public PgVectorEmbeddingStore Embeddings => new(Factory, TestOptions);
+        public SqliteTestDatabase Database { get; private set; } = null!;
+
+        public SqliteConnectionFactory Factory => Database.Factory;
+        public SqliteEmbeddingStore Embeddings => new(Factory, TestOptions);
 
         public static readonly EmbeddingStoreOptions TestOptions = new()
         {
             ModelDimensions = new Dictionary<string, int> { ["test-model"] = 3, ["other-model"] = 3 },
         };
 
-        public async ValueTask DisposeAsync()
+        public static async Task<Fixture> CreateAsync()
         {
-            var builder = new NpgsqlConnectionStringBuilder(AdminConnection) { Database = PostgresConnectionFactory.MaintenanceDatabase };
-            await using var connection = new NpgsqlConnection(builder.ConnectionString);
-            await connection.OpenAsync();
-            await using (var terminate = new NpgsqlCommand(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = @name AND pid <> pg_backend_pid()", connection))
-            {
-                terminate.Parameters.AddWithValue("name", DatabaseName);
-                await terminate.ExecuteNonQueryAsync();
-            }
-            await using var drop = new NpgsqlCommand($"DROP DATABASE IF EXISTS \"{DatabaseName}\"", connection);
-            await drop.ExecuteNonQueryAsync();
+            var fx = new Fixture { Database = await SqliteTestDatabase.CreateAsync() };
+            return fx;
         }
+
+        public async ValueTask DisposeAsync() => await Database.DisposeAsync();
     }
 
-    private static async Task<Fixture> CreateAsync()
-    {
-        string adminConnection = Environment.GetEnvironmentVariable(PostgresIntegrationTests.EnvVariable)
-            ?? throw new InvalidOperationException("env not set");
-        var admin = new NpgsqlConnectionStringBuilder(adminConnection);
-        string databaseName = "cyberpipe_emb_" + Guid.NewGuid().ToString("N")[..12];
-        var options = new PostgresOptions
-        {
-            Host = admin.Host ?? "localhost",
-            Port = admin.Port,
-            Database = databaseName,
-            Username = admin.Username ?? "postgres",
-            PasswordSecretKey = SecretKeys.DatabasePassword,
-        };
-        var store = new FakeSecretStore();
-        store.Seed(SecretKeys.DatabasePassword, admin.Password ?? string.Empty);
-        var fx = new Fixture { Options = options, Store = store, AdminConnection = adminConnection, DatabaseName = databaseName };
-        BootstrapResult bootstrap = await new PostgresBootstrapper(options, store, new FakeSecretPrompt()).EnsureReadyAsync();
-        Assert.Equal(BootstrapStatus.Ready, bootstrap.Status);
-        await new SchemaMigrator(fx.Factory).MigrateAsync();
-        return fx;
-    }
+    private static Task<Fixture> CreateAsync() => Fixture.CreateAsync();
 
     private static EmbeddingRecord Rec(string ns, string src, float[] vector, string model = "test-model") => new()
     {
@@ -67,7 +37,7 @@ public sealed class EmbeddingStoreIntegrationTests
         Metadata = new Dictionary<string, string> { ["src"] = src },
     };
 
-    private static async Task SeedControlSetAsync(PgVectorEmbeddingStore store, string ns = "router")
+    private static async Task SeedControlSetAsync(SqliteEmbeddingStore store, string ns = "router")
     {
         // Контрольный набор (dim=3, нормализованные): сходства с запросом [1,0,0] известны.
         await store.UpsertManyAsync([
@@ -79,7 +49,7 @@ public sealed class EmbeddingStoreIntegrationTests
         ]);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Search_ControlSet_ReturnsExpectedOrderAndScores()
     {
         await using Fixture fx = await CreateAsync();
@@ -94,7 +64,7 @@ public sealed class EmbeddingStoreIntegrationTests
         Assert.Equal("a", matches[0].Metadata["src"]);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Search_MinScoreAboveAll_ReturnsEmpty()
     {
         await using Fixture fx = await CreateAsync();
@@ -107,11 +77,11 @@ public sealed class EmbeddingStoreIntegrationTests
         Assert.Empty(matches);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Upsert_RepeatedTriple_UpdatesWithoutDuplicates()
     {
         await using Fixture fx = await CreateAsync();
-        PgVectorEmbeddingStore store = fx.Embeddings;
+        SqliteEmbeddingStore store = fx.Embeddings;
         await store.UpsertAsync(Rec("router", "a", [1f, 0f, 0f]));
         await store.UpsertAsync(Rec("router", "a", [0f, 1f, 0f]));
         Assert.Equal(1, await store.CountAsync("router"));
@@ -123,11 +93,11 @@ public sealed class EmbeddingStoreIntegrationTests
         Assert.Equal(1.0, Math.Round(matches[0].Score, 5));
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Search_IsolatedByNamespaceAndModelFilter()
     {
         await using Fixture fx = await CreateAsync();
-        PgVectorEmbeddingStore store = fx.Embeddings;
+        SqliteEmbeddingStore store = fx.Embeddings;
         await store.UpsertAsync(Rec("router", "shared", [1f, 0f, 0f]));
         await store.UpsertAsync(Rec("knowledge", "shared", [1f, 0f, 0f]));
         await store.UpsertAsync(Rec("router", "other-model-rec", [1f, 0f, 0f], model: "other-model"));
@@ -150,11 +120,11 @@ public sealed class EmbeddingStoreIntegrationTests
         Assert.Equal("shared", modelFiltered[0].SourceRef);
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Delete_AndDeleteByOwnerScope_Work()
     {
         await using Fixture fx = await CreateAsync();
-        PgVectorEmbeddingStore store = fx.Embeddings;
+        SqliteEmbeddingStore store = fx.Embeddings;
         await SeedControlSetAsync(store, "router");
         await SeedControlSetAsync(store, "knowledge");
         Assert.True(await store.DeleteAsync("router", "a"));
@@ -164,11 +134,11 @@ public sealed class EmbeddingStoreIntegrationTests
         Assert.Equal(0, await store.CountAsync("knowledge"));
     }
 
-    [PostgresIntegrationFact]
+    [SqliteIntegrationFact]
     public async Task Search_ApproximateStrategy_ReturnsSameOrder()
     {
         await using Fixture fx = await CreateAsync();
-        var store = new PgVectorEmbeddingStore(fx.Factory, new EmbeddingStoreOptions
+        var store = new SqliteEmbeddingStore(fx.Factory, new EmbeddingStoreOptions
         {
             ModelDimensions = Fixture.TestOptions.ModelDimensions,
             SearchStrategy = EmbeddingSearchStrategy.ApproximateHnsw,

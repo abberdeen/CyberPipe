@@ -3,7 +3,7 @@ using Xunit;
 
 namespace CyberPipe.Data.Tests;
 
-public sealed class PostgresChainExecutionRepositoryTests
+public sealed class SqliteChainExecutionRepositoryTests
 {
     private sealed class FakeRunRepository : IChainRunRepository
     {
@@ -91,9 +91,9 @@ public sealed class PostgresChainExecutionRepositoryTests
     };
 
     [Fact]
-    public async Task PostgresChainExecution_CreateCheckpointStatus_RoundTrip()
+    public async Task SqliteChainExecution_CreateCheckpointStatus_RoundTrip()
     {
-        var repo = new PostgresChainExecutionRepository(new FakeRunRepository(), new FakeCheckpointRepository());
+        var repo = new SqliteChainExecutionRepository(new FakeRunRepository(), new FakeCheckpointRepository());
         var chainId = new ChainId(Guid.NewGuid());
         var runId = new RunId(Guid.NewGuid());
 
@@ -138,7 +138,7 @@ public sealed class PostgresChainExecutionRepositoryTests
             };
         }
 
-        var repo = new PostgresChainExecutionRepository(runs, new FakeCheckpointRepository());
+        var repo = new SqliteChainExecutionRepository(runs, new FakeCheckpointRepository());
         IReadOnlyList<RunId> unfinished = await repo.ListUnfinishedRunsAsync();
 
         Assert.Equal(201, unfinished.Count);

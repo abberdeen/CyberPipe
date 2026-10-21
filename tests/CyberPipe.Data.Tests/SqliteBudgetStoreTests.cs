@@ -3,7 +3,7 @@ using Xunit;
 
 namespace CyberPipe.Data.Tests;
 
-public sealed class PostgresBudgetStoreTests
+public sealed class SqliteBudgetStoreTests
 {
     private sealed class FakeBudgetRepository : ITokenBudgetRepository
     {
@@ -45,10 +45,10 @@ public sealed class PostgresBudgetStoreTests
     }
 
     [Fact]
-    public async Task PostgresBudgetStore_ReadsSummary_AndRecordsUsage()
+    public async Task SqliteBudgetStore_ReadsSummary_AndRecordsUsage()
     {
         var repo = new FakeBudgetRepository();
-        var store = new PostgresBudgetStore(repo);
+        var store = new SqliteBudgetStore(repo);
         var date = new DateOnly(2026, 10, 20);
 
         Assert.Equal(1.25m, await store.GetSpentTodayUsdAsync(date));

@@ -20,11 +20,7 @@ param(
     [string]$Configuration = "Release",
     [switch]$SkipPublish,
     [switch]$SkipSmoke,
-    [string]$SmokeDbHost = "localhost",
-    [int]$SmokeDbPort = 5433,
-    [string]$SmokeDbName = "cyberpipe_test",
-    [string]$SmokeDbUser = "cyberpipe",
-    [string]$SmokeDbPassword = "cyberpipe-test-pw",
+    [string]$SmokeDbPath = "",
     [int]$SmokeTimeoutSec = 120
 )
 
@@ -137,7 +133,7 @@ Invoke-Gate "G1-build" {
 }
 
 # G2: every test level in the solution (unit, data, architecture, e2e incl.
-# TASK-091/092). E2E provisions its own test PostgreSQL when missing.
+# TASK-091/092). E2E uses per-test temporary SQLite files (no server needed).
 Invoke-Gate "G2-tests" {
     Invoke-Native "g2-tests" "dotnet test" { dotnet test CyberPipe.slnx -c $Configuration --no-build --nologo }
     "slnx $Configuration, all levels green (log: logs/g2-tests.log)"
@@ -166,10 +162,20 @@ Invoke-Gate "G3-bans" {
         }
     }
     $pkgHits = Get-ChildItem -Path src, tests -Include *.csproj -Recurse |
-        Select-String -Pattern "Hangfire|RabbitMQ|Kafka|MassTransit|NServiceBus|ServiceBus|Grpc|SQLite" -List |
+        Select-String -Pattern "Hangfire|RabbitMQ|Kafka|MassTransit|NServiceBus|ServiceBus|Grpc|Npgsql" -List |
         Select-Object -ExpandProperty Path
     if ($pkgHits) {
         $hits += $pkgHits | ForEach-Object { "package-ref in $_" }
+    }
+    # Microsoft.Data.Sqlite is allowed only in Data (storage) and Chains (Quartz in the same file).
+    $sqliteRefs = Get-ChildItem -Path src -Include *.csproj -Recurse |
+        Select-String -Pattern "Microsoft\.Data\.Sqlite" -List |
+        Select-Object -ExpandProperty Path
+    foreach ($ref in $sqliteRefs) {
+        $name = [IO.Path]::GetFileNameWithoutExtension($ref)
+        if ($name -ne "CyberPipe.Data" -and $name -ne "CyberPipe.Chains") {
+            $hits += "sqlite-ref in $ref"
+        }
     }
     if ($hits.Count -gt 0) {
         $hits | ForEach-Object { Write-Host $_ -ForegroundColor Red }
@@ -272,66 +278,20 @@ else {
 }
 
 # G6: automated smoke on the published bits (Windows): validate-config, live
-# console start against the test PostgreSQL (env-only config, pristine
-# artifacts), CLI diagnostics, clean stop. Credential seeding uses the same
-# UTF-8 Credential Manager encoding as the product (cmdkey writes UTF-16 and
-# would store garbage); a pre-existing credential is reused and left alone.
+# console start against a temporary SQLite file (env-only config, pristine
+# artifacts), CLI diagnostics, clean stop. No server and no credentials:
+# SQLite needs neither.
 if (-not $SkipSmoke) {
     if ($SkipPublish) {
         Add-GateResult "G6-smoke" "skipped" "publish skipped" 0
     }
     elseif ($env:OS -ne "Windows_NT") {
-        Add-GateResult "G6-smoke" "skipped" "Credential Manager smoke needs Windows" 0
+        Add-GateResult "G6-smoke" "skipped" "smoke needs Windows" 0
     }
     else {
         Invoke-Gate "G6-smoke" {
-            Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public static class SmokeCreds {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct NativeCredential {
-        public uint Flags; public uint Type; public string TargetName;
-        public string Comment; public long LastWritten; public uint CredentialBlobSize;
-        public IntPtr CredentialBlob; public uint Persist; public uint AttributeCount;
-        public IntPtr Attributes; public string TargetAlias; public string UserName;
-    }
-    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CredWrite([In] ref NativeCredential c, uint flags);
-    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CredRead(string target, uint type, uint flags, out IntPtr p);
-    [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CredDelete(string target, uint type, uint flags);
-    [DllImport("advapi32.dll", EntryPoint = "CredFree")]
-    private static extern void CredFree(IntPtr p);
-    public static bool Exists(string target) {
-        IntPtr p;
-        if (!CredRead(target, 1, 0, out p)) return false;
-        CredFree(p); return true;
-    }
-    public static void WriteUtf8(string target, string user, string secret) {
-        byte[] blob = Encoding.UTF8.GetBytes(secret);
-        IntPtr ptr = Marshal.AllocHGlobal(blob.Length);
-        try {
-            Marshal.Copy(blob, 0, ptr, blob.Length);
-            var c = new NativeCredential { Type = 1, TargetName = target,
-                CredentialBlobSize = (uint)blob.Length, CredentialBlob = ptr,
-                Persist = 2, UserName = user };
-            if (!CredWrite(ref c, 0)) throw new InvalidOperationException("CredWrite failed.");
-        } finally { Marshal.FreeHGlobal(ptr); }
-    }
-    public static void Delete(string target) { CredDelete(target, 1, 0); }
-}
-"@
-            $credTarget = "CyberPipe/database.password"
-            $seededByGate = $false
-            if (-not [SmokeCreds]::Exists($credTarget)) {
-                [SmokeCreds]::WriteUtf8($credTarget, $SmokeDbUser, $SmokeDbPassword)
-                $seededByGate = $true
+            if ([string]::IsNullOrWhiteSpace($SmokeDbPath)) {
+                $SmokeDbPath = Join-Path ([IO.Path]::GetTempPath()) ("cyberpipe-smoke-" + [Guid]::NewGuid().ToString("N") + ".db")
             }
 
             try {
@@ -339,10 +299,7 @@ public static class SmokeCreds {
                 $cliExe = Join-Path $OutputDir "CyberPipe.Cli-win-x64/CyberPipe.Cli.exe"
                 Invoke-Native "g6-validate-config" "published validate-config" { & $svcExe --validate-config }
 
-                $env:CYBERPIPE_Database__Host = $SmokeDbHost
-                $env:CYBERPIPE_Database__Port = "$SmokeDbPort"
-                $env:CYBERPIPE_Database__Database = $SmokeDbName
-                $env:CYBERPIPE_Database__Username = $SmokeDbUser
+                $env:CYBERPIPE_Database__Path = $SmokeDbPath
                 $svcLog = Join-Path $script:logsDir "g6-service-console.log"
                 Remove-Item $svcLog -ErrorAction SilentlyContinue
                 $svc = Start-Process -FilePath $svcExe -ArgumentList "--console" `
@@ -403,13 +360,7 @@ public static class SmokeCreds {
                 "validate-config + healthy console start + diagnostics + clean stop"
             }
             finally {
-                if ($seededByGate) {
-                    [SmokeCreds]::Delete($credTarget)
-                }
-                Remove-Item Env:CYBERPIPE_Database__Host -ErrorAction SilentlyContinue
-                Remove-Item Env:CYBERPIPE_Database__Port -ErrorAction SilentlyContinue
-                Remove-Item Env:CYBERPIPE_Database__Database -ErrorAction SilentlyContinue
-                Remove-Item Env:CYBERPIPE_Database__Username -ErrorAction SilentlyContinue
+                Remove-Item Env:CYBERPIPE_Database__Path -ErrorAction SilentlyContinue
             }
         }
     }

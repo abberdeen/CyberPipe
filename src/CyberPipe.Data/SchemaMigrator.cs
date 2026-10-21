@@ -3,9 +3,9 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
 
 namespace CyberPipe.Data;
 
@@ -250,13 +250,13 @@ public sealed class EmbeddedMigrationSource : IMigrationSource
     }
 }
 
-/// <summary>Механизм миграций схемы PostgreSQL (TASK-011).</summary>
+/// <summary>Механизм миграций схемы SQLite (TASK-011).</summary>
 public interface ISchemaMigrator
 {
     /// <summary>
     /// Применяет все неприменённые миграции по порядку, каждую в отдельной транзакции, под
-    /// advisory lock PostgreSQL. Повторный вызов ничего не меняет. Применим при старте Service
-    /// через IPostgresConnectionFactory после bootstrap TASK-010.
+    /// процессным мьютексом мигратора. Повторный вызов ничего не меняет. Применим при старте Service
+    /// через IDatabaseConnectionFactory после bootstrap TASK-010.
     /// </summary>
     /// <param name="cancellationToken">Токен отмены.</param>
     /// <returns>Отчёт: применённые, пропущенные и текущая версия.</returns>
@@ -282,30 +282,28 @@ public interface ISchemaMigrator
 
 /// <summary>
 /// Мигратор схемы: транзакция на миграцию, проверка контрольных сумм уже применённых миграций,
-/// блокировка конкурентного запуска advisory lock-ом PostgreSQL, ValidateOnly через ValidateAsync.
+/// сериализация конкурентного запуска процессным мьютексом, ValidateOnly через ValidateAsync.
 /// </summary>
 public sealed class SchemaMigrator : ISchemaMigrator
 {
-    /// <summary>Ключ advisory lock мигратора; один на всю базу приложения.</summary>
-    public const long AdvisoryLockKey = 2026021101L;
-
     private const string HistoryBootstrapSql = """
-        CREATE SCHEMA IF NOT EXISTS app;
-        CREATE TABLE IF NOT EXISTS app.schema_migrations (
+        CREATE TABLE IF NOT EXISTS schema_migrations (
             version integer PRIMARY KEY,
-            applied_at timestamptz NOT NULL DEFAULT now(),
+            applied_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP),
             checksum text NOT NULL
         );
         """;
 
-    private readonly IPostgresConnectionFactory _connectionFactory;
+    private static readonly SemaphoreSlim MigrationMutex = new(1, 1);
+
+    private readonly IDatabaseConnectionFactory _connectionFactory;
     private readonly IMigrationSource _source;
     private readonly ILogger<SchemaMigrator> _logger;
 
     /// <summary>Создаёт мигратор со встроенными миграциями сборки.</summary>
     /// <param name="connectionFactory">Фабрика открытых соединений TASK-010.</param>
     /// <param name="logger">Логгер; контрольные суммы и SQL в логи не пишутся целиком.</param>
-    public SchemaMigrator(IPostgresConnectionFactory connectionFactory, ILogger<SchemaMigrator>? logger = null)
+    public SchemaMigrator(IDatabaseConnectionFactory connectionFactory, ILogger<SchemaMigrator>? logger = null)
         : this(connectionFactory, new EmbeddedMigrationSource(), logger)
     {
     }
@@ -315,7 +313,7 @@ public sealed class SchemaMigrator : ISchemaMigrator
     /// <param name="source">Источник миграций.</param>
     /// <param name="logger">Логгер.</param>
     public SchemaMigrator(
-        IPostgresConnectionFactory connectionFactory,
+        IDatabaseConnectionFactory connectionFactory,
         IMigrationSource source,
         ILogger<SchemaMigrator>? logger = null)
     {
@@ -328,11 +326,11 @@ public sealed class SchemaMigrator : ISchemaMigrator
     public async Task<MigrationReport> MigrateAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<MigrationDefinition> catalog = MigrationCatalog.Validate(_source.GetMigrations());
-        await using NpgsqlConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await AcquireLockAsync(connection, cancellationToken).ConfigureAwait(false);
+        await MigrationMutex.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            await using SqliteConnection connection = await _connectionFactory
+                .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(connection, null, HistoryBootstrapSql, cancellationToken).ConfigureAwait(false);
             Dictionary<int, string> applied = await ReadAppliedAsync(connection, null, cancellationToken).ConfigureAwait(false);
             ThrowOnChecksumMismatch(catalog, applied);
@@ -347,15 +345,15 @@ public sealed class SchemaMigrator : ISchemaMigrator
                     continue;
                 }
 
-                await using NpgsqlTransaction transaction = await connection
+                await using SqliteTransaction transaction = (SqliteTransaction)await connection
                     .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
                 await ExecuteAsync(connection, transaction, migration.UpSql, cancellationToken).ConfigureAwait(false);
-                await using (var insert = new NpgsqlCommand(
-                    "INSERT INTO app.schema_migrations (version, checksum) VALUES (@version, @checksum)",
+                await using (var insert = new SqliteCommand(
+                    "INSERT INTO schema_migrations (version, checksum) VALUES (@version, @checksum)",
                     connection, transaction))
                 {
-                    insert.Parameters.AddWithValue("version", migration.Version);
-                    insert.Parameters.AddWithValue("checksum", migration.Checksum);
+                    insert.Parameters.AddWithValue("@version", migration.Version);
+                    insert.Parameters.AddWithValue("@checksum", migration.Checksum);
                     await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
                 }
 
@@ -370,7 +368,7 @@ public sealed class SchemaMigrator : ISchemaMigrator
         }
         finally
         {
-            await ReleaseLockAsync(connection).ConfigureAwait(false);
+            MigrationMutex.Release();
         }
     }
 
@@ -378,13 +376,13 @@ public sealed class SchemaMigrator : ISchemaMigrator
     public async Task<IReadOnlyList<string>> ValidateAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<MigrationDefinition> catalog = MigrationCatalog.Validate(_source.GetMigrations());
-        await using NpgsqlConnection connection = await _connectionFactory
+        await using SqliteConnection connection = await _connectionFactory
             .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
         var discrepancies = new List<string>();
         bool historyExists = await HistoryExistsAsync(connection, cancellationToken).ConfigureAwait(false);
         if (!historyExists)
         {
-            discrepancies.Add("Table app.schema_migrations is missing: no migrations have been applied.");
+            discrepancies.Add("Table schema_migrations is missing: no migrations have been applied.");
             discrepancies.AddRange(catalog.Select(m => $"Migration {m.Version} is pending."));
             return discrepancies;
         }
@@ -407,11 +405,11 @@ public sealed class SchemaMigrator : ISchemaMigrator
     public async Task<MigrationReport> RollbackLastAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<MigrationDefinition> catalog = MigrationCatalog.Validate(_source.GetMigrations());
-        await using NpgsqlConnection connection = await _connectionFactory
-            .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await AcquireLockAsync(connection, cancellationToken).ConfigureAwait(false);
+        await MigrationMutex.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            await using SqliteConnection connection = await _connectionFactory
+                .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
             if (!await HistoryExistsAsync(connection, cancellationToken).ConfigureAwait(false))
             {
                 return new MigrationReport { AppliedVersions = [], SkippedVersions = [], CurrentVersion = 0 };
@@ -430,13 +428,13 @@ public sealed class SchemaMigrator : ISchemaMigrator
             if (!migration.IsReversible || string.IsNullOrWhiteSpace(migration.DownSql))
                 throw new InvalidOperationException($"Migration {lastVersion} is not reversible and cannot be rolled back.");
 
-            await using NpgsqlTransaction transaction = await connection
+            await using SqliteTransaction transaction = (SqliteTransaction)await connection
                 .BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(connection, transaction, migration.DownSql, cancellationToken).ConfigureAwait(false);
-            await using (var delete = new NpgsqlCommand(
-                "DELETE FROM app.schema_migrations WHERE version = @version", connection, transaction))
+            await using (var delete = new SqliteCommand(
+                "DELETE FROM schema_migrations WHERE version = @version", connection, transaction))
             {
-                delete.Parameters.AddWithValue("version", lastVersion);
+                delete.Parameters.AddWithValue("@version", lastVersion);
                 await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -452,7 +450,7 @@ public sealed class SchemaMigrator : ISchemaMigrator
         }
         finally
         {
-            await ReleaseLockAsync(connection).ConfigureAwait(false);
+            MigrationMutex.Release();
         }
     }
 
@@ -471,55 +469,35 @@ public sealed class SchemaMigrator : ISchemaMigrator
         }
     }
 
-    private static async Task AcquireLockAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    private static async Task<bool> HistoryExistsAsync(SqliteConnection connection, CancellationToken cancellationToken)
     {
-        await using var command = new NpgsqlCommand("SELECT pg_advisory_lock(@key)", connection);
-        command.Parameters.AddWithValue("key", AdvisoryLockKey);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task ReleaseLockAsync(NpgsqlConnection connection)
-    {
-        try
-        {
-            await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock(@key)", connection);
-            command.Parameters.AddWithValue("key", AdvisoryLockKey);
-            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
-        }
-        catch (Exception) when (connection.State != System.Data.ConnectionState.Open)
-        {
-            // Соединение уже закрыто: lock освобождён сервером вместе с сессией.
-        }
-    }
-
-    private static async Task<bool> HistoryExistsAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
-    {
-        await using var command = new NpgsqlCommand("SELECT to_regclass('app.schema_migrations') IS NOT NULL", connection);
+        await using var command = new SqliteCommand(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'", connection);
         object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return result is true;
+        return Convert.ToInt64(result) > 0;
     }
 
     private static async Task<Dictionary<int, string>> ReadAppliedAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction? transaction,
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
         CancellationToken cancellationToken)
     {
         var applied = new Dictionary<int, string>();
-        await using var command = new NpgsqlCommand(
-            "SELECT version, checksum FROM app.schema_migrations ORDER BY version", connection, transaction);
-        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = new SqliteCommand(
+            "SELECT version, checksum FROM schema_migrations ORDER BY version", connection, transaction);
+        await using SqliteDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             applied[reader.GetInt32(0)] = reader.GetString(1);
         return applied;
     }
 
     private static async Task ExecuteAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction? transaction,
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
         string sql,
         CancellationToken cancellationToken)
     {
-        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        await using var command = new SqliteCommand(sql, connection, transaction);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

@@ -61,38 +61,14 @@ public static class SetupCommand
             // Step 1: Database
             if (!state.DatabaseConfigured)
             {
-                await ctx.Out.WriteLineAsync("--- Step 1: PostgreSQL Connection ---").ConfigureAwait(false);
-                await ctx.Out.WriteAsync("PostgreSQL host [localhost]: ").ConfigureAwait(false);
-                string host = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(host)) host = "localhost";
-
-                await ctx.Out.WriteAsync("PostgreSQL port [5432]: ").ConfigureAwait(false);
-                string portStr = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "";
-                int port = int.TryParse(portStr, out int p) ? p : 5432;
-
-                await ctx.Out.WriteAsync("Database name [cyberpipe]: ").ConfigureAwait(false);
-                string database = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(database)) database = "cyberpipe";
-
-                await ctx.Out.WriteAsync("Username [cyberpipe]: ").ConfigureAwait(false);
-                string username = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(username)) username = "cyberpipe";
-
-                await ctx.Out.WriteAsync("Password: ").ConfigureAwait(false);
-                string password = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(password))
-                {
-                    await ctx.Error.WriteLineAsync("Error: Password must not be empty.").ConfigureAwait(false);
-                    return CliExitCodes.InvalidArgument;
-                }
+                await ctx.Out.WriteLineAsync("--- Step 1: SQLite Database ---").ConfigureAwait(false);
+                await ctx.Out.WriteAsync("Database file path [data/cyberpipe.db]: ").ConfigureAwait(false);
+                string path = (await ctx.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(path)) path = "data/cyberpipe.db";
 
                 var dbReq = new DatabaseSetupRequest
                 {
-                    Host = host,
-                    Port = port,
-                    Database = database,
-                    Username = username,
-                    Password = SecretValue.FromPlainText(password),
+                    Path = path,
                 };
 
                 Result<SetupWizardStateDto> dbResult = await ctx.SetupWizard.ConfigureDatabaseAsync(dbReq, ct).ConfigureAwait(false);

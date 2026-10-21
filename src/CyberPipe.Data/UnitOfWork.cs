@@ -1,13 +1,13 @@
 using CyberPipe.Contracts;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 
 namespace CyberPipe.Data;
 
 /// <summary>
 /// Транзакционная граница TASK-013: одно соединение и одна транзакция на несколько репозиториев.
 /// Репозитории этого unit-of-work получают соединение только из активного unit-of-work;
-/// вне его каждый репозиторий работает на собственном соединении фабрики TASK-010.
+/// вне его каждый репозиторий работает на собственном соединении фабрики.
 /// Отмена токена не переживается транзакцией: Commit/Rollback при отменённом токене откатывают.
 /// </summary>
 public interface IUnitOfWork : IAsyncDisposable
@@ -97,7 +97,7 @@ public sealed record RepositorySet
     /// <summary>Общие счётчики транзакций и медленных запросов.</summary>
     public required UnitOfWorkMetrics Metrics { get; init; }
 
-    internal IPostgresConnectionFactory? ConnectionFactory { get; init; }
+    internal IDatabaseConnectionFactory? ConnectionFactory { get; init; }
     internal RepositoryOptions? BoundOptions { get; init; }
     internal ILogger? BoundLogger { get; init; }
 
@@ -116,15 +116,15 @@ public sealed record RepositorySet
         return bound;
     }
 
-    /// <summary>Создаёт набор репозиториев поверх фабрики соединений TASK-010.</summary>
+    /// <summary>Создаёт набор репозиториев поверх фабрики соединений SQLite.</summary>
     /// <param name="connectionFactory">Фабрика соединений.</param>
-    /// <param name="embeddingStore">Векторное хранилище; null — PgVectorEmbeddingStore поверх той же фабрики.</param>
+    /// <param name="embeddingStore">Векторное хранилище; null — SqliteEmbeddingStore поверх той же фабрики.</param>
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики; null — новый экземпляр.</param>
     /// <returns>Набор репозиториев.</returns>
     public static RepositorySet Create(
-        IPostgresConnectionFactory connectionFactory,
+        IDatabaseConnectionFactory connectionFactory,
         IEmbeddingStore? embeddingStore = null,
         RepositoryOptions? options = null,
         ILogger? logger = null,
@@ -141,7 +141,7 @@ public sealed record RepositorySet
             TokenBudget = new TokenBudgetRepository(connectionFactory, options, logger, shared),
             Settings = new KeyValueSettingsRepository(connectionFactory, options, logger, shared),
             AuditLog = new AuditLogRepository(connectionFactory, options, logger, shared),
-            Embeddings = embeddingStore ?? new PgVectorEmbeddingStore(connectionFactory),
+            Embeddings = embeddingStore ?? new SqliteEmbeddingStore(connectionFactory),
             Metrics = shared,
             ConnectionFactory = connectionFactory,
             BoundOptions = options,
@@ -150,18 +150,18 @@ public sealed record RepositorySet
     }
 }
 
-/// <summary>Фабрика <see cref="IUnitOfWork" /> поверх фабрики соединений TASK-010.</summary>
+/// <summary>Фабрика <see cref="IUnitOfWork" /> поверх фабрики соединений SQLite.</summary>
 public sealed class UnitOfWorkFactory : IUnitOfWorkFactory
 {
-    private readonly IPostgresConnectionFactory _connectionFactory;
+    private readonly IDatabaseConnectionFactory _connectionFactory;
     private readonly RepositorySet _repositories;
 
     /// <summary>Создаёт фабрику с готовым набором репозиториев.</summary>
     /// <param name="connectionFactory">Фабрика соединений.</param>
     /// <param name="repositories">Набор репозиториев с общими метриками.</param>
-    public UnitOfWorkFactory(IPostgresConnectionFactory connectionFactory, RepositorySet repositories)
+    public UnitOfWorkFactory(IDatabaseConnectionFactory connectionFactory, RepositorySet repositories)
     {
-        _connectionFactory = connectionFactory ?? throw new ArgumentNullException(nameof(connectionFactory));
+        _connectionFactory = connectionFactory;
         _repositories = repositories ?? throw new ArgumentNullException(nameof(repositories));
     }
 
@@ -171,7 +171,7 @@ public sealed class UnitOfWorkFactory : IUnitOfWorkFactory
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     public UnitOfWorkFactory(
-        IPostgresConnectionFactory connectionFactory,
+        IDatabaseConnectionFactory connectionFactory,
         IEmbeddingStore? embeddingStore = null,
         RepositoryOptions? options = null,
         ILogger? logger = null)
@@ -190,14 +190,14 @@ public sealed class UnitOfWorkFactory : IUnitOfWorkFactory
 
 internal sealed class UnitOfWork : IUnitOfWork
 {
-    private readonly IPostgresConnectionFactory _connectionFactory;
+    private readonly IDatabaseConnectionFactory _connectionFactory;
     private readonly RepositorySet _repositories;
-    private NpgsqlConnection? _connection;
-    private NpgsqlTransaction? _transaction;
+    private SqliteConnection? _connection;
+    private SqliteTransaction? _transaction;
     private UnitOfWorkSession? _session;
     private bool _completed;
 
-    public UnitOfWork(IPostgresConnectionFactory connectionFactory, RepositorySet repositories)
+    public UnitOfWork(IDatabaseConnectionFactory connectionFactory, RepositorySet repositories)
     {
         _connectionFactory = connectionFactory;
         _repositories = repositories.BindTo(() => _session);
@@ -223,7 +223,7 @@ internal sealed class UnitOfWork : IUnitOfWork
         _connection = await _connectionFactory.CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _transaction = await _connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            _transaction = (SqliteTransaction)await _connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -277,7 +277,7 @@ internal sealed class UnitOfWork : IUnitOfWork
             }
             catch
             {
-                // Соединение могло быть оборвано отменой: сервер откатит транзакцию сам.
+                // Соединение могло быть оборвано отменой: база откатит транзакцию сама.
             }
         }
 

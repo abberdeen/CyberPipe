@@ -1,65 +1,65 @@
 -- reversible: true
 -- FIX-03: Netrunner package registry and personal skills persistence (TASK-042, TASK-051).
-CREATE TABLE IF NOT EXISTS app.netrunner_packages (
+CREATE TABLE IF NOT EXISTS netrunner_packages (
     slug text NOT NULL,
     version text NOT NULL,
     manifest_hash text NOT NULL,
     package_dir text NOT NULL,
-    manifest_json jsonb NOT NULL,
-    registered_at timestamptz NOT NULL DEFAULT now(),
+    manifest_json text NOT NULL,
+    registered_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     PRIMARY KEY (slug, version)
 );
 
-CREATE TABLE IF NOT EXISTS app.personal_notes (
-    id uuid PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS personal_notes (
+    id text PRIMARY KEY,
     title text NOT NULL,
     content text NOT NULL,
-    tags text[] NOT NULL DEFAULT '{}',
-    is_deleted boolean NOT NULL DEFAULT false,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    tags text NOT NULL DEFAULT '[]',
+    is_deleted integer NOT NULL DEFAULT 0,
+    created_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
-CREATE INDEX IF NOT EXISTS ix_personal_notes_updated ON app.personal_notes (updated_at DESC);
+CREATE INDEX IF NOT EXISTS ix_personal_notes_updated ON personal_notes (updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS app.personal_finance (
-    id uuid PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS personal_finance (
+    id text PRIMARY KEY,
     kind integer NOT NULL,
-    amount numeric(18,4) NOT NULL,
+    amount real NOT NULL,
     currency text NOT NULL,
     category text NOT NULL,
     description text,
-    occurred_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
+    occurred_at text NOT NULL,
+    created_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
-CREATE INDEX IF NOT EXISTS ix_personal_finance_occurred ON app.personal_finance (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS ix_personal_finance_occurred ON personal_finance (occurred_at DESC);
 
-CREATE TABLE IF NOT EXISTS app.personal_reminders (
-    id uuid PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS personal_reminders (
+    id text PRIMARY KEY,
     title text NOT NULL,
-    due_time timestamptz,
+    due_time text,
     cron_expression text,
     status integer NOT NULL DEFAULT 0,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    completed_at timestamptz
+    created_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    completed_at text
 );
-CREATE INDEX IF NOT EXISTS ix_personal_reminders_status ON app.personal_reminders (status, due_time);
+CREATE INDEX IF NOT EXISTS ix_personal_reminders_status ON personal_reminders (status, due_time);
 
-CREATE TABLE IF NOT EXISTS app.personal_contacts (
-    id uuid PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS personal_contacts (
+    id text PRIMARY KEY,
     name text NOT NULL,
-    channels jsonb NOT NULL DEFAULT '{}'::jsonb,
+    channels text NOT NULL DEFAULT '{}',
     notes text,
-    is_deleted boolean NOT NULL DEFAULT false,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    is_deleted integer NOT NULL DEFAULT 0,
+    created_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+    updated_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
-CREATE INDEX IF NOT EXISTS ix_personal_contacts_name ON app.personal_contacts (lower(name));
+CREATE INDEX IF NOT EXISTS ix_personal_contacts_name ON personal_contacts (lower(name));
 
-CREATE TABLE IF NOT EXISTS app.personal_interactions (
-    id uuid PRIMARY KEY,
-    contact_id uuid NOT NULL REFERENCES app.personal_contacts (id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS personal_interactions (
+    id text PRIMARY KEY,
+    contact_id text NOT NULL REFERENCES personal_contacts (id) ON DELETE CASCADE,
     channel text NOT NULL,
     note text NOT NULL,
-    occurred_at timestamptz NOT NULL DEFAULT now()
+    occurred_at text NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
-CREATE INDEX IF NOT EXISTS ix_personal_interactions_contact ON app.personal_interactions (contact_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS ix_personal_interactions_contact ON personal_interactions (contact_id, occurred_at DESC);

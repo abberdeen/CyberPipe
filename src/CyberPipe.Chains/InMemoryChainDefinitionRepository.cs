@@ -5,7 +5,7 @@ namespace CyberPipe.Chains;
 
 /// <summary>
 /// Потокобезопасная in-memory реализация репозитория цепочек (TASK-040).
-/// Используется в тестах и при работе без PostgreSQL.
+/// Используется в тестах и при работе без SQLite.
 /// </summary>
 public sealed class InMemoryChainDefinitionRepository : IChainDefinitionRepository
 {

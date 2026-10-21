@@ -1,10 +1,10 @@
 using CyberPipe.Contracts;
 using Microsoft.Extensions.Logging;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 
 namespace CyberPipe.Data;
 
-/// <summary>Маппинг статуса одобрения в текстовую колонку app.approvals.status.</summary>
+/// <summary>Маппинг статуса одобрения в текстовую колонку approvals.status.</summary>
 public static class ApprovalStatusMapping
 {
     /// <summary>Преобразует статус в значение колонки (строчными буквами).</summary>
@@ -33,7 +33,7 @@ public static class ApprovalStatusMapping
     };
 }
 
-/// <summary>Репозиторий app.approvals с оптимистичной конкуренцией по updated_at.</summary>
+/// <summary>Репозиторий approvals с оптимистичной конкуренцией по updated_at.</summary>
 public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -52,7 +52,7 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики.</param>
-    public ApprovalRepository(IPostgresConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
+    public ApprovalRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
         : base(connectionFactory, options, logger, metrics)
     {
     }
@@ -61,9 +61,9 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
     public Task<ApprovalRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("approvals.get", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM app.approvals WHERE id = @id");
+            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM approvals WHERE id = @id");
             Param(command, "id", id);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
         }, cancellationToken);
 
@@ -73,19 +73,19 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
         {
             string orderBy = OrderBy(query, Sorts, "id");
             const string where = "WHERE (@status IS NULL OR status = @status) AND (@run_id IS NULL OR run_id = @run_id)";
-            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM app.approvals {where}");
+            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM approvals {where}");
             TextParam(countCommand, "status", status is null ? null : ApprovalStatusMapping.ToDbValue(status.Value));
             UuidParam(countCommand, "run_id", runId?.Value);
             long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
 
             await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM app.approvals {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
+                $"SELECT {Columns} FROM approvals {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
             TextParam(command, "status", status is null ? null : ApprovalStatusMapping.ToDbValue(status.Value));
             UuidParam(command, "run_id", runId?.Value);
             Param(command, "limit", query.Limit);
             Param(command, "offset", query.Offset);
             var items = new List<ApprovalRecord>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return new PagedResult<ApprovalRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
@@ -100,12 +100,14 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
         return ExecuteAsync("approvals.add", async (connection, transaction, token) =>
         {
             Guid id = approval.Id == Guid.Empty ? Guid.NewGuid() : approval.Id;
+            DateTimeOffset now = DateTimeOffset.UtcNow;
             await using var command = Command(connection, transaction, $"""
-                INSERT INTO app.approvals (id, run_id, chain_id, step, status, payload_json, decision, decided_at, expires_at)
-                VALUES (@id, @run_id, @chain_id, @step, @status, @payload, @decision, @decided_at, @expires_at)
+                INSERT INTO approvals (id, run_id, chain_id, step, status, payload_json, decision, decided_at, expires_at, created_at, updated_at)
+                VALUES (@id, @run_id, @chain_id, @step, @status, @payload, @decision, @decided_at, @expires_at, @now, @now)
                 ON CONFLICT (id) DO NOTHING
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", now);
             Param(command, "id", id);
             UuidParam(command, "run_id", approval.RunId?.Value);
             UuidParam(command, "chain_id", approval.ChainId?.Value);
@@ -115,7 +117,7 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
             TextParam(command, "decision", approval.Decision?.ToString());
             TimeParam(command, "decided_at", approval.DecidedAtUtc);
             TimeParam(command, "expires_at", approval.ExpiresAtUtc);
-            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+            await using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
             {
                 if (await reader.ReadAsync(token).ConfigureAwait(false))
                     return Map(reader);
@@ -135,12 +137,13 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
         return ExecuteAsync("approvals.update", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction, $"""
-                UPDATE app.approvals
+                UPDATE approvals
                 SET step = @step, status = @status, payload_json = @payload, decision = @decision,
-                    decided_at = @decided_at, expires_at = @expires_at, updated_at = now()
+                    decided_at = @decided_at, expires_at = @expires_at, updated_at = @now
                 WHERE id = @id AND updated_at = @expected_version
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", DateTimeOffset.UtcNow);
             Param(command, "id", approval.Id);
             Param(command, "step", approval.Step);
             Param(command, "status", ApprovalStatusMapping.ToDbValue(approval.Status));
@@ -149,7 +152,7 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
             TimeParam(command, "decided_at", approval.DecidedAtUtc);
             TimeParam(command, "expires_at", approval.ExpiresAtUtc);
             TimeParam(command, "expected_version", expectedRowVersion);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
                 return Map(reader);
             throw new OptimisticConcurrencyException("approvals", approval.Id.ToString());
@@ -160,16 +163,16 @@ public sealed class ApprovalRepository : RepositoryBase, IApprovalRepository
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("approvals.delete", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM app.approvals WHERE id = @id");
+            await using var command = Command(connection, transaction, "DELETE FROM approvals WHERE id = @id");
             Param(command, "id", id);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
 
-    internal static ApprovalRecord Map(NpgsqlDataReader reader) => new()
+    internal static ApprovalRecord Map(SqliteDataReader reader) => new()
     {
-        Id = reader.GetGuid(0),
-        RunId = reader.IsDBNull(1) ? null : new RunId(reader.GetGuid(1)),
-        ChainId = reader.IsDBNull(2) ? null : new ChainId(reader.GetGuid(2)),
+        Id = ReadGuid(reader, 0),
+        RunId = reader.IsDBNull(1) ? null : new RunId(ReadGuid(reader, 1)),
+        ChainId = reader.IsDBNull(2) ? null : new ChainId(ReadGuid(reader, 2)),
         Step = reader.GetString(3),
         Status = ApprovalStatusMapping.Parse(reader.GetString(4)),
         PayloadJson = reader.GetString(5),

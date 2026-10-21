@@ -17,7 +17,7 @@ public sealed record CyberPipeOptions
         "Verbose", "Debug", "Information", "Warning", "Error", "Fatal",
     };
 
-    /// <summary>Параметры подключения к PostgreSQL; пароль — только ссылка на секрет.</summary>
+    /// <summary>Параметры подключения к SQLite; пароль — только ссылка на секрет.</summary>
     public DatabaseOptions Database { get; init; } = new();
 
     /// <summary>Бюджет токенов и расходов с дефолтами Q23.</summary>
@@ -74,18 +74,10 @@ public sealed record CyberPipeOptions
     {
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(Database.Host))
-            errors.Add("Database:Host must not be empty.");
-        if (Database.Port is < 1 or > 65535)
-            errors.Add("Database:Port must be between 1 and 65535.");
-        if (string.IsNullOrWhiteSpace(Database.Database))
-            errors.Add("Database:Database must not be empty.");
-        if (string.IsNullOrWhiteSpace(Database.Username))
-            errors.Add("Database:Username must not be empty.");
-        if (string.IsNullOrWhiteSpace(Database.PasswordSecretKey))
-            errors.Add("Database:PasswordSecretKey must name a secret key.");
-        if (Database.MaxPoolSize <= 0)
-            errors.Add("Database:MaxPoolSize must be positive.");
+        if (string.IsNullOrWhiteSpace(Database.Path))
+            errors.Add("Database:Path must not be empty.");
+        if (Database.BusyTimeoutMs <= 0)
+            errors.Add("Database:BusyTimeoutMs must be positive.");
         if (Database.CommandTimeout <= 0)
             errors.Add("Database:CommandTimeout must be positive.");
 
@@ -195,31 +187,18 @@ public sealed record CyberPipeOptions
 }
 
 /// <summary>
-/// Подключение к единственной PostgreSQL. Пароль значением здесь не хранится:
-/// только <see cref="PasswordSecretKey" /> — ссылка на запись <see cref="ISecretStore" />.
-/// Подключение и запрос пароля у пользователя — TASK-010.
+/// Подключение к единственной базе SQLite (WAL). Файл базы задаётся <see cref="Path" />;
+/// сервера, пользователя и пароля нет — аутентификация не требуется.
 /// </summary>
 public sealed record DatabaseOptions
 {
-    /// <summary>Хост PostgreSQL.</summary>
-    public string Host { get; init; } = "localhost";
+    /// <summary>Путь к файлу базы SQLite. Относительный путь резолвится от рабочего каталога процесса.</summary>
+    public string Path { get; init; } = "data/cyberpipe.db";
 
-    /// <summary>Порт PostgreSQL.</summary>
-    public int Port { get; init; } = 5432;
+    /// <summary>Тайм-аут ожидания снятия блокировки записи (busy timeout) в миллисекундах.</summary>
+    public int BusyTimeoutMs { get; init; } = 5000;
 
-    /// <summary>Имя базы данных.</summary>
-    public string Database { get; init; } = "cyberpipe";
-
-    /// <summary>Пользователь базы данных.</summary>
-    public string Username { get; init; } = "cyberpipe";
-
-    /// <summary>Ключ секрета с паролем в ISecretStore, не сам пароль.</summary>
-    public string PasswordSecretKey { get; init; } = SecretKeys.DatabasePassword;
-
-    /// <summary>Максимальный размер пула соединений с PostgreSQL (TASK-010).</summary>
-    public int MaxPoolSize { get; init; } = 100;
-
-    /// <summary>Тайм-аут команды PostgreSQL в секундах (TASK-010).</summary>
+    /// <summary>Тайм-аут команды SQLite в секундах (TASK-010).</summary>
     public int CommandTimeout { get; init; } = 30;
 }
 

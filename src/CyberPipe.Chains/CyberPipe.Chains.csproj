@@ -8,7 +8,7 @@
     <ProjectReference Include="..\CyberPipe.Logging\CyberPipe.Logging.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Npgsql" Version="9.0.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <PackageReference Include="Quartz" Version="3.13.1" />
     <PackageReference Include="Quartz.Serialization.SystemTextJson" Version="3.13.1" />
   </ItemGroup>

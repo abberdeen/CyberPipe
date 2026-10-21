@@ -59,7 +59,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_Validation_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         await using var scheduler = await QuartzChainSchedulerService.CreateAsync(
@@ -93,7 +93,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_TriggerNow_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         var chainId = ChainId.New();
@@ -129,7 +129,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_Lifecycle_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         var chainId = ChainId.New();
@@ -175,7 +175,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_AutoFire_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         var chainId = ChainId.New();
@@ -310,7 +310,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_Sync_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         await using var scheduler = await QuartzChainSchedulerService.CreateAsync(
@@ -357,7 +357,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_Resume_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         await using var scheduler = await QuartzChainSchedulerService.CreateAsync(
@@ -389,7 +389,7 @@ public sealed class QuartzSchedulingTests
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_Registrar_" + Guid.NewGuid().ToString("N"),
-            UsePostgres = false,
+            UseSqlite = false,
         };
 
         await using var scheduler = await QuartzChainSchedulerService.CreateAsync(
@@ -459,18 +459,21 @@ public sealed class QuartzSchedulingTests
     }
 
     [Trait("Category", "Integration")]
-    [PostgresIntegrationFact]
-    public async Task PostgresQuartz_PersistsAcrossRestart_AndCleansUp()
+    [Fact]
+    public async Task SqliteQuartz_PersistsAcrossRestart_AndCleansUp()
     {
-        string adminConnection = Environment.GetEnvironmentVariable("CYBERPIPE_TEST_POSTGRES")!;
-        var options = new QuartzSchedulerOptions
+        string dbPath = Path.Combine(Path.GetTempPath(), "cyberpipe-quartz-" + Guid.NewGuid().ToString("N") + ".db");
+        string connectionString = "Data Source=" + dbPath;
+        try
         {
-            InstanceName = "PostgresScheduler_" + Guid.NewGuid().ToString("N")[..8],
-            InstanceId = "instance-1",
-            UsePostgres = true,
-            ConnectionString = adminConnection,
-            TablePrefix = "quartz.qrtz_",
-        };
+            var options = new QuartzSchedulerOptions
+            {
+                InstanceName = "SqliteScheduler_" + Guid.NewGuid().ToString("N")[..8],
+                InstanceId = "instance-1",
+                UseSqlite = true,
+                ConnectionString = connectionString,
+                TablePrefix = "qrtz_",
+            };
 
         var chainId = ChainId.New();
         DateTimeOffset? fireTime1;
@@ -488,41 +491,44 @@ public sealed class QuartzSchedulingTests
             Assert.NotNull(fireTime1);
         }
 
-        // Второй экземпляр («рестарт» хоста на той же БД)
-        var options2 = new QuartzSchedulerOptions
-        {
-            InstanceName = options.InstanceName,
-            InstanceId = "instance-2",
-            UsePostgres = true,
-            ConnectionString = adminConnection,
-            TablePrefix = "quartz.qrtz_",
-        };
+            // Второй экземпляр («рестарт» хоста на той же БД)
+            var options2 = new QuartzSchedulerOptions
+            {
+                InstanceName = options.InstanceName,
+                InstanceId = "instance-2",
+                UseSqlite = true,
+                ConnectionString = connectionString,
+                TablePrefix = "qrtz_",
+            };
 
-        await using (var scheduler2 = await QuartzChainSchedulerService.CreateAsync(
-            options2,
-            (_, _) => Task.CompletedTask))
-        {
-            IReadOnlyList<ScheduledChainInfo> list2 = await scheduler2.ListScheduledAsync();
-            ScheduledChainInfo info2 = Assert.Single(list2);
-            Assert.Equal(chainId, info2.ChainId);
-            Assert.Equal("0 0 12 * * ?", info2.CronExpression);
-            Assert.Equal(fireTime1, info2.NextFireTimeUtc);
+            await using (var scheduler2 = await QuartzChainSchedulerService.CreateAsync(
+                options2,
+                (_, _) => Task.CompletedTask))
+            {
+                IReadOnlyList<ScheduledChainInfo> list2 = await scheduler2.ListScheduledAsync();
+                ScheduledChainInfo info2 = Assert.Single(list2);
+                Assert.Equal(chainId, info2.ChainId);
+                Assert.Equal("0 0 12 * * ?", info2.CronExpression);
+                Assert.Equal(fireTime1, info2.NextFireTimeUtc);
 
-            // Очищаем
-            await scheduler2.UnscheduleChainAsync(chainId);
-            IReadOnlyList<ScheduledChainInfo> listEmpty = await scheduler2.ListScheduledAsync();
-            Assert.Empty(listEmpty);
+                // Очищаем
+                await scheduler2.UnscheduleChainAsync(chainId);
+                IReadOnlyList<ScheduledChainInfo> listEmpty = await scheduler2.ListScheduledAsync();
+                Assert.Empty(listEmpty);
+            }
         }
-    }
-}
-
-public sealed class PostgresIntegrationFactAttribute : FactAttribute
-{
-    public PostgresIntegrationFactAttribute()
-    {
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CYBERPIPE_TEST_POSTGRES")))
+        finally
         {
-            Skip = "CYBERPIPE_TEST_POSTGRES is not set: integration PostgreSQL Quartz test skipped.";
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (string suffix in new[] { "", "-wal", "-shm", "-journal" })
+            {
+                try
+                {
+                    string file = dbPath + suffix;
+                    if (File.Exists(file)) File.Delete(file);
+                }
+                catch (IOException) { }
+            }
         }
     }
 }

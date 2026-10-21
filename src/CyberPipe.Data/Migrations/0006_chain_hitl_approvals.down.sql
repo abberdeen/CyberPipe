@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS app.chain_hitl_approvals;
+DROP TABLE IF EXISTS chain_hitl_approvals;

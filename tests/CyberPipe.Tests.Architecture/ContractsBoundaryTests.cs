@@ -9,7 +9,6 @@ public sealed class ContractsBoundaryTests
     [
         "Guest",
         "DevTools",
-        "SQLite",
         "Hangfire",
         "RabbitMQ",
         "Kafka",

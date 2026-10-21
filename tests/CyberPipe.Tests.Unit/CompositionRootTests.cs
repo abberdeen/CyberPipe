@@ -99,13 +99,13 @@ public sealed class CompositionRootTests
         await using ServiceProvider provider = BuildComposition();
         var broken = TestOptions() with
         {
-            Database = new DatabaseOptions { Host = string.Empty },
+            Database = new DatabaseOptions { Path = string.Empty },
         };
 
         ConfigurationValidationReport report = ServiceComposition.ValidateConfiguration(provider, broken);
 
         Assert.False(report.IsValid);
-        Assert.Contains(report.Errors, e => e.Contains("Database:Host", StringComparison.Ordinal));
+        Assert.Contains(report.Errors, e => e.Contains("Database:Path", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -130,8 +130,17 @@ public sealed class CompositionRootTests
     [Fact]
     public async Task StartupCoordinator_WithoutDatabase_EntersConnectionRecovery()
     {
-        using ServiceProvider provider = BuildComposition();
-        var coordinator = new ServiceStartupCoordinator(provider, TestOptions());
+        // Недоступная база: путь под обычным файлом — каталог создать нельзя.
+        string blocker = Path.GetTempFileName();
+        var broken = new CyberPipeOptions
+        {
+            Database = new DatabaseOptions
+            {
+                Path = Path.Combine(blocker, "unreachable.db"),
+            },
+        };
+        await using ServiceProvider provider = BuildComposition(broken);
+        var coordinator = new ServiceStartupCoordinator(provider, broken);
 
         StartupReport report = await coordinator.RunAsync();
 

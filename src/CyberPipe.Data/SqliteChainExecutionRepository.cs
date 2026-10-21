@@ -3,16 +3,16 @@ using CyberPipe.Contracts;
 namespace CyberPipe.Data;
 
 /// <summary>
-/// PostgreSQL реализация <see cref="IChainExecutionRepository"/> (TASK-044) поверх
+/// SQLite реализация <see cref="IChainExecutionRepository"/> (TASK-044) поверх
 /// существующих IChainRunRepository/ICheckpointRepository: запуски и чекпоинты переживают
 /// рестарт службы. InMemory вариант Chains остаётся fallback-ом standalone-композиций.
 /// </summary>
-public sealed class PostgresChainExecutionRepository : IChainExecutionRepository
+public sealed class SqliteChainExecutionRepository : IChainExecutionRepository
 {
     private readonly IChainRunRepository _runs;
     private readonly ICheckpointRepository _checkpoints;
 
-    public PostgresChainExecutionRepository(IChainRunRepository runs, ICheckpointRepository checkpoints)
+    public SqliteChainExecutionRepository(IChainRunRepository runs, ICheckpointRepository checkpoints)
     {
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
         _checkpoints = checkpoints ?? throw new ArgumentNullException(nameof(checkpoints));

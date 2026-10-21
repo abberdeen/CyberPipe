@@ -202,10 +202,10 @@ public static class ServiceComposition
         typeof(IAntiWipeGuard),
         typeof(IEgressSanitizer),
         typeof(IAudioContentSafetyEvaluator),
-        typeof(IPostgresConnectionFactory),
+        typeof(IDatabaseConnectionFactory),
         typeof(IDatabaseHealthProbe),
         typeof(ISchemaMigrator),
-        typeof(IPostgresBootstrapper),
+        typeof(IDatabaseBootstrapper),
         typeof(IEmbeddingStore),
         typeof(IEmbeddingProvider),
         typeof(ITokenBudgetGovernor),
@@ -365,7 +365,7 @@ public sealed class ServiceStartupCoordinator
                 return (false, true, (string?)$"Database is {health.Status}: {health.Detail ?? "connection recovery required"}.");
             }
 
-            return (true, false, (string?)$"Database is healthy (host {health.Host ?? "unknown"}).");
+            return (true, false, (string?)$"Database is healthy (path {health.Path ?? "unknown"}).");
         }, cancellationToken).ConfigureAwait(false);
         steps.Add(database);
         databaseOk = database.Ok;

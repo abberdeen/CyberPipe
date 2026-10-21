@@ -5,7 +5,7 @@ namespace CyberPipe.Contracts;
 /// </summary>
 public enum SetupStep
 {
-    /// <summary>Шаг проверки подключения к PostgreSQL и применения миграций.</summary>
+    /// <summary>Шаг проверки файла SQLite (WAL) и применения миграций.</summary>
     Database = 0,
 
     /// <summary>Шаг назначения идентификатора владельца (Owner).</summary>
@@ -25,7 +25,7 @@ public enum SetupStep
 }
 
 /// <summary>
-/// Состояние мастера первого запуска, сохраняемое в PostgreSQL (app.kv_settings).
+/// Состояние мастера первого запуска, сохраняемое в SQLite (kv_settings).
 /// Секреты (пароль БД, токен Telegram-бота) в это состояние НИКОГДА не пишутся.
 /// </summary>
 public sealed record SetupWizardStateDto
@@ -39,17 +39,8 @@ public sealed record SetupWizardStateDto
     /// <summary>Признак успешного подключения и миграции базы данных.</summary>
     public bool DatabaseConfigured { get; init; }
 
-    /// <summary>Хост базы данных (не секрет).</summary>
-    public string? DatabaseHost { get; init; }
-
-    /// <summary>Порт базы данных.</summary>
-    public int? DatabasePort { get; init; }
-
-    /// <summary>Имя базы данных.</summary>
-    public string? DatabaseName { get; init; }
-
-    /// <summary>Имя пользователя базы данных.</summary>
-    public string? DatabaseUsername { get; init; }
+    /// <summary>Путь к файлу базы данных SQLite (не секрет).</summary>
+    public string? DatabasePath { get; init; }
 
     /// <summary>Идентификатор владельца в Telegram (если задан).</summary>
     public string? TelegramOwnerId { get; init; }
@@ -90,20 +81,11 @@ public sealed record SetupWizardStateDto
 /// </summary>
 public sealed record DatabaseSetupRequest
 {
-    /// <summary>Хост PostgreSQL.</summary>
-    public string Host { get; init; } = "localhost";
+    /// <summary>Путь к файлу базы SQLite.</summary>
+    public string Path { get; init; } = "data/cyberpipe.db";
 
-    /// <summary>Порт PostgreSQL.</summary>
-    public int Port { get; init; } = 5432;
-
-    /// <summary>Имя базы данных.</summary>
-    public string Database { get; init; } = "cyberpipe";
-
-    /// <summary>Имя пользователя.</summary>
-    public string Username { get; init; } = "cyberpipe";
-
-    /// <summary>Пароль пользователя базы данных в защищённой обёртке.</summary>
-    public required SecretValue Password { get; init; }
+    /// <summary>Не используется SQLite (сервера и пароля нет); оставлен для совместимости вызовов.</summary>
+    public SecretValue? Password { get; init; }
 }
 
 /// <summary>
@@ -159,7 +141,7 @@ public sealed record SetupCompletionSummary
 }
 
 /// <summary>
-/// Репозиторий состояния мастера первого запуска в PostgreSQL (TASK-063).
+/// Репозиторий состояния мастера первого запуска в SQLite (TASK-063).
 /// Источник истины о завершённости настройки — база данных, не локальные файлы на диске.
 /// </summary>
 public interface ISetupStateRepository
@@ -183,11 +165,11 @@ public interface ISetupStateRepository
 /// </summary>
 public interface IDatabaseBootstrapService
 {
-    /// <summary>Проверяет подключение к PostgreSQL с указанными параметрами и паролем.</summary>
-    Task<Result<bool>> CheckConnectionAsync(DatabaseOptions options, SecretValue password, CancellationToken cancellationToken = default);
+    /// <summary>Проверяет доступность файла SQLite (WAL) с указанными параметрами. Пароль игнорируется.</summary>
+    Task<Result<bool>> CheckConnectionAsync(DatabaseOptions options, SecretValue? password, CancellationToken cancellationToken = default);
 
     /// <summary>Применяет миграции схемы к базе данных.</summary>
-    Task<Result<int>> ApplyMigrationsAsync(DatabaseOptions options, SecretValue password, CancellationToken cancellationToken = default);
+    Task<Result<int>> ApplyMigrationsAsync(DatabaseOptions options, SecretValue? password, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

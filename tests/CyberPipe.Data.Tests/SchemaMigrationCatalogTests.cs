@@ -79,10 +79,15 @@ public sealed class SchemaMigrationCatalogTests
         string all = string.Join("\n", catalog.Select(m => m.UpSql));
         foreach (string table in new[] { "embeddings", "semantic_cache", "chains", "chain_runs", "chain_checkpoints", "approvals", "token_budget_ledger", "kv_settings", "audit_log", "schema_migrations" })
             Assert.Contains(table, all);
-        Assert.Contains("CREATE SCHEMA IF NOT EXISTS quartz", all);
-        Assert.DoesNotContain("CREATE TABLE IF NOT EXISTS quartz.", all);
-        // Dimension is not hard-coded into the vector type; TASK-012 supplies it via the dimension column.
-        Assert.Contains("embedding vector NOT NULL", all);
-        Assert.DoesNotContain("vector(", all);
+        // SQLite: single main schema — no CREATE SCHEMA, no schema-qualified tables.
+        Assert.DoesNotContain("CREATE SCHEMA", all);
+        Assert.DoesNotContain("CREATE EXTENSION", all);
+        Assert.DoesNotContain("app.", all);
+        // Dimension is not hard-coded: embedding is stored as TEXT, TASK-012 supplies dimension via the column.
+        // No pgvector remnants: no vector type, casts or distance operators (the word may appear in comments only).
+        Assert.Contains("embedding text NOT NULL", all);
+        Assert.DoesNotContain("vector NOT NULL", all, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("::vector", all, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<=>", all, StringComparison.Ordinal);
     }
 }

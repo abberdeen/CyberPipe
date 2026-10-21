@@ -35,7 +35,7 @@ public sealed class DiagnosticsService : IDiagnosticsService
     /// <summary>Создаёт сервис диагностики.</summary>
     /// <param name="processName">Имя процесса для отчёта.</param>
     /// <param name="options">Конфигурация; из неё берутся SLO-цели и адрес БД без секретов.</param>
-    /// <param name="databaseProbe">Проверка подключения к PostgreSQL.</param>
+    /// <param name="databaseProbe">Проверка подключения к SQLite.</param>
     /// <param name="transport">Транспорт сообщений; может быть null, если не настроен.</param>
     /// <param name="startedAtUtc">Момент старта процесса; по умолчанию момент создания сервиса.</param>
     /// <param name="version">Версия приложения; по умолчанию версия входной сборки.</param>
@@ -118,9 +118,8 @@ public sealed class DiagnosticsService : IDiagnosticsService
             DatabaseHealthDto result = await _databaseProbe.CheckAsync(cancellationToken).ConfigureAwait(false);
             return result with
             {
-                Host = result.Host ?? _options.Database.Host,
-                Port = result.Port ?? _options.Database.Port,
-                Database = result.Database ?? _options.Database.Database,
+                Path = result.Path ?? _options.Database.Path,
+                Database = result.Database ?? _options.Database.Path,
                 Detail = SecretRedaction.RedactText(result.Detail),
             };
         }
@@ -133,9 +132,8 @@ public sealed class DiagnosticsService : IDiagnosticsService
             return new DatabaseHealthDto
             {
                 Status = HealthStatus.Degraded,
-                Host = _options.Database.Host,
-                Port = _options.Database.Port,
-                Database = _options.Database.Database,
+                Path = _options.Database.Path,
+                Database = _options.Database.Path,
                 Detail = $"Database check failed: {ex.GetType().Name}.",
                 CheckedAtUtc = checkedAtUtc,
             };

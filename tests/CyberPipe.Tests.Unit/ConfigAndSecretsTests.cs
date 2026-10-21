@@ -34,7 +34,7 @@ public sealed class ConfigAndSecretsTests : IDisposable
         Assert.Null(options.Sandbox.MemoryLimitMb);
         Assert.True(options.Router.Tier0Enabled);
         Assert.True(options.Router.Tier3Enabled);
-        Assert.Equal(SecretKeys.DatabasePassword, options.Database.PasswordSecretKey);
+        Assert.Equal("data/cyberpipe.db", options.Database.Path);
         Assert.Equal(SecretKeys.TelegramBotToken, options.Channels.TelegramBotTokenSecretKey);
     }
 
@@ -130,7 +130,8 @@ public sealed class ConfigAndSecretsTests : IDisposable
     public void Options_HoldOnlySecretReferencesNotValues()
     {
         Assert.Null(typeof(DatabaseOptions).GetProperty("Password"));
-        Assert.NotNull(typeof(DatabaseOptions).GetProperty("PasswordSecretKey"));
+        Assert.Null(typeof(DatabaseOptions).GetProperty("PasswordSecretKey"));
+        Assert.NotNull(typeof(DatabaseOptions).GetProperty("Path"));
         Assert.Null(typeof(ChannelOptions).GetProperty("TelegramBotToken"));
         Assert.NotNull(typeof(ChannelOptions).GetProperty("TelegramBotTokenSecretKey"));
     }

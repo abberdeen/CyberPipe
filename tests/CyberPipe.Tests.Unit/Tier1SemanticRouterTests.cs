@@ -246,7 +246,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_DegradesGracefully_WhenEmbeddingStoreThrows()
     {
-        var throwingStore = new ThrowingEmbeddingStore(new InvalidOperationException("PostgreSQL connection refused"));
+        var throwingStore = new ThrowingEmbeddingStore(new InvalidOperationException("SQLite database unreachable"));
         var provider = new FakeEmbeddingProvider();
         provider.Register("test", [1.0f, 0.0f, 0.0f]);
 

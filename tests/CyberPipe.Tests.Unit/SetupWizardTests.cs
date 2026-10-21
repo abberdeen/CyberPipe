@@ -43,18 +43,18 @@ public sealed class SetupWizardTests
         public List<(DatabaseOptions Options, string RevealedPassword)> CheckedConnections { get; } = new();
         public List<DatabaseOptions> AppliedMigrations { get; } = new();
 
-        public Task<Result<bool>> CheckConnectionAsync(DatabaseOptions options, SecretValue password, CancellationToken cancellationToken = default)
+        public Task<Result<bool>> CheckConnectionAsync(DatabaseOptions options, SecretValue? password, CancellationToken cancellationToken = default)
         {
-            CheckedConnections.Add((options, password.Reveal()));
+            CheckedConnections.Add((options, password?.Reveal() ?? string.Empty));
             if (ShouldFailConnection)
             {
-                return Task.FromResult(Result<bool>.Failure("ConnectionFailed", "Unable to connect to PostgreSQL: invalid password or host unreachable."));
+                return Task.FromResult(Result<bool>.Failure("ConnectionFailed", "Unable to open SQLite database: file unreachable."));
             }
 
             return Task.FromResult(Result<bool>.Success(true));
         }
 
-        public Task<Result<int>> ApplyMigrationsAsync(DatabaseOptions options, SecretValue password, CancellationToken cancellationToken = default)
+        public Task<Result<int>> ApplyMigrationsAsync(DatabaseOptions options, SecretValue? password, CancellationToken cancellationToken = default)
         {
             AppliedMigrations.Add(options);
             if (ShouldFailMigrations)
@@ -171,11 +171,7 @@ public sealed class SetupWizardTests
 
         var request = new DatabaseSetupRequest
         {
-            Host = "localhost",
-            Port = 5432,
-            Database = "cyberpipe",
-            Username = "cyberpipe",
-            Password = SecretValue.FromPlainText("wrong-password"),
+            Path = "data/test.db",
         };
 
         Result<SetupWizardStateDto> result = await engine.ConfigureDatabaseAsync(request);
@@ -183,7 +179,7 @@ public sealed class SetupWizardTests
         Assert.False(result.IsSuccess);
         Assert.Equal("ConnectionFailed", result.Error?.Code);
 
-        // Password not saved on failed connection
+        // State not marked configured
         Assert.False(secrets.Secrets.ContainsKey(SecretKeys.DatabasePassword));
 
         // State not marked configured
@@ -193,17 +189,13 @@ public sealed class SetupWizardTests
     }
 
     [Fact]
-    public async Task ValidDatabase_AppliesMigrations_SavesPasswordToSecretStore_AndAdvancesToOwner()
+    public async Task ValidDatabase_AppliesMigrations_AndAdvancesToOwner()
     {
         var (engine, db, secrets, _, _, _, _) = CreateTestSetup();
 
         var request = new DatabaseSetupRequest
         {
-            Host = "db.local",
-            Port = 5433,
-            Database = "cyberpipe_prod",
-            Username = "admin",
-            Password = SecretValue.FromPlainText("secret_pw_123"),
+            Path = "data/cyberpipe_prod.db",
         };
 
         Result<SetupWizardStateDto> result = await engine.ConfigureDatabaseAsync(request);
@@ -211,16 +203,14 @@ public sealed class SetupWizardTests
         Assert.True(result.IsSuccess);
         Assert.True(result.Value!.DatabaseConfigured);
         Assert.Equal(SetupStep.Owner, result.Value.CurrentStep);
-        Assert.Equal("db.local", result.Value.DatabaseHost);
-        Assert.Equal(5433, result.Value.DatabasePort);
+        Assert.Equal("data/cyberpipe_prod.db", result.Value.DatabasePath);
 
-        // SecretStore received password
-        Assert.True(secrets.Secrets.ContainsKey(SecretKeys.DatabasePassword));
-        Assert.Equal("secret_pw_123", secrets.Secrets[SecretKeys.DatabasePassword].Reveal());
+        // SQLite needs no password: nothing stored under the legacy database password key.
+        Assert.False(secrets.Secrets.ContainsKey(SecretKeys.DatabasePassword));
 
-        // Password NOT present in state DTO
+        // Path present in state DTO, no secrets inside it
         string json = JsonSerializer.Serialize(result.Value);
-        Assert.DoesNotContain("secret_pw_123", json);
+        Assert.Contains("data/cyberpipe_prod.db", json);
     }
 
     [Fact]
@@ -231,11 +221,7 @@ public sealed class SetupWizardTests
         // Must configure DB first
         await engine.ConfigureDatabaseAsync(new DatabaseSetupRequest
         {
-            Host = "localhost",
-            Port = 5432,
-            Database = "cyberpipe",
-            Username = "cyberpipe",
-            Password = SecretValue.FromPlainText("pass"),
+            Path = "data/test.db",
         });
 
         // Empty owner request must fail
@@ -475,11 +461,7 @@ public sealed class SetupWizardTests
 
         // 2. Interactive setup via CLI simulated input
         string simulatedInput = string.Join("\n",
-            "localhost",       // host
-            "5432",            // port
-            "cyberpipe_db",    // database
-            "admin",           // username
-            "mypassword",      // password
+            "data/cli-test.db", // database file path
             "",                // telegram id (none)
             "admin-cli",       // local cli owner
             "y",               // install embedding

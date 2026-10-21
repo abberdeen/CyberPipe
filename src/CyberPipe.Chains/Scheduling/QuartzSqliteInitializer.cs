@@ -1,17 +1,16 @@
-using Npgsql;
+using Microsoft.Data.Sqlite;
 
 namespace CyberPipe.Chains.Scheduling;
 
 /// <summary>
-/// Инициализатор схемы и таблиц Quartz.NET в PostgreSQL (TASK-045).
-/// Создаёт официальные таблицы Quartz в схеме quartz, если они ещё не созданы.
+/// Инициализатор схемы и таблиц NET в SQLite (TASK-045).
+/// Создаёт официальные таблицы Quartz в базе SQLite, если они ещё не созданы.
 /// </summary>
-public static class QuartzPostgresInitializer
+public static class QuartzSqliteInitializer
 {
-    private const string QuartzPostgresDdl = """
-        CREATE SCHEMA IF NOT EXISTS quartz;
+    private const string QuartzSqliteDdl = """
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_job_details
+        CREATE TABLE IF NOT EXISTS qrtz_job_details
         (
             sched_name VARCHAR(120) NOT NULL,
             job_name VARCHAR(150) NOT NULL,
@@ -22,11 +21,11 @@ public static class QuartzPostgresInitializer
             is_nonconcurrent BOOL NOT NULL,
             is_update_data BOOL NOT NULL,
             requests_recovery BOOL NOT NULL,
-            job_data BYTEA NULL,
+            job_data BLOB NULL,
             PRIMARY KEY (sched_name, job_name, job_group)
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_triggers
+        CREATE TABLE IF NOT EXISTS qrtz_triggers
         (
             sched_name VARCHAR(120) NOT NULL,
             trigger_name VARCHAR(150) NOT NULL,
@@ -43,13 +42,13 @@ public static class QuartzPostgresInitializer
             end_time BIGINT NULL,
             calendar_name VARCHAR(200) NULL,
             misfire_instr SMALLINT NULL,
-            job_data BYTEA NULL,
+            job_data BLOB NULL,
             PRIMARY KEY (sched_name, trigger_name, trigger_group),
             FOREIGN KEY (sched_name, job_name, job_group)
-                REFERENCES quartz.qrtz_job_details(sched_name, job_name, job_group)
+                REFERENCES qrtz_job_details(sched_name, job_name, job_group)
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_simple_triggers
+        CREATE TABLE IF NOT EXISTS qrtz_simple_triggers
         (
             sched_name VARCHAR(120) NOT NULL,
             trigger_name VARCHAR(150) NOT NULL,
@@ -59,10 +58,10 @@ public static class QuartzPostgresInitializer
             times_triggered BIGINT NOT NULL,
             PRIMARY KEY (sched_name, trigger_name, trigger_group),
             FOREIGN KEY (sched_name, trigger_name, trigger_group)
-                REFERENCES quartz.qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
+                REFERENCES qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_cron_triggers
+        CREATE TABLE IF NOT EXISTS qrtz_cron_triggers
         (
             sched_name VARCHAR(120) NOT NULL,
             trigger_name VARCHAR(150) NOT NULL,
@@ -71,10 +70,10 @@ public static class QuartzPostgresInitializer
             time_zone_id VARCHAR(80),
             PRIMARY KEY (sched_name, trigger_name, trigger_group),
             FOREIGN KEY (sched_name, trigger_name, trigger_group)
-                REFERENCES quartz.qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
+                REFERENCES qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_simprop_triggers
+        CREATE TABLE IF NOT EXISTS qrtz_simprop_triggers
         (
             sched_name VARCHAR(120) NOT NULL,
             trigger_name VARCHAR(150) NOT NULL,
@@ -93,36 +92,36 @@ public static class QuartzPostgresInitializer
             time_zone_id VARCHAR(80) NULL,
             PRIMARY KEY (sched_name, trigger_name, trigger_group),
             FOREIGN KEY (sched_name, trigger_name, trigger_group)
-                REFERENCES quartz.qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
+                REFERENCES qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_blob_triggers
+        CREATE TABLE IF NOT EXISTS qrtz_blob_triggers
         (
             sched_name VARCHAR(120) NOT NULL,
             trigger_name VARCHAR(150) NOT NULL,
             trigger_group VARCHAR(150) NOT NULL,
-            blob_data BYTEA NULL,
+            blob_data BLOB NULL,
             PRIMARY KEY (sched_name, trigger_name, trigger_group),
             FOREIGN KEY (sched_name, trigger_name, trigger_group)
-                REFERENCES quartz.qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
+                REFERENCES qrtz_triggers(sched_name, trigger_name, trigger_group) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_calendars
+        CREATE TABLE IF NOT EXISTS qrtz_calendars
         (
             sched_name VARCHAR(120) NOT NULL,
             calendar_name VARCHAR(200) NOT NULL,
-            calendar BYTEA NOT NULL,
+            calendar BLOB NOT NULL,
             PRIMARY KEY (sched_name, calendar_name)
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_paused_trigger_grps
+        CREATE TABLE IF NOT EXISTS qrtz_paused_trigger_grps
         (
             sched_name VARCHAR(120) NOT NULL,
             trigger_group VARCHAR(150) NOT NULL,
             PRIMARY KEY (sched_name, trigger_group)
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_fired_triggers
+        CREATE TABLE IF NOT EXISTS qrtz_fired_triggers
         (
             sched_name VARCHAR(120) NOT NULL,
             entry_id VARCHAR(140) NOT NULL,
@@ -140,7 +139,7 @@ public static class QuartzPostgresInitializer
             PRIMARY KEY (sched_name, entry_id)
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_scheduler_state
+        CREATE TABLE IF NOT EXISTS qrtz_scheduler_state
         (
             sched_name VARCHAR(120) NOT NULL,
             instance_name VARCHAR(200) NOT NULL,
@@ -149,46 +148,46 @@ public static class QuartzPostgresInitializer
             PRIMARY KEY (sched_name, instance_name)
         );
 
-        CREATE TABLE IF NOT EXISTS quartz.qrtz_locks
+        CREATE TABLE IF NOT EXISTS qrtz_locks
         (
             sched_name VARCHAR(120) NOT NULL,
             lock_name VARCHAR(40) NOT NULL,
             PRIMARY KEY (sched_name, lock_name)
         );
 
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_j ON quartz.qrtz_triggers(sched_name, job_name, job_group);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_jg ON quartz.qrtz_triggers(sched_name, job_group);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_c ON quartz.qrtz_triggers(sched_name, calendar_name);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_g ON quartz.qrtz_triggers(sched_name, trigger_group);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_state ON quartz.qrtz_triggers(sched_name, trigger_state);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_n_state ON quartz.qrtz_triggers(sched_name, trigger_name, trigger_group, trigger_state);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_n_g_state ON quartz.qrtz_triggers(sched_name, trigger_group, trigger_state);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_next_fire_time ON quartz.qrtz_triggers(sched_name, next_fire_time);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_st ON quartz.qrtz_triggers(sched_name, trigger_state, next_fire_time);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_misfire ON quartz.qrtz_triggers(sched_name, misfire_instr, next_fire_time);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_st_misfire ON quartz.qrtz_triggers(sched_name, misfire_instr, next_fire_time, trigger_state);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_st_misfire_grp ON quartz.qrtz_triggers(sched_name, misfire_instr, next_fire_time, trigger_group, trigger_state);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_trig_inst_name ON quartz.qrtz_fired_triggers(sched_name, instance_name);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_inst_job_req_rcvry ON quartz.qrtz_fired_triggers(sched_name, instance_name, requests_recovery);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_j_g ON quartz.qrtz_fired_triggers(sched_name, job_name, job_group);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_jg ON quartz.qrtz_fired_triggers(sched_name, job_group);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_t_g ON quartz.qrtz_fired_triggers(sched_name, trigger_name, trigger_group);
-        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_tg ON quartz.qrtz_fired_triggers(sched_name, trigger_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_j ON qrtz_triggers(sched_name, job_name, job_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_jg ON qrtz_triggers(sched_name, job_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_c ON qrtz_triggers(sched_name, calendar_name);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_g ON qrtz_triggers(sched_name, trigger_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_state ON qrtz_triggers(sched_name, trigger_state);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_n_state ON qrtz_triggers(sched_name, trigger_name, trigger_group, trigger_state);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_n_g_state ON qrtz_triggers(sched_name, trigger_group, trigger_state);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_next_fire_time ON qrtz_triggers(sched_name, next_fire_time);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_st ON qrtz_triggers(sched_name, trigger_state, next_fire_time);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_misfire ON qrtz_triggers(sched_name, misfire_instr, next_fire_time);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_st_misfire ON qrtz_triggers(sched_name, misfire_instr, next_fire_time, trigger_state);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_t_nft_st_misfire_grp ON qrtz_triggers(sched_name, misfire_instr, next_fire_time, trigger_group, trigger_state);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_trig_inst_name ON qrtz_fired_triggers(sched_name, instance_name);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_inst_job_req_rcvry ON qrtz_fired_triggers(sched_name, instance_name, requests_recovery);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_j_g ON qrtz_fired_triggers(sched_name, job_name, job_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_jg ON qrtz_fired_triggers(sched_name, job_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_t_g ON qrtz_fired_triggers(sched_name, trigger_name, trigger_group);
+        CREATE INDEX IF NOT EXISTS ix_qrtz_ft_tg ON qrtz_fired_triggers(sched_name, trigger_group);
         """;
 
     /// <summary>
-    /// Создаёт таблицы Quartz в схеме quartz, если они ещё не созданы.
+    /// Создаёт таблицы Quartz в базе SQLite, если они ещё не созданы.
     /// </summary>
-    /// <param name="connectionString">Строка подключения к PostgreSQL.</param>
+    /// <param name="connectionString">Строка подключения к SQLite.</param>
     /// <param name="cancellationToken">Токен отмены.</param>
     public static async Task EnsureQuartzTablesAsync(string connectionString, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
-        await using var connection = new NpgsqlConnection(connectionString);
+        await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-        await using var command = new NpgsqlCommand(QuartzPostgresDdl, connection);
+        await using var command = new SqliteCommand(QuartzSqliteDdl, connection);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

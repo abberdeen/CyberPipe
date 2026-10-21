@@ -48,7 +48,7 @@ public sealed class SkillsKnowledgeTests
     {
         string text = "Section 1: Introduction to CyberPipe architecture. " +
                       "Section 2: The system uses local LLMs and offline routing. " +
-                      "Section 3: Database storage is handled by PostgreSQL with pgvector for embeddings. " +
+                      "Section 3: Database storage is handled by SQLite with in-process similarity for embeddings. " +
                       "Section 4: The security subsystem implements Windows Job Objects and Restricted Tokens.";
 
         IReadOnlyList<TextChunk> chunks = TextChunker.ChunkText(text, chunkSize: 80, chunkOverlap: 20);

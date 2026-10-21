@@ -1,16 +1,16 @@
 using System.Diagnostics;
+using System.Globalization;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Npgsql;
-using NpgsqlTypes;
 
 namespace CyberPipe.Data;
 
 /// <summary>Амбиентная сессия активного unit-of-work; репозитории используют её соединение и транзакцию.</summary>
 internal sealed class UnitOfWorkSession
 {
-    public required NpgsqlConnection Connection { get; init; }
-    public required NpgsqlTransaction Transaction { get; init; }
+    public required SqliteConnection Connection { get; init; }
+    public required SqliteTransaction Transaction { get; init; }
 }
 
 internal static class AmbientUnitOfWork
@@ -23,22 +23,22 @@ internal static class AmbientUnitOfWork
 }
 
 /// <summary>
-/// База репозиториев: соединение только из активного unit-of-work или фабрики TASK-010,
+/// База репозиториев: соединение только из активного unit-of-work или фабрики,
 /// только параметризованные запросы, тайминг и логирование медленных запросов без значений
 /// параметров (в лог попадает только имя операции и длительность).
 /// </summary>
 public abstract class RepositoryBase
 {
-    private readonly IPostgresConnectionFactory _connectionFactory;
+    private readonly IDatabaseConnectionFactory _connectionFactory;
     private readonly UnitOfWorkMetrics _metrics;
 
     /// <summary>Создаёт базу репозитория.</summary>
-    /// <param name="connectionFactory">Фабрика соединений TASK-010.</param>
+    /// <param name="connectionFactory">Фабрика соединений SQLite.</param>
     /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
     protected RepositoryBase(
-        IPostgresConnectionFactory connectionFactory,
+        IDatabaseConnectionFactory connectionFactory,
         RepositoryOptions? options = null,
         ILogger? logger = null,
         UnitOfWorkMetrics? metrics = null)
@@ -69,14 +69,14 @@ public abstract class RepositoryBase
     /// <returns>Результат операции.</returns>
     protected async Task<T> ExecuteAsync<T>(
         string operation,
-        Func<NpgsqlConnection, NpgsqlTransaction?, CancellationToken, Task<T>> body,
+        Func<SqliteConnection, SqliteTransaction?, CancellationToken, Task<T>> body,
         CancellationToken cancellationToken)
     {
         UnitOfWorkSession? session = SessionProvider?.Invoke() ?? AmbientUnitOfWork.Current;
         if (session is not null)
             return await RunTimedAsync(operation, () => body(session.Connection, session.Transaction, cancellationToken)).ConfigureAwait(false);
 
-        await using NpgsqlConnection connection = await _connectionFactory
+        await using SqliteConnection connection = await _connectionFactory
             .CreateOpenedConnectionAsync(cancellationToken).ConfigureAwait(false);
         return await RunTimedAsync(operation, () => body(connection, null, cancellationToken)).ConfigureAwait(false);
     }
@@ -88,7 +88,7 @@ public abstract class RepositoryBase
     /// <returns>Задача операции.</returns>
     protected Task ExecuteAsync(
         string operation,
-        Func<NpgsqlConnection, NpgsqlTransaction?, CancellationToken, Task> body,
+        Func<SqliteConnection, SqliteTransaction?, CancellationToken, Task> body,
         CancellationToken cancellationToken) =>
         ExecuteAsync<object?>(
             operation,
@@ -127,64 +127,89 @@ public abstract class RepositoryBase
     /// <param name="transaction">Транзакция unit-of-work или null.</param>
     /// <param name="sql">SQL только с именованными параметрами.</param>
     /// <returns>Команда без значений параметров.</returns>
-    protected static NpgsqlCommand Command(NpgsqlConnection connection, NpgsqlTransaction? transaction, string sql) =>
-        new(sql, connection, transaction);
-
-    /// <summary>Добавляет типизированный параметр uuid; null — DBNull с типом uuid.</summary>
-    /// <param name="command">Команда.</param>
-    /// <param name="name">Имя параметра без @.</param>
-    /// <param name="value">Значение или null.</param>
-    protected static void UuidParam(NpgsqlCommand command, string name, Guid? value)
+    protected static SqliteCommand Command(SqliteConnection connection, SqliteTransaction? transaction, string sql)
     {
-        var parameter = command.Parameters.Add(name, NpgsqlDbType.Uuid);
-        parameter.Value = value.HasValue ? value.Value : DBNull.Value;
+        var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.Transaction = transaction;
+        return command;
     }
 
-    /// <summary>Добавляет типизированный текстовый параметр; null — DBNull с типом text.</summary>
+    /// <summary>Добавляет типизированный параметр uuid (TEXT); null — DBNull.</summary>
     /// <param name="command">Команда.</param>
     /// <param name="name">Имя параметра без @.</param>
     /// <param name="value">Значение или null.</param>
-    protected static void TextParam(NpgsqlCommand command, string name, string? value)
+    protected static void UuidParam(SqliteCommand command, string name, Guid? value)
     {
-        var parameter = command.Parameters.Add(name, NpgsqlDbType.Text);
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@" + name;
+        parameter.Value = value.HasValue ? value.Value.ToString("D", CultureInfo.InvariantCulture) : DBNull.Value;
+        command.Parameters.Add(parameter);
+    }
+
+    /// <summary>Добавляет типизированный текстовый параметр; пустое — DBNull.</summary>
+    /// <param name="command">Команда.</param>
+    /// <param name="name">Имя параметра без @.</param>
+    /// <param name="value">Значение или null.</param>
+    protected static void TextParam(SqliteCommand command, string name, string? value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@" + name;
         parameter.Value = string.IsNullOrWhiteSpace(value) ? DBNull.Value : value;
+        command.Parameters.Add(parameter);
     }
 
-    /// <summary>Добавляет типизированный параметр date; null — DBNull с типом date.</summary>
+    /// <summary>Добавляет параметр даты ISO-8601; null — DBNull.</summary>
     /// <param name="command">Команда.</param>
     /// <param name="name">Имя параметра без @.</param>
     /// <param name="value">Значение или null.</param>
-    protected static void DateParam(NpgsqlCommand command, string name, DateOnly? value)
+    protected static void DateParam(SqliteCommand command, string name, DateOnly? value)
     {
-        var parameter = command.Parameters.Add(name, NpgsqlDbType.Date);
-        parameter.Value = value.HasValue ? value.Value : DBNull.Value;
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@" + name;
+        parameter.Value = value.HasValue ? value.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : DBNull.Value;
+        command.Parameters.Add(parameter);
     }
 
     /// <summary>Добавляет параметр; значение никогда не подставляется в текст SQL.</summary>
     /// <param name="command">Команда.</param>
     /// <param name="name">Имя параметра без @.</param>
-    /// <param name="value">Значение; null превращается в DBNull.</param>
-    protected static void Param(NpgsqlCommand command, string name, object? value) =>
-        command.Parameters.AddWithValue(name, value ?? DBNull.Value);
+    /// <param name="value">Значение; null превращается в DBNull. Guid хранится текстом.</param>
+    protected static void Param(SqliteCommand command, string name, object? value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@" + name;
+        parameter.Value = value switch
+        {
+            null => DBNull.Value,
+            Guid guid => guid.ToString("D", CultureInfo.InvariantCulture),
+            _ => value,
+        };
+        command.Parameters.Add(parameter);
+    }
 
-    /// <summary>Добавляет параметр jsonb из JSON-строки.</summary>
+    /// <summary>Добавляет параметр JSON-строки (TEXT).</summary>
     /// <param name="command">Команда.</param>
     /// <param name="name">Имя параметра без @.</param>
     /// <param name="json">JSON-строка или null.</param>
-    protected static void JsonParam(NpgsqlCommand command, string name, string? json)
+    protected static void JsonParam(SqliteCommand command, string name, string? json)
     {
-        var parameter = command.Parameters.Add(name, NpgsqlDbType.Jsonb);
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@" + name;
         parameter.Value = json is null ? DBNull.Value : json;
+        command.Parameters.Add(parameter);
     }
 
-    /// <summary>Добавляет параметр timestamptz.</summary>
+    /// <summary>Добавляет параметр метки времени (ISO-8601 UTC).</summary>
     /// <param name="command">Команда.</param>
     /// <param name="name">Имя параметра без @.</param>
     /// <param name="value">Момент времени или null.</param>
-    protected static void TimeParam(NpgsqlCommand command, string name, DateTimeOffset? value)
+    protected static void TimeParam(SqliteCommand command, string name, DateTimeOffset? value)
     {
-        var parameter = command.Parameters.Add(name, NpgsqlDbType.TimestampTz);
-        parameter.Value = value.HasValue ? value.Value : DBNull.Value;
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = "@" + name;
+        parameter.Value = value.HasValue ? value.Value.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) : DBNull.Value;
+        command.Parameters.Add(parameter);
     }
 
     /// <summary>
@@ -222,17 +247,90 @@ public abstract class RepositoryBase
             throw new ArgumentException("Value must not be empty.", paramName);
     }
 
-    /// <summary>Читает timestamptz как DateTimeOffset; DBNull — null.</summary>
+    /// <summary>Читает метку времени (TEXT ISO-8601, DateTime или DateTimeOffset); DBNull — null.</summary>
     /// <param name="reader">Читатель строки.</param>
     /// <param name="ordinal">Порядковый номер колонки.</param>
     /// <returns>Момент времени или null.</returns>
-    protected static DateTimeOffset? ReadTime(NpgsqlDataReader reader, int ordinal) =>
-        reader.IsDBNull(ordinal) ? null : reader.GetFieldValue<DateTimeOffset>(ordinal);
+    protected static DateTimeOffset? ReadTime(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+            return null;
+        object value = reader.GetValue(ordinal);
+        return value switch
+        {
+            DateTimeOffset dto => dto,
+            DateTime dt => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)),
+            string s when DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out DateTimeOffset parsed) => parsed,
+            string s when DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out DateTime parsedDt) => new DateTimeOffset(DateTime.SpecifyKind(parsedDt, DateTimeKind.Utc)),
+            long unix => DateTimeOffset.FromUnixTimeSeconds(unix),
+            _ => throw new InvalidOperationException($"Unexpected timestamp value of type {value.GetType().Name}."),
+        };
+    }
 
-    /// <summary>Читает обязательный timestamptz.</summary>
+    /// <summary>Читает обязательную метку времени.</summary>
     /// <param name="reader">Читатель строки.</param>
     /// <param name="ordinal">Порядковый номер колонки.</param>
     /// <returns>Момент времени.</returns>
-    protected static DateTimeOffset ReadRequiredTime(NpgsqlDataReader reader, int ordinal) =>
+    protected static DateTimeOffset ReadRequiredTime(SqliteDataReader reader, int ordinal) =>
         ReadTime(reader, ordinal) ?? throw new InvalidOperationException("Unexpected NULL timestamp.");
+
+    /// <summary>Читает дату (TEXT yyyy-MM-dd или DateTime); DBNull — null.</summary>
+    /// <param name="reader">Читатель строки.</param>
+    /// <param name="ordinal">Порядковый номер колонки.</param>
+    /// <returns>Дата или null.</returns>
+    protected static DateOnly? ReadDate(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+            return null;
+        object value = reader.GetValue(ordinal);
+        return value switch
+        {
+            DateOnly date => date,
+            DateTime dt => DateOnly.FromDateTime(dt),
+            string s when DateOnly.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly parsed) => parsed,
+            string s when DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedDt) => DateOnly.FromDateTime(parsedDt),
+            _ => throw new InvalidOperationException($"Unexpected date value of type {value.GetType().Name}."),
+        };
+    }
+
+    /// <summary>Читает обязательную дату.</summary>
+    /// <param name="reader">Читатель строки.</param>
+    /// <param name="ordinal">Порядковый номер колонки.</param>
+    /// <returns>Дата.</returns>
+    protected static DateOnly ReadRequiredDate(SqliteDataReader reader, int ordinal) =>
+        ReadDate(reader, ordinal) ?? throw new InvalidOperationException("Unexpected NULL date.");
+
+    /// <summary>Преобразует скалярное значение метки времени (TEXT ISO-8601, DateTime, DateTimeOffset).</summary>
+    /// <param name="value">Значение из RETURNING/ExecuteScalar.</param>
+    /// <returns>Момент времени.</returns>
+    protected static DateTimeOffset ToDateTimeOffset(object value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return value switch
+        {
+            DateTimeOffset dto => dto,
+            DateTime dt => new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)),
+            string s when DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out DateTimeOffset parsed) => parsed,
+            string s when DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out DateTime parsedDt) => new DateTimeOffset(DateTime.SpecifyKind(parsedDt, DateTimeKind.Utc)),
+            _ => throw new InvalidOperationException($"Unexpected timestamp value of type {value.GetType().Name}."),
+        };
+    }
+
+    /// <summary>Читает GUID (TEXT или BLOB).</summary>
+    /// <param name="reader">Читатель строки.</param>
+    /// <param name="ordinal">Порядковый номер колонки.</param>
+    /// <returns>GUID.</returns>
+    protected static Guid ReadGuid(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+            throw new InvalidOperationException("Unexpected NULL guid.");
+        object value = reader.GetValue(ordinal);
+        return value switch
+        {
+            Guid guid => guid,
+            string s => Guid.Parse(s),
+            byte[] bytes when bytes.Length == 16 => new Guid(bytes),
+            _ => reader.GetGuid(ordinal),
+        };
+    }
 }

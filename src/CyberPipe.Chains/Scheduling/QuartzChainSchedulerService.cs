@@ -60,17 +60,17 @@ public sealed class QuartzChainSchedulerService : IChainSchedulerService, ICronT
             ["quartz.threadPool.maxConcurrency"] = "10",
         };
 
-        if (options.UsePostgres && !string.IsNullOrWhiteSpace(options.ConnectionString))
+        if (options.UseSqlite && !string.IsNullOrWhiteSpace(options.ConnectionString))
         {
-            await QuartzPostgresInitializer.EnsureQuartzTablesAsync(options.ConnectionString, cancellationToken).ConfigureAwait(false);
+            await QuartzSqliteInitializer.EnsureQuartzTablesAsync(options.ConnectionString, cancellationToken).ConfigureAwait(false);
 
             props["quartz.jobStore.type"] = "Quartz.Impl.AdoJobStore.JobStoreTX, Quartz";
-            props["quartz.jobStore.driverDelegateType"] = "Quartz.Impl.AdoJobStore.PostgreSQLDelegate, Quartz";
+            props["quartz.jobStore.driverDelegateType"] = "Quartz.Impl.AdoJobStore.SQLiteDelegate, Quartz";
             props["quartz.jobStore.tablePrefix"] = options.TablePrefix;
             props["quartz.jobStore.dataSource"] = "default";
             props["quartz.dataSource.default.connectionString"] = options.ConnectionString;
-            props["quartz.dataSource.default.provider"] = "Npgsql";
-            props["quartz.serializer.type"] = "json";
+            props["quartz.dataSource.default.provider"] = "SQLite-Microsoft";
+            props["quartz.serializer.type"] = "Quartz.Simpl.SystemTextJsonObjectSerializer, Quartz.Serialization.SystemTextJson";
         }
         else
         {

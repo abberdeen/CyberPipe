@@ -125,7 +125,7 @@ public sealed record ChainRunContext
 }
 
 /// <summary>
-/// Чекпоинт шага цепочки для хранения в PostgreSQL. Хранение — TASK-011/TASK-044; тип определён здесь.
+/// Чекпоинт шага цепочки для хранения в SQLite. Хранение — TASK-011/TASK-044; тип определён здесь.
 /// </summary>
 public sealed record ChainCheckpointDto
 {

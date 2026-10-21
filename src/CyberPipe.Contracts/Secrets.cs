@@ -3,7 +3,7 @@ namespace CyberPipe.Contracts;
 /// <summary>Единый реестр имён ключей секретов. Новые секреты добавляются только сюда.</summary>
 public static class SecretKeys
 {
-    /// <summary>Пароль PostgreSQL.</summary>
+    /// <summary>Пароль БД (устаревший ключ; SQLite пароля не требует).</summary>
     public const string DatabasePassword = "database.password";
 
     /// <summary>Токен Telegram-бота.</summary>

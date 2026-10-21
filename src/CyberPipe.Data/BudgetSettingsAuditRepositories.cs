@@ -1,10 +1,10 @@
 using CyberPipe.Contracts;
 using Microsoft.Extensions.Logging;
-using Npgsql;
+using Microsoft.Data.Sqlite;
 
 namespace CyberPipe.Data;
 
-/// <summary>Репозиторий app.token_budget_ledger с оптимистичной конкуренцией по updated_at.</summary>
+/// <summary>Репозиторий token_budget_ledger с оптимистичной конкуренцией по updated_at.</summary>
 public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -23,7 +23,7 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики.</param>
-    public TokenBudgetRepository(IPostgresConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
+    public TokenBudgetRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
         : base(connectionFactory, options, logger, metrics)
     {
     }
@@ -32,9 +32,9 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
     public Task<TokenBudgetEntryRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("token_budget.get", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM app.token_budget_ledger WHERE id = @id");
+            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM token_budget_ledger WHERE id = @id");
             Param(command, "id", id);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
         }, cancellationToken);
 
@@ -44,19 +44,19 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
         {
             string orderBy = OrderBy(query, Sorts, "id");
             const string where = "WHERE (@budget_date IS NULL OR budget_date = @budget_date) AND (@model_id IS NULL OR model_id = @model_id)";
-            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM app.token_budget_ledger {where}");
+            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM token_budget_ledger {where}");
             DateParam(countCommand, "budget_date", budgetDate);
             TextParam(countCommand, "model_id", modelId);
             long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
 
             await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM app.token_budget_ledger {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
+                $"SELECT {Columns} FROM token_budget_ledger {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
             DateParam(command, "budget_date", budgetDate);
             TextParam(command, "model_id", modelId);
             Param(command, "limit", query.Limit);
             Param(command, "offset", query.Offset);
             var items = new List<TokenBudgetEntryRecord>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return new PagedResult<TokenBudgetEntryRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
@@ -73,12 +73,14 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
         return ExecuteAsync("token_budget.add", async (connection, transaction, token) =>
         {
             Guid id = entry.Id == Guid.Empty ? Guid.NewGuid() : entry.Id;
+            DateTimeOffset now = DateTimeOffset.UtcNow;
             await using var command = Command(connection, transaction, $"""
-                INSERT INTO app.token_budget_ledger (id, budget_date, model_id, hosting_type, entry_type, request_id, input_tokens, output_tokens, cost_usd)
-                VALUES (@id, @budget_date, @model_id, @hosting_type, @entry_type, @request_id, @input_tokens, @output_tokens, @cost_usd)
+                INSERT INTO token_budget_ledger (id, budget_date, model_id, hosting_type, entry_type, request_id, input_tokens, output_tokens, cost_usd, created_at, updated_at)
+                VALUES (@id, @budget_date, @model_id, @hosting_type, @entry_type, @request_id, @input_tokens, @output_tokens, @cost_usd, @now, @now)
                 ON CONFLICT (id) DO NOTHING
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", now);
             Param(command, "id", id);
             DateParam(command, "budget_date", entry.BudgetDate);
             Param(command, "model_id", entry.ModelId);
@@ -88,7 +90,7 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
             Param(command, "input_tokens", entry.InputTokens);
             Param(command, "output_tokens", entry.OutputTokens);
             Param(command, "cost_usd", entry.CostUsd);
-            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+            await using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
             {
                 if (await reader.ReadAsync(token).ConfigureAwait(false))
                     return Map(reader);
@@ -110,12 +112,13 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
         return ExecuteAsync("token_budget.update", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction, $"""
-                UPDATE app.token_budget_ledger
+                UPDATE token_budget_ledger
                 SET budget_date = @budget_date, model_id = @model_id, hosting_type = @hosting_type, entry_type = @entry_type,
-                    request_id = @request_id, input_tokens = @input_tokens, output_tokens = @output_tokens, cost_usd = @cost_usd, updated_at = now()
+                    request_id = @request_id, input_tokens = @input_tokens, output_tokens = @output_tokens, cost_usd = @cost_usd, updated_at = @now
                 WHERE id = @id AND updated_at = @expected_version
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", DateTimeOffset.UtcNow);
             Param(command, "id", entry.Id);
             DateParam(command, "budget_date", entry.BudgetDate);
             Param(command, "model_id", entry.ModelId);
@@ -126,7 +129,7 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
             Param(command, "output_tokens", entry.OutputTokens);
             Param(command, "cost_usd", entry.CostUsd);
             TimeParam(command, "expected_version", expectedRowVersion);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
                 return Map(reader);
             throw new OptimisticConcurrencyException("token_budget_ledger", entry.Id.ToString());
@@ -137,7 +140,7 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("token_budget.delete", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM app.token_budget_ledger WHERE id = @id");
+            await using var command = Command(connection, transaction, "DELETE FROM token_budget_ledger WHERE id = @id");
             Param(command, "id", id);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
@@ -148,10 +151,10 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
         {
             await using var command = Command(connection, transaction, """
                 SELECT COALESCE(sum(cost_usd), 0), COALESCE(sum(input_tokens), 0), COALESCE(sum(output_tokens), 0), count(*)
-                FROM app.token_budget_ledger WHERE budget_date = @budget_date
+                FROM token_budget_ledger WHERE budget_date = @budget_date
                 """);
             DateParam(command, "budget_date", budgetDate);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             await reader.ReadAsync(token).ConfigureAwait(false);
             return new TokenBudgetDailySummary
             {
@@ -163,10 +166,10 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
             };
         }, cancellationToken);
 
-    internal static TokenBudgetEntryRecord Map(NpgsqlDataReader reader) => new()
+    internal static TokenBudgetEntryRecord Map(SqliteDataReader reader) => new()
     {
-        Id = reader.GetGuid(0),
-        BudgetDate = reader.GetFieldValue<DateOnly>(1),
+        Id = ReadGuid(reader, 0),
+        BudgetDate = ReadRequiredDate(reader, 1),
         ModelId = reader.GetString(2),
         HostingType = Enum.Parse<ModelHostingType>(reader.GetString(3)),
         EntryType = reader.GetString(4),
@@ -179,7 +182,7 @@ public sealed class TokenBudgetRepository : RepositoryBase, ITokenBudgetReposito
     };
 }
 
-/// <summary>Репозиторий app.kv_settings с оптимистичной конкуренцией по updated_at.</summary>
+/// <summary>Репозиторий kv_settings с оптимистичной конкуренцией по updated_at.</summary>
 public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettingsRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -196,7 +199,7 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики.</param>
-    public KeyValueSettingsRepository(IPostgresConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
+    public KeyValueSettingsRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
         : base(connectionFactory, options, logger, metrics)
     {
     }
@@ -207,9 +210,9 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
         RequireText(key, nameof(key));
         return ExecuteAsync("settings.get", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM app.kv_settings WHERE key = @key");
+            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM kv_settings WHERE key = @key");
             Param(command, "key", key);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
         }, cancellationToken);
     }
@@ -219,14 +222,14 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
         ExecuteAsync("settings.list", async (connection, transaction, token) =>
         {
             string orderBy = OrderBy(query, Sorts, "key");
-            await using var countCommand = Command(connection, transaction, "SELECT count(*) FROM app.kv_settings");
+            await using var countCommand = Command(connection, transaction, "SELECT count(*) FROM kv_settings");
             long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
             await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM app.kv_settings ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
+                $"SELECT {Columns} FROM kv_settings ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
             Param(command, "limit", query.Limit);
             Param(command, "offset", query.Offset);
             var items = new List<KeyValueSettingRecord>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return new PagedResult<KeyValueSettingRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
@@ -238,16 +241,18 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
         ValidateSetting(setting);
         return ExecuteAsync("settings.add", async (connection, transaction, token) =>
         {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
             await using var command = Command(connection, transaction, $"""
-                INSERT INTO app.kv_settings (key, value_json, description)
-                VALUES (@key, @value, @description)
+                INSERT INTO kv_settings (key, value_json, description, created_at, updated_at)
+                VALUES (@key, @value, @description, @now, @now)
                 ON CONFLICT (key) DO NOTHING
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", now);
             Param(command, "key", setting.Key);
             JsonParam(command, "value", setting.ValueJson);
             TextParam(command, "description", setting.Description);
-            await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+            await using (SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
             {
                 if (await reader.ReadAsync(token).ConfigureAwait(false))
                     return Map(reader);
@@ -265,15 +270,16 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
         return ExecuteAsync("settings.update", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction, $"""
-                UPDATE app.kv_settings SET value_json = @value, description = @description, updated_at = now()
+                UPDATE kv_settings SET value_json = @value, description = @description, updated_at = @now
                 WHERE key = @key AND updated_at = @expected_version
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", DateTimeOffset.UtcNow);
             Param(command, "key", setting.Key);
             JsonParam(command, "value", setting.ValueJson);
             TextParam(command, "description", setting.Description);
             TimeParam(command, "expected_version", expectedRowVersion);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             if (await reader.ReadAsync(token).ConfigureAwait(false))
                 return Map(reader);
             throw new OptimisticConcurrencyException("kv_settings", setting.Key);
@@ -286,16 +292,18 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
         ValidateSetting(setting);
         return ExecuteAsync("settings.set", async (connection, transaction, token) =>
         {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
             await using var command = Command(connection, transaction, $"""
-                INSERT INTO app.kv_settings (key, value_json, description)
-                VALUES (@key, @value, @description)
-                ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, description = EXCLUDED.description, updated_at = now()
+                INSERT INTO kv_settings (key, value_json, description, created_at, updated_at)
+                VALUES (@key, @value, @description, @now, @now)
+                ON CONFLICT (key) DO UPDATE SET value_json = EXCLUDED.value_json, description = EXCLUDED.description, updated_at = @now
                 RETURNING {Columns}
                 """);
+            TimeParam(command, "now", now);
             Param(command, "key", setting.Key);
             JsonParam(command, "value", setting.ValueJson);
             TextParam(command, "description", setting.Description);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             await reader.ReadAsync(token).ConfigureAwait(false);
             return Map(reader);
         }, cancellationToken);
@@ -307,13 +315,13 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
         RequireText(key, nameof(key));
         return ExecuteAsync("settings.delete", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM app.kv_settings WHERE key = @key");
+            await using var command = Command(connection, transaction, "DELETE FROM kv_settings WHERE key = @key");
             Param(command, "key", key);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
     }
 
-    internal static KeyValueSettingRecord Map(NpgsqlDataReader reader) => new()
+    internal static KeyValueSettingRecord Map(SqliteDataReader reader) => new()
     {
         Key = reader.GetString(0),
         ValueJson = reader.GetString(1),
@@ -330,7 +338,7 @@ public sealed class KeyValueSettingsRepository : RepositoryBase, IKeyValueSettin
     }
 }
 
-/// <summary>Репозиторий app.audit_log.</summary>
+/// <summary>Репозиторий audit_log.</summary>
 public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -348,7 +356,7 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
     /// <param name="options">Опции репозиториев.</param>
     /// <param name="logger">Логгер медленных запросов.</param>
     /// <param name="metrics">Общие счётчики.</param>
-    public AuditLogRepository(IPostgresConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
+    public AuditLogRepository(IDatabaseConnectionFactory connectionFactory, RepositoryOptions? options = null, ILogger? logger = null, UnitOfWorkMetrics? metrics = null)
         : base(connectionFactory, options, logger, metrics)
     {
     }
@@ -357,9 +365,9 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
     public Task<AuditLogRecord?> GetAsync(long id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("audit.get", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM app.audit_log WHERE id = @id");
+            await using var command = Command(connection, transaction, $"SELECT {Columns} FROM audit_log WHERE id = @id");
             Param(command, "id", id);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             return await reader.ReadAsync(token).ConfigureAwait(false) ? Map(reader) : null;
         }, cancellationToken);
 
@@ -372,17 +380,17 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
                 WHERE (@actor IS NULL OR actor = @actor) AND (@action IS NULL OR action = @action)
                   AND (@entity_type IS NULL OR entity_type = @entity_type) AND (@entity_id IS NULL OR entity_id = @entity_id)
                 """;
-            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM app.audit_log {where}");
+            await using var countCommand = Command(connection, transaction, $"SELECT count(*) FROM audit_log {where}");
             AddFilters(countCommand, actor, action, entityType, entityId);
             long total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
 
             await using var command = Command(connection, transaction,
-                $"SELECT {Columns} FROM app.audit_log {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
+                $"SELECT {Columns} FROM audit_log {where} ORDER BY {orderBy} LIMIT @limit OFFSET @offset");
             AddFilters(command, actor, action, entityType, entityId);
             Param(command, "limit", query.Limit);
             Param(command, "offset", query.Offset);
             var items = new List<AuditLogRecord>();
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             while (await reader.ReadAsync(token).ConfigureAwait(false))
                 items.Add(Map(reader));
             return new PagedResult<AuditLogRecord> { Items = items, TotalCount = total, Offset = query.Offset, Limit = query.Limit };
@@ -398,7 +406,7 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
         return ExecuteAsync("audit.add", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction, $"""
-                INSERT INTO app.audit_log (actor, action, entity_type, entity_id, details_json)
+                INSERT INTO audit_log (actor, action, entity_type, entity_id, details_json)
                 VALUES (@actor, @action, @entity_type, @entity_id, @details)
                 RETURNING {Columns}
                 """);
@@ -407,7 +415,7 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
             TextParam(command, "entity_type", record.EntityType);
             TextParam(command, "entity_id", record.EntityId);
             JsonParam(command, "details", details);
-            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+            await using SqliteDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
             await reader.ReadAsync(token).ConfigureAwait(false);
             return Map(reader);
         }, cancellationToken);
@@ -423,7 +431,7 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
         return ExecuteAsync("audit.update", async (connection, transaction, token) =>
         {
             await using var command = Command(connection, transaction, """
-                UPDATE app.audit_log SET actor = @actor, action = @action, entity_type = @entity_type,
+                UPDATE audit_log SET actor = @actor, action = @action, entity_type = @entity_type,
                     entity_id = @entity_id, details_json = @details WHERE id = @id
                 """);
             Param(command, "id", record.Id);
@@ -440,12 +448,12 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
     public Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("audit.delete", async (connection, transaction, token) =>
         {
-            await using var command = Command(connection, transaction, "DELETE FROM app.audit_log WHERE id = @id");
+            await using var command = Command(connection, transaction, "DELETE FROM audit_log WHERE id = @id");
             Param(command, "id", id);
             return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
         }, cancellationToken);
 
-    internal static AuditLogRecord Map(NpgsqlDataReader reader) => new()
+    internal static AuditLogRecord Map(SqliteDataReader reader) => new()
     {
         Id = reader.GetInt64(0),
         Actor = reader.GetString(1),
@@ -456,7 +464,7 @@ public sealed class AuditLogRepository : RepositoryBase, IAuditLogRepository
         CreatedAtUtc = ReadRequiredTime(reader, 6),
     };
 
-    private static void AddFilters(NpgsqlCommand command, string? actor, string? action, string? entityType, string? entityId)
+    private static void AddFilters(SqliteCommand command, string? actor, string? action, string? entityType, string? entityId)
     {
         TextParam(command, "actor", actor);
         TextParam(command, "action", action);

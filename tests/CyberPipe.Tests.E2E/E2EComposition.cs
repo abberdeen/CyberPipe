@@ -16,98 +16,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 /// <summary>
-/// Тестовая PostgreSQL+pgvector для E2E (TASK-091): переиспользует локальный
-/// контейнер `cyberpipe-test-db` (порт 5433), при отсутствии поднимает его через
-/// docker с теми же параметрами. Без docker и без БД тесты пропускаются.
+/// Тестовая SQLite для E2E: каждому хосту выделяется временный файл базы.
+/// Сервер и контейнеры не требуются.
 /// </summary>
 internal static class E2EDatabase
 {
-    public const string Host = "localhost";
-    public const int Port = 5433;
-    public const string Database = "cyberpipe_test";
-    public const string Username = "cyberpipe";
-    public const string Password = "cyberpipe-test-pw";
-    public const string ContainerName = "cyberpipe-test-db";
+    /// <summary>Выделяет путь временного файла базы для одного E2E-хоста.</summary>
+    public static string NewDatabasePath() =>
+        Path.Combine(Path.GetTempPath(), "cyberpipe-e2e-" + Guid.NewGuid().ToString("N") + ".db");
 
-    public static async Task EnsureReadyAsync()
-    {
-        if (await IsReachableAsync().ConfigureAwait(false))
-        {
-            return;
-        }
-
-        if (!IsDockerAvailable())
-        {
-            throw new InvalidOperationException(
-                "E2E needs local PostgreSQL+pgvector at localhost:5433 and docker is unavailable. " +
-                "Start it via docker or install pgvector/pgvector:pg16 locally.");
-        }
-
-        if (RunDocker("start " + ContainerName).ExitCode != 0)
-        {
-            RunDocker("run -d --name " + ContainerName +
-                " -e POSTGRES_USER=" + Username +
-                " -e POSTGRES_PASSWORD=" + Password +
-                " -e POSTGRES_DB=" + Database +
-                " -p 5433:5432 pgvector/pgvector:pg16");
-        }
-
-        var deadline = DateTimeOffset.UtcNow.AddMinutes(2);
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (await IsReachableAsync().ConfigureAwait(false))
-            {
-                return;
-            }
-
-            await Task.Delay(1000).ConfigureAwait(false);
-        }
-
-        throw new InvalidOperationException(
-            "E2E PostgreSQL container did not become reachable at localhost:5433 within 2 minutes.");
-    }
-
-    private static async Task<bool> IsReachableAsync()
-    {
-        try
-        {
-            using var client = new TcpClient();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await client.ConnectAsync(Host, Port, cts.Token).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-
-    private static bool IsDockerAvailable()
-    {
-        try
-        {
-            return RunDocker("--version").ExitCode == 0;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-
-    private static (int ExitCode, string Output) RunDocker(string arguments)
-    {
-        var start = new ProcessStartInfo("docker", arguments)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        using Process process = Process.Start(start)
-            ?? throw new InvalidOperationException("Failed to start docker.");
-        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit(60000);
-        return (process.ExitCode, output);
-    }
+    public static Task EnsureReadyAsync() => Task.CompletedTask;
 }
 
 /// <summary>
@@ -598,7 +516,7 @@ internal sealed class E2EAssistant : IMessageHandler<IncomingMessage>
 
 /// <summary>
 /// Хост E2E-сценария (TASK-091): полная композиция TASK-090 на тестовой
-/// PostgreSQL, фейки только на границах (эмбеддинг, LLM, исполнитель цепочек,
+/// SQLite, фейки только на границах (эмбеддинг, LLM, исполнитель цепочек,
 /// Telegram-адаптер без токена, файловое хранилище секретов).
 /// </summary>
 internal sealed class E2EHost : IAsyncDisposable
@@ -677,16 +595,11 @@ internal sealed class E2EHost : IAsyncDisposable
         decimal dailyCapUsd = 100m,
         ModelHostingType skillHosting = ModelHostingType.Local)
     {
-        await E2EDatabase.EnsureReadyAsync().ConfigureAwait(false);
-
         var options = new CyberPipeOptions
         {
             Database = new DatabaseOptions
             {
-                Host = E2EDatabase.Host,
-                Port = E2EDatabase.Port,
-                Database = E2EDatabase.Database,
-                Username = E2EDatabase.Username,
+                Path = E2EDatabase.NewDatabasePath(),
             },
             Owner = new OwnerOptions { TelegramOwnerIds = [ownerId] },
             Budget = new BudgetOptions { DailyCapUsd = dailyCapUsd },
@@ -695,8 +608,6 @@ internal sealed class E2EHost : IAsyncDisposable
         string secretPath = Path.Combine(
             Path.GetTempPath(), "cyberpipe-e2e-secrets-" + Guid.NewGuid().ToString("N") + ".json");
         var secrets = new FileSecretStore(secretPath);
-        await secrets.SetAsync(SecretKeys.DatabasePassword, SecretValue.FromPlainText(E2EDatabase.Password))
-            .ConfigureAwait(false);
 
         var host = new E2EHostBuilder(options, secrets, chatId, long.Parse(ownerId), skillHosting);
         return await host.BuildAsync().ConfigureAwait(false);
@@ -815,38 +726,18 @@ internal sealed class E2EHost : IAsyncDisposable
 }
 
 /// <summary>
-/// Атрибут факта E2E (TASK-091): пропуск на discovery, если нет ни тестовой
-/// PostgreSQL+pgvector на localhost:5433, ни docker для её поднятия.
+/// Атрибут факта E2E (TASK-091): пропуск на discovery, если нет интерпретатора
+/// python для реального netrunner-раннера. База — временный файл SQLite.
 /// </summary>
 internal sealed class E2EFactAttribute : FactAttribute
 {
     public E2EFactAttribute()
     {
-        if (!IsTcpReachable() && !IsDockerPresent())
-        {
-            Skip = "E2E needs local PostgreSQL+pgvector at localhost:5433 or docker to provision it.";
-        }
-        else if (!IsPythonPresent())
+        if (!IsPythonPresent())
         {
             Skip = "E2E needs a 'python' interpreter for the real netrunner runner.";
         }
     }
-
-    private static bool IsTcpReachable()
-    {
-        try
-        {
-            using var client = new TcpClient();
-            var task = client.ConnectAsync(E2EDatabase.Host, E2EDatabase.Port);
-            return task.Wait(TimeSpan.FromSeconds(3)) && client.Connected;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
-
-    private static bool IsDockerPresent() => RunCommand("docker", "--version");
 
     private static bool IsPythonPresent() => RunCommand("python", "--version");
 

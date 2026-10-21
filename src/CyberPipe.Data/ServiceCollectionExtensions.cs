@@ -5,34 +5,34 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace CyberPipe.Data;
 
 /// <summary>
-/// Модуль регистрации доступа к данным (TASK-090): единственная PostgreSQL + pgvector.
+/// Модуль регистрации доступа к данным: единственная SQLite (WAL).
 /// Только регистрация — подключений при регистрации нет (фабрики ленивые);
 /// миграции и bootstrap выполняются шагом запуска, а не здесь.
 /// </summary>
 public static class DataServiceCollectionExtensions
 {
-    /// <summary>Регистрирует фабрику соединений, пробу, миграции и репозитории PostgreSQL.</summary>
+    /// <summary>Регистрирует фабрику соединений, пробу, миграции и репозитории SQLite.</summary>
     public static IServiceCollection AddCyberPipeData(this IServiceCollection services, CyberPipeOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
 
-        var postgres = PostgresOptions.From(options.Database);
-        services.AddSingleton(postgres);
-        services.TryAddSingleton<IPostgresConnectionFactory>(sp =>
-            new PostgresConnectionFactory(postgres, sp.GetRequiredService<ISecretStore>()));
+        var sqlite = SqliteOptions.From(options.Database);
+        services.AddSingleton(sqlite);
+        services.TryAddSingleton<IDatabaseConnectionFactory>(sp =>
+            new SqliteConnectionFactory(sp.GetRequiredService<SqliteOptions>()));
         services.TryAddSingleton<IDatabaseHealthProbe>(sp =>
-            new PostgresHealthProbe(postgres, sp.GetRequiredService<ISecretStore>()));
+            new SqliteHealthProbe(sp.GetRequiredService<SqliteOptions>()));
         services.TryAddSingleton<ISchemaMigrator>(sp =>
-            new SchemaMigrator(sp.GetRequiredService<IPostgresConnectionFactory>()));
-        services.TryAddSingleton<IPostgresBootstrapper>(sp =>
-            new PostgresBootstrapper(postgres, sp.GetRequiredService<ISecretStore>()));
+            new SchemaMigrator(sp.GetRequiredService<IDatabaseConnectionFactory>()));
+        services.TryAddSingleton<IDatabaseBootstrapper>(sp =>
+            new SqliteBootstrapper(sp.GetRequiredService<SqliteOptions>()));
         services.TryAddSingleton<IUnitOfWorkFactory>(sp =>
             new UnitOfWorkFactory(
-                sp.GetRequiredService<IPostgresConnectionFactory>(),
+                sp.GetRequiredService<IDatabaseConnectionFactory>(),
                 sp.GetService<IEmbeddingStore>()));
 
-        // PostgreSQL-репозитории — авторитетные; вызываются после in-memory TryAdd
+        // SQLite-репозитории — авторитетные; вызываются после in-memory TryAdd
         // модуля цепочек, поэтому здесь Add (побеждает последняя регистрация).
         services.AddSingleton<ChainRepository>();
         services.AddSingleton<IChainRepository>(sp => sp.GetRequiredService<ChainRepository>());
@@ -43,18 +43,18 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<ITokenBudgetRepository, TokenBudgetRepository>();
         services.AddSingleton<IKeyValueSettingsRepository, KeyValueSettingsRepository>();
         services.AddSingleton<IAuditLogRepository, AuditLogRepository>();
-        services.AddSingleton<IHitlApprovalRepository, PostgresHitlApprovalRepository>();
-        // Бюджет губернатора — в PostgreSQL (Data регистрируется раньше Router, его TryAdd InMemory не сработает).
-        services.AddSingleton<IBudgetStore, PostgresBudgetStore>();
-        // FIX-03: запуски цепочек, реестр пакетов и личные данные — в PostgreSQL,
+        services.AddSingleton<IHitlApprovalRepository, SqliteHitlApprovalRepository>();
+        // Бюджет губернатора — в SQLite (Data регистрируется раньше Router, его TryAdd InMemory не сработает).
+        services.AddSingleton<IBudgetStore, SqliteBudgetStore>();
+        // FIX-03: запуски цепочек, реестр пакетов и личные данные — в SQLite,
         // in-memory реализации Chains/Skills остаются fallback-ом standalone-композиций.
-        services.AddSingleton<IChainExecutionRepository, PostgresChainExecutionRepository>();
-        services.AddSingleton<IPackageRegistryRepository, PostgresPackageRegistryRepository>();
-        services.AddSingleton<INoteRepository, PostgresNoteRepository>();
-        services.AddSingleton<IFinanceRepository, PostgresFinanceRepository>();
-        services.AddSingleton<IReminderRepository, PostgresReminderRepository>();
-        services.AddSingleton<IContactRepository, PostgresContactRepository>();
-        services.TryAddSingleton<IEmbeddingStore, PgVectorEmbeddingStore>();
+        services.AddSingleton<IChainExecutionRepository, SqliteChainExecutionRepository>();
+        services.AddSingleton<IPackageRegistryRepository, SqlitePackageRegistryRepository>();
+        services.AddSingleton<INoteRepository, SqliteNoteRepository>();
+        services.AddSingleton<IFinanceRepository, SqliteFinanceRepository>();
+        services.AddSingleton<IReminderRepository, SqliteReminderRepository>();
+        services.AddSingleton<IContactRepository, SqliteContactRepository>();
+        services.TryAddSingleton<IEmbeddingStore, SqliteEmbeddingStore>();
         services.TryAddSingleton<IDatabaseBootstrapService, SetupDatabaseBootstrapAdapter>();
 
         return services;

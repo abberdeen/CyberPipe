@@ -9,7 +9,7 @@ using Xunit;
 /// Сквозной Telegram-сценарий на реальной композиции TASK-090 (TASK-091):
 /// приём → Owner → Tier0–Tier3 → бюджет → HITL → навык → ответ в тот же чат.
 /// Внешние границы — фейки (эмбеддинг, LLM, исполнитель цепочек, Telegram-адаптер);
-/// роутеры, губернатор, HITL, канал и PostgreSQL — настоящие.
+/// роутеры, губернатор, HITL, канал и SQLite — настоящие.
 /// </summary>
 public sealed class TelegramScenarioTests
 {
