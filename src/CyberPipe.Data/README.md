@@ -1,10 +1,11 @@
-# CyberPipe.Data — bootstrap SQLite WAL (TASK-010)
+# CyberPipe.Data — SQLite WAL + EF Core (TASK-010–TASK-013)
 
 Единственная база CyberPipe — встроенный файл SQLite в режиме WAL (`data/cyberpipe.db`
-по умолчанию). Сервера, пользователей и паролей нет. Этот проект отвечает только за
-первый запуск: создание каталога и файла, включение WAL/внешних ключей/busy timeout,
-проверку доступности (`SELECT 1`) и health-check для Service. Схема и миграции — TASK-011,
-векторный поиск — TASK-012, репозитории — TASK-013.
+по умолчанию). Сервера, пользователей и паролей нет. Проект отвечает за первый запуск
+(bootstrap: каталог, файл, WAL/внешние ключи/busy timeout, проба `SELECT 1`, health-check),
+схему и миграции, векторный поиск и типизированные репозитории — всё поверх EF Core,
+code-first. Репозитории выполняют только LINQ; сырой SQL остался лишь в bootstrap-слое
+(`SchemaMigrator`, фабрика соединений, пробы, `EfBaseline`), в репозиториях его нет.
 
 ## Как это работает
 
@@ -17,9 +18,11 @@
 - Файл недоступен (каталог не создаётся, readonly, повреждение) → `Unavailable` с кодом
   причины (`ServerUnavailable`, `InsufficientPrivilege`, `DatabaseCorrupt`, `Timeout`).
 - Повторный запуск идемпотентен: файл не пересоздаёт, данные не сбрасывает.
-- Соединения для TASK-011–TASK-013 — только через `IDatabaseConnectionFactory`
-  (`SqliteConnectionFactory`): каждое открытое соединение включает `journal_mode=WAL`,
-  `foreign_keys=ON`, `synchronous=NORMAL`, `busy_timeout`.
+- Доступ к данным — через `IDbContextFactory<CyberPipeDbContext>` (пул EF):
+  каждое открытое соединение включает `journal_mode=WAL`, `foreign_keys=ON`,
+  `synchronous=NORMAL`, `busy_timeout` (`SqliteWalInterceptor`).
+  `IDatabaseConnectionFactory` (`SqliteConnectionFactory`) сохранена для bootstrap,
+  проб, Quartz и SQL-мигратора.
 - `SqliteHealthProbe` реализует `IDatabaseHealthProbe` (TASK-004): `Healthy`, иначе
   `Degraded` с кодом причины без секретов. Годится для TASK-020 и TASK-063.
 
@@ -65,6 +68,32 @@ dotnet test tests/CyberPipe.Data.Tests --filter "Category=Integration"
 - Миграции только аддитивные для выпущенных версий; переименование/удаление — expand-contract
   новой миграцией.
 
+## EF Core: code-first и миграции
+
+- Code-first модель — `Persistence/CyberPipeDbContext` + сущности `Persistence/Entities.cs`:
+  имена таблиц/колонок/индексов/FK повторяют SQL-схему 0001–0007 один в один, поэтому
+  существующие `.db`-файлы продолжают работать без конвертации.
+- Миграции EF — `Persistence/Migrations` (`InitialCreate` ≡ каталог 0001–0007).
+  Команды (`dotnet-ef` 10.0.13, `Microsoft.EntityFrameworkCore.Design` только для
+  design-time, `PrivateAssets="All"`):
+  `dotnet ef migrations add <Name> --project src/CyberPipe.Data --startup-project src/CyberPipe.Service`,
+  `dotnet ef migrations list ...`, `dotnet ef database update ...`.
+- Контекст регистрируется пулом: `AddPooledDbContextFactory<CyberPipeDbContext>`
+  (connection string из `SqliteOptions` + `SqliteWalInterceptor`: `journal_mode=WAL`,
+  `foreign_keys=ON`, `synchronous=NORMAL`, `busy_timeout` на каждое открытие).
+  `IDatabaseConnectionFactory` сохранена для bootstrap/health/Quartz и SQL-мигратора.
+- Метки времени хранятся UTC-текстом legacy-формата `yyyy-MM-dd HH:mm:ss.fff`
+  (глобальные `UtcTimestampConverter`/`NullableUtcTimestampConverter`): SQLite не умеет
+  `ORDER BY` по `DateTimeOffset`, а строковый формат сохраняет хронологический порядок
+  и совместимость со старыми файлами.
+- Baseline старых баз — `Persistence/EfBaseline`: если схема создана SQL-каталогом
+  (`schema_migrations` ≥ 7) и истории EF нет, в `__EFMigrationsHistory` записывается
+  `InitialCreate` без пересоздания таблиц; свежие базы целиком создаёт `MigrateAsync`.
+  Вызывается из `SqliteHitlApprovalRepository.EnsureTableCreatedAsync`.
+- SQL-каталог `Migrations/0001–0007` остаётся владельцем начальной схемы (включая
+  таблицы Quartz `qrtz_*`, которых нет в EF-модели) и истории `schema_migrations`;
+  EF-миграции отвечают за дальнейшую эволюцию схемы EF-модели.
+
 ## Репозитории и доступ к данным (TASK-013)
 
 - Типизированные репозитории по агрегатам TASK-011: `IChainRepository` (таблица `chains`,
@@ -82,8 +111,9 @@ dotnet test tests/CyberPipe.Data.Tests --filter "Category=Integration"
   запись (AlreadyExists), запуск — по уникальному `(chain_id, idempotency_key)`, чекпоинт —
   upsert по `(run_id, step)`.
 - Транзакции: `IUnitOfWorkFactory.CreateAsync` → `IUnitOfWork.BeginAsync/CommitAsync/
-  RollbackAsync`; репозитории `IUnitOfWork.*` привязаны к одному соединению/транзакции,
-  вне unit-of-work каждый репозиторий работает на собственном соединении фабрики TASK-010.
+  RollbackAsync`; репозитории `IUnitOfWork.*` делят один контекст и одну транзакцию
+  (амбиентная сессия `UnitOfWorkSession` + `AsyncLocal`), вне unit-of-work каждый
+  репозиторий работает на собственном контексте из пула фабрики.
   Выход из `await using` без коммита, исключение и отмена токена при коммите откатывают
   все записи целиком. Счётчики коммитов/откатов и медленных запросов — `UnitOfWorkMetrics`
   (`IUnitOfWorkMetrics`) для диагностики Service.
@@ -112,7 +142,7 @@ dotnet test tests/CyberPipe.Data.Tests --filter "Category=Integration"
   `SearchAsync`, `DeleteAsync`, `DeleteByOwnerScopeAsync` (все записи namespace), `CountAsync`.
   Пространства имён: `router`, `semantic-cache`, `knowledge`, `safety` (`EmbeddingNamespaces`);
   допустимо любое непустое имя — изоляция обеспечивается фильтром по namespace.
-- Вектор хранится текстом (JSON-массив float). Поиск: кандидаты фильтруются SQL
+- Вектор хранится текстом (JSON-массив float). Поиск: кандидаты фильтруются LINQ
   (namespace/dimension/model), косинусное сходство считается в C# полным перебором
   (`CosineScore.Similarity`), сортировка по убыванию Score, фильтр `MinScore`
   (пустой результат вместо «хоть какого-нибудь»), `TopK`, необязательный `ModelId`.

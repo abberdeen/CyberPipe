@@ -32,6 +32,13 @@ public sealed class CyberPipeDbContext : DbContext
     internal DbSet<InteractionEntity> Interactions => Set<InteractionEntity>();
 
     /// <inheritdoc />
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<DateTimeOffset>().HaveConversion<UtcTimestampConverter>();
+        configurationBuilder.Properties<DateTimeOffset?>().HaveConversion<NullableUtcTimestampConverter>();
+    }
+
+    /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<EmbeddingEntity>(b =>

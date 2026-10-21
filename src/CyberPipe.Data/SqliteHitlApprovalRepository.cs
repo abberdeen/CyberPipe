@@ -33,6 +33,7 @@ public sealed class SqliteHitlApprovalRepository : RepositoryBase, IHitlApproval
     public Task EnsureTableCreatedAsync(CancellationToken cancellationToken = default) =>
         ExecuteAsync("hitl_approvals.ensure_table", async (db, token) =>
         {
+            await EfBaseline.EnsureBaselineAsync(db, token).ConfigureAwait(false);
             await db.Database.MigrateAsync(token).ConfigureAwait(false);
         }, cancellationToken);
 

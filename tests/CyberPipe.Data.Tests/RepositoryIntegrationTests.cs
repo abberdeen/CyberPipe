@@ -324,4 +324,21 @@ public sealed class RepositoryIntegrationTests
         Assert.NotNull(resolved);
         Assert.Equal(HitlStatus.Resolved, resolved.Status);
     }
+
+    [SqliteIntegrationFact]
+    public async Task EnsureTableCreated_OnFreshDatabase_BuildsEfSchema()
+    {
+        // Свежая база без SQL-каталога: схему целиком создаёт EF-миграция InitialCreate.
+        await using SqliteTestDatabase db = await SqliteTestDatabase.CreateBootstrappedAsync();
+        var hitlRepo = new SqliteHitlApprovalRepository(db.DbFactory);
+        await hitlRepo.EnsureTableCreatedAsync();
+
+        RepositorySet repos = RepositorySet.Create(db.DbFactory);
+        ChainDefinitionDto saved = await repos.Chains.AddAsync(Chain("fresh-db"));
+        Assert.NotNull(await repos.Chains.GetAsync(saved.Id));
+
+        var note = new SqliteNoteRepository(db.DbFactory);
+        NoteRecord created = await note.CreateAsync("Fresh", "ef-only schema");
+        Assert.NotNull(await note.GetAsync(created.NoteId));
+    }
 }

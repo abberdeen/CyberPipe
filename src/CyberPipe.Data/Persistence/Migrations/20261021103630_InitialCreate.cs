@@ -22,7 +22,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                     entity_type = table.Column<string>(type: "TEXT", nullable: true),
                     entity_id = table.Column<string>(type: "TEXT", nullable: true),
                     details_json = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "{}"),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -42,8 +42,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     attach_files_json = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "[]"),
                     status = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "Pending"),
                     resolution_json = table.Column<string>(type: "TEXT", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    expires_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    created_at = table.Column<string>(type: "TEXT", nullable: false),
+                    expires_at = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -60,8 +60,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     is_enabled = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: true),
                     requires_hitl = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: false),
                     version = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 1),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -80,8 +80,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     embedding = table.Column<string>(type: "TEXT", nullable: false),
                     text_hash = table.Column<string>(type: "TEXT", nullable: false),
                     metadata = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "{}"),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -95,8 +95,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     key = table.Column<string>(type: "TEXT", nullable: false),
                     value_json = table.Column<string>(type: "TEXT", nullable: false),
                     description = table.Column<string>(type: "TEXT", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -112,7 +112,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                     manifest_hash = table.Column<string>(type: "TEXT", nullable: false),
                     package_dir = table.Column<string>(type: "TEXT", nullable: false),
                     manifest_json = table.Column<string>(type: "TEXT", nullable: false),
-                    registered_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    registered_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -128,8 +128,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     channels = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "'{}'"),
                     notes = table.Column<string>(type: "TEXT", nullable: true),
                     is_deleted = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: false),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -146,8 +146,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     currency = table.Column<string>(type: "TEXT", nullable: false),
                     category = table.Column<string>(type: "TEXT", nullable: false),
                     description = table.Column<string>(type: "TEXT", nullable: true),
-                    occurred_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    occurred_at = table.Column<string>(type: "TEXT", nullable: false),
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -163,8 +163,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     content = table.Column<string>(type: "TEXT", nullable: false),
                     tags = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "'[]'"),
                     is_deleted = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: false),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -177,11 +177,11 @@ namespace CyberPipe.Data.Persistence.Migrations
                 {
                     id = table.Column<string>(type: "TEXT", nullable: false),
                     title = table.Column<string>(type: "TEXT", nullable: false),
-                    due_time = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    due_time = table.Column<string>(type: "TEXT", nullable: true),
                     cron_expression = table.Column<string>(type: "TEXT", nullable: true),
                     status = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    completed_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: true)
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    completed_at = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -198,9 +198,9 @@ namespace CyberPipe.Data.Persistence.Migrations
                     embedding = table.Column<string>(type: "TEXT", nullable: true),
                     response_text = table.Column<string>(type: "TEXT", nullable: false),
                     metadata = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "{}"),
-                    expires_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    expires_at = table.Column<string>(type: "TEXT", nullable: true),
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -220,8 +220,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                     input_tokens = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
                     output_tokens = table.Column<int>(type: "INTEGER", nullable: false, defaultValue: 0),
                     cost_usd = table.Column<decimal>(type: "TEXT", nullable: false, defaultValue: 0m),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -239,11 +239,11 @@ namespace CyberPipe.Data.Persistence.Migrations
                     status = table.Column<string>(type: "TEXT", nullable: false),
                     source = table.Column<string>(type: "TEXT", nullable: false),
                     payload_json = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "{}"),
-                    started_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    finished_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    started_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    finished_at = table.Column<string>(type: "TEXT", nullable: true),
                     error_json = table.Column<string>(type: "TEXT", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -264,7 +264,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                     contact_id = table.Column<string>(type: "TEXT", nullable: false),
                     channel = table.Column<string>(type: "TEXT", nullable: false),
                     note = table.Column<string>(type: "TEXT", nullable: false),
-                    occurred_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    occurred_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -288,10 +288,10 @@ namespace CyberPipe.Data.Persistence.Migrations
                     status = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "pending"),
                     payload_json = table.Column<string>(type: "TEXT", nullable: false, defaultValue: "{}"),
                     decision = table.Column<string>(type: "TEXT", nullable: true),
-                    decided_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-                    expires_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    decided_at = table.Column<string>(type: "TEXT", nullable: true),
+                    expires_at = table.Column<string>(type: "TEXT", nullable: true),
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {
@@ -323,9 +323,9 @@ namespace CyberPipe.Data.Persistence.Migrations
                     input_json = table.Column<string>(type: "TEXT", nullable: true),
                     output_json = table.Column<string>(type: "TEXT", nullable: true),
                     error_json = table.Column<string>(type: "TEXT", nullable: true),
-                    checkpoint_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    created_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
-                    updated_at = table.Column<DateTimeOffset>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
+                    checkpoint_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    created_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP"),
+                    updated_at = table.Column<string>(type: "TEXT", nullable: false, defaultValueSql: "CURRENT_TIMESTAMP")
                 },
                 constraints: table =>
                 {

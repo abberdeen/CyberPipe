@@ -242,7 +242,11 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
     public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default)
     {
         EmbeddingValidation.ValidateRecord(record, _options);
-        return ExecuteAsync("embeddings.upsert", (db, token) => UpsertCoreAsync(db, record, token), cancellationToken);
+        return ExecuteAsync("embeddings.upsert", async (db, token) =>
+        {
+            await UpsertCoreAsync(db, record, token).ConfigureAwait(false);
+            await SaveAsync(db, token).ConfigureAwait(false);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />

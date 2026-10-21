@@ -27,13 +27,14 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("chain_id");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-                    b.Property<DateTimeOffset?>("DecidedAt")
+                    b.Property<string>("DecidedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("decided_at");
 
@@ -41,7 +42,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("decision");
 
-                    b.Property<DateTimeOffset?>("ExpiresAt")
+                    b.Property<string>("ExpiresAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("expires_at");
 
@@ -68,8 +69,9 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("step");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsConcurrencyToken()
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -110,7 +112,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("actor");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -155,7 +158,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -183,7 +187,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("requires_hitl");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -218,7 +223,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("chain_id");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -228,7 +234,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("error_json");
 
-                    b.Property<DateTimeOffset?>("FinishedAt")
+                    b.Property<string>("FinishedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("finished_at");
 
@@ -249,7 +255,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("source");
 
-                    b.Property<DateTimeOffset>("StartedAt")
+                    b.Property<string>("StartedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("started_at")
@@ -264,7 +271,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("trigger_event_id");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -309,13 +317,15 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("chain_id");
 
-                    b.Property<DateTimeOffset>("CheckpointAt")
+                    b.Property<string>("CheckpointAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("checkpoint_at")
                         .HasDefaultValueSql("CURRENT_TIMESTAMP");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -348,7 +358,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("step");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -383,7 +394,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnName("channels")
                         .HasDefaultValueSql("'{}'");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -404,7 +416,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("notes");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -425,7 +438,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -467,7 +481,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("text_hash");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -510,7 +525,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("category");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -529,7 +545,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("INTEGER")
                         .HasColumnName("kind");
 
-                    b.Property<DateTimeOffset>("OccurredAt")
+                    b.Property<string>("OccurredAt")
+                        .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("occurred_at");
 
@@ -561,11 +578,13 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("chain_id");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at");
 
-                    b.Property<DateTimeOffset>("ExpiresAt")
+                    b.Property<string>("ExpiresAt")
+                        .IsRequired()
                         .HasColumnType("TEXT")
                         .HasColumnName("expires_at");
 
@@ -633,7 +652,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("note");
 
-                    b.Property<DateTimeOffset>("OccurredAt")
+                    b.Property<string>("OccurredAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("occurred_at")
@@ -660,7 +680,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("content");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -684,7 +705,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("title");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -725,7 +747,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("package_dir");
 
-                    b.Property<DateTimeOffset>("RegisteredAt")
+                    b.Property<string>("RegisteredAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("registered_at")
@@ -743,11 +766,12 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<DateTimeOffset?>("CompletedAt")
+                    b.Property<string>("CompletedAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("completed_at");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -757,7 +781,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("cron_expression");
 
-                    b.Property<DateTimeOffset?>("DueTime")
+                    b.Property<string>("DueTime")
                         .HasColumnType("TEXT")
                         .HasColumnName("due_time");
 
@@ -792,7 +816,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("cache_key");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -802,7 +827,7 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("embedding");
 
-                    b.Property<DateTimeOffset?>("ExpiresAt")
+                    b.Property<string>("ExpiresAt")
                         .HasColumnType("TEXT")
                         .HasColumnName("expires_at");
 
@@ -823,7 +848,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("response_text");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -851,7 +877,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("key");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -861,8 +888,9 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("description");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsConcurrencyToken()
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
@@ -895,7 +923,8 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasDefaultValue(0m)
                         .HasColumnName("cost_usd");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("created_at")
@@ -932,8 +961,9 @@ namespace CyberPipe.Data.Persistence.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("request_id");
 
-                    b.Property<DateTimeOffset>("UpdatedAt")
+                    b.Property<string>("UpdatedAt")
                         .IsConcurrencyToken()
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT")
                         .HasColumnName("updated_at")
