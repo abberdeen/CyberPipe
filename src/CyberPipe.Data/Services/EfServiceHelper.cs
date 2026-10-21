@@ -28,7 +28,7 @@ internal static class EfServiceHelper
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions options,
         ILogger logger,
-        UnitOfWorkMetrics metrics,
+        DataServiceMetrics metrics,
         string operation,
         Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
         CancellationToken cancellationToken)
@@ -52,7 +52,7 @@ internal static class EfServiceHelper
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions options,
         ILogger logger,
-        UnitOfWorkMetrics metrics,
+        DataServiceMetrics metrics,
         string operation,
         Func<CyberPipeDbContext, CancellationToken, Task> body,
         CancellationToken cancellationToken) =>
@@ -75,7 +75,7 @@ internal static class EfServiceHelper
     /// <returns>Результат операции.</returns>
     internal static async Task<T> TimedAsync<T>(
         ILogger logger,
-        UnitOfWorkMetrics metrics,
+        DataServiceMetrics metrics,
         RepositoryOptions options,
         string operation,
         Func<Task<T>> body)

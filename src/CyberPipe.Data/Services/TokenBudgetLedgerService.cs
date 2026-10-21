@@ -23,7 +23,7 @@ public sealed class TokenBudgetLedgerService : ITokenBudgetLedgerService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
 
     /// <summary>Создаёт книгу бюджета поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
@@ -34,7 +34,7 @@ public sealed class TokenBudgetLedgerService : ITokenBudgetLedgerService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<TokenBudgetLedgerService>? logger = null,
-        UnitOfWorkMetrics? metrics = null)
+        DataServiceMetrics? metrics = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _options = options ?? new RepositoryOptions();
@@ -42,7 +42,7 @@ public sealed class TokenBudgetLedgerService : ITokenBudgetLedgerService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
     }
 
     /// <summary>Возвращает запись книги; отсутствие — null.</summary>

@@ -200,7 +200,7 @@ public sealed class EmbeddingStoreService : IEmbeddingStoreService
     private readonly EmbeddingStoreOptions _storeOptions;
     private readonly ILogger _logger;
     private readonly ILogger _storeLogger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
 
     /// <summary>Создаёт хранилище поверх фабрики контекстов SQLite.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
@@ -213,7 +213,7 @@ public sealed class EmbeddingStoreService : IEmbeddingStoreService
         RepositoryOptions? options = null,
         EmbeddingStoreOptions? storeOptions = null,
         ILogger<EmbeddingStoreService>? logger = null,
-        UnitOfWorkMetrics? metrics = null)
+        DataServiceMetrics? metrics = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _options = options ?? new RepositoryOptions();
@@ -223,7 +223,7 @@ public sealed class EmbeddingStoreService : IEmbeddingStoreService
         _storeOptions = storeOptions ?? new EmbeddingStoreOptions();
         _logger = (ILogger?)logger ?? NullLogger.Instance;
         _storeLogger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
         IReadOnlyList<string> storeErrors = _storeOptions.Validate();
         if (storeErrors.Count > 0)
             throw new ArgumentException(string.Join(" ", storeErrors), nameof(storeOptions));

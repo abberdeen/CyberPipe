@@ -8,7 +8,7 @@ using Xunit;
 namespace CyberPipe.Data.Tests;
 
 [Trait("Category", "Integration")]
-public sealed class RepositoryIntegrationTests
+public sealed class DataServiceIntegrationTests
 {
     internal sealed class CapturingLogger<T> : ILogger<T>
     {
@@ -297,7 +297,7 @@ public sealed class RepositoryIntegrationTests
         await using Fixture fx = await CreateAsync();
         var chainsLogger = new CapturingLogger<ChainCatalogService>();
         var settingsLogger = new CapturingLogger<KvSettingsService>();
-        var metrics = new UnitOfWorkMetrics();
+        var metrics = new DataServiceMetrics();
         var options = new RepositoryOptions { SlowQueryThreshold = TimeSpan.Zero };
         var chains = new ChainCatalogService(fx.DbFactory, options, chainsLogger, metrics);
         var settings = new KvSettingsService(fx.DbFactory, options, settingsLogger, metrics);

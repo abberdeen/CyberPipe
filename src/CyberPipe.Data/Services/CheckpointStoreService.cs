@@ -24,7 +24,7 @@ public sealed class CheckpointStoreService : ICheckpointStoreService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
 
     /// <summary>Создаёт хранилище контрольных точек поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
@@ -35,7 +35,7 @@ public sealed class CheckpointStoreService : ICheckpointStoreService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<CheckpointStoreService>? logger = null,
-        UnitOfWorkMetrics? metrics = null)
+        DataServiceMetrics? metrics = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _options = options ?? new RepositoryOptions();
@@ -43,7 +43,7 @@ public sealed class CheckpointStoreService : ICheckpointStoreService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
     }
 
     /// <summary>Возвращает чекпоинт по идентификатору строки; отсутствие — null.</summary>

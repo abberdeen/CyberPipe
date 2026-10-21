@@ -6,7 +6,7 @@ using Xunit;
 
 namespace CyberPipe.Data.Tests;
 
-public sealed class RepositoryUnitTests
+public sealed class DataServiceUnitTests
 {
     private sealed class NeverCalledFactory : IDbContextFactory<CyberPipeDbContext>
     {
@@ -147,7 +147,7 @@ public sealed class RepositoryUnitTests
             typeof(IAuditLogService), typeof(IChainExecutionStoreService), typeof(IHitlApprovalStoreService),
             typeof(INetrunnerPackageStoreService), typeof(INoteStoreService), typeof(IFinanceLedgerService),
             typeof(IReminderStoreService), typeof(IContactStoreService), typeof(IEmbeddingStoreService),
-            typeof(UnitOfWorkMetrics), typeof(IUnitOfWorkMetrics),
+            typeof(DataServiceMetrics), typeof(IDataServiceMetrics),
             typeof(ChainRunRecord), typeof(CheckpointRecord), typeof(ApprovalRecord),
             typeof(TokenBudgetEntryRecord), typeof(KeyValueSettingRecord), typeof(AuditLogRecord),
             typeof(PagedQuery), typeof(PagedResult<>),

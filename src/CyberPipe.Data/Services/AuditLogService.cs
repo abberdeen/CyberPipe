@@ -22,7 +22,7 @@ public sealed class AuditLogService : IAuditLogService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
 
     /// <summary>Создаёт журнал аудита поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
@@ -33,7 +33,7 @@ public sealed class AuditLogService : IAuditLogService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<AuditLogService>? logger = null,
-        UnitOfWorkMetrics? metrics = null)
+        DataServiceMetrics? metrics = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
         _options = options ?? new RepositoryOptions();
@@ -41,7 +41,7 @@ public sealed class AuditLogService : IAuditLogService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
     }
 
     /// <summary>Возвращает запись аудита; отсутствие — null.</summary>

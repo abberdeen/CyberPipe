@@ -26,21 +26,26 @@ public sealed record RepositoryOptions
     }
 }
 
-/// <summary>Счётчики транзакций и медленных запросов для диагностики Service (TASK-013).</summary>
-public interface IUnitOfWorkMetrics
+/// <summary>
+/// Счётчики операций сервисов данных. Один экземпляр регистрируется в DI и
+/// разделяется сервисами; конструктор сервиса без метрик создаёт свой.
+/// Коммит и откат считает явная транзакция метода (пакетная запись эмбеддингов).
+/// Медленный метод считает <c>EfServiceHelper</c>, когда операция дольше порога.
+/// </summary>
+public interface IDataServiceMetrics
 {
-    /// <summary>Число зафиксированных транзакций unit-of-work.</summary>
+    /// <summary>Число зафиксированных явных транзакций методов сервиса.</summary>
     long CommittedTransactions { get; }
 
-    /// <summary>Число откаченных транзакций unit-of-work (явно, при исключении или отмене).</summary>
+    /// <summary>Число откаченных явных транзакций методов сервиса (исключение или отмена).</summary>
     long RolledBackTransactions { get; }
 
-    /// <summary>Число запросов, превысивших порог медленных.</summary>
+    /// <summary>Число методов сервиса, превысивших порог медленной операции.</summary>
     long SlowQueryCount { get; }
 }
 
-/// <summary>Потокобезопасные счётчики <see cref="IUnitOfWorkMetrics" />.</summary>
-public sealed class UnitOfWorkMetrics : IUnitOfWorkMetrics
+/// <summary>Потокобезопасные счётчики <see cref="IDataServiceMetrics" />.</summary>
+public sealed class DataServiceMetrics : IDataServiceMetrics
 {
     private long _committed;
     private long _rolledBack;

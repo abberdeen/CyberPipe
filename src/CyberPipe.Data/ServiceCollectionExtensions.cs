@@ -45,9 +45,9 @@ public static class DataServiceCollectionExtensions
         services.TryAddSingleton<IDatabaseBootstrapper>(sp =>
             new SqliteBootstrapper(sp.GetRequiredService<SqliteOptions>()));
 
-        // Диагностика: счётчики транзакций методов и медленных запросов.
-        services.AddSingleton<UnitOfWorkMetrics>();
-        services.AddSingleton<IUnitOfWorkMetrics>(sp => sp.GetRequiredService<UnitOfWorkMetrics>());
+        // Диагностика сервисов: явные транзакции методов и медленные операции.
+        services.AddSingleton<DataServiceMetrics>();
+        services.AddSingleton<IDataServiceMetrics>(sp => sp.GetRequiredService<DataServiceMetrics>());
 
         // Интерфейс сервиса — то, что берут потребители. Конкретный класс остаётся
         // в контейнере, чтобы фабрика интерфейса и логирование ILogger<TImpl> совпадали.

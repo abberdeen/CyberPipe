@@ -12,7 +12,7 @@ public sealed class NoteStoreService : INoteStoreService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
     private readonly TimeProvider _time;
 
     /// <summary>Создаёт сервис заметок поверх фабрики контекстов.</summary>
@@ -25,7 +25,7 @@ public sealed class NoteStoreService : INoteStoreService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<NoteStoreService>? logger = null,
-        UnitOfWorkMetrics? metrics = null,
+        DataServiceMetrics? metrics = null,
         TimeProvider? time = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
@@ -34,7 +34,7 @@ public sealed class NoteStoreService : INoteStoreService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
         _time = time ?? TimeProvider.System;
     }
 
@@ -169,7 +169,7 @@ public sealed class FinanceLedgerService : IFinanceLedgerService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
     private readonly TimeProvider _time;
 
     /// <summary>Создаёт сервис финансов поверх фабрики контекстов.</summary>
@@ -182,7 +182,7 @@ public sealed class FinanceLedgerService : IFinanceLedgerService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<FinanceLedgerService>? logger = null,
-        UnitOfWorkMetrics? metrics = null,
+        DataServiceMetrics? metrics = null,
         TimeProvider? time = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
@@ -191,7 +191,7 @@ public sealed class FinanceLedgerService : IFinanceLedgerService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
         _time = time ?? TimeProvider.System;
     }
 
@@ -308,7 +308,7 @@ public sealed class ReminderStoreService : IReminderStoreService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
     private readonly TimeProvider _time;
 
     /// <summary>Создаёт сервис напоминаний поверх фабрики контекстов.</summary>
@@ -321,7 +321,7 @@ public sealed class ReminderStoreService : IReminderStoreService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<ReminderStoreService>? logger = null,
-        UnitOfWorkMetrics? metrics = null,
+        DataServiceMetrics? metrics = null,
         TimeProvider? time = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
@@ -330,7 +330,7 @@ public sealed class ReminderStoreService : IReminderStoreService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
         _time = time ?? TimeProvider.System;
     }
 
@@ -444,7 +444,7 @@ public sealed class ContactStoreService : IContactStoreService
     private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
     private readonly RepositoryOptions _options;
     private readonly ILogger _logger;
-    private readonly UnitOfWorkMetrics _metrics;
+    private readonly DataServiceMetrics _metrics;
     private readonly TimeProvider _time;
 
     /// <summary>Создаёт сервис контактов поверх фабрики контекстов.</summary>
@@ -457,7 +457,7 @@ public sealed class ContactStoreService : IContactStoreService
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
         ILogger<ContactStoreService>? logger = null,
-        UnitOfWorkMetrics? metrics = null,
+        DataServiceMetrics? metrics = null,
         TimeProvider? time = null)
     {
         _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
@@ -466,7 +466,7 @@ public sealed class ContactStoreService : IContactStoreService
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
         _logger = (ILogger?)logger ?? NullLogger.Instance;
-        _metrics = metrics ?? new UnitOfWorkMetrics();
+        _metrics = metrics ?? new DataServiceMetrics();
         _time = time ?? TimeProvider.System;
     }
 
