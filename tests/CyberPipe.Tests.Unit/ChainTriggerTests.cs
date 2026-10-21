@@ -3,12 +3,30 @@ using System.Text.Json;
 using CyberPipe.Chains;
 using CyberPipe.Chains.Triggers;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
 
-public sealed class ChainTriggerTests
+public sealed class ChainTriggerTests : IAsyncLifetime
 {
+    private TestDatabase? _db;
+
+    private ChainCatalogService Catalog => _db!.Catalog;
+
+    public async Task InitializeAsync()
+    {
+        _db = await TestDatabase.CreateAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_db is not null)
+        {
+            await _db.DisposeAsync();
+        }
+    }
+
     private sealed class FakeChainExecutor : IChainExecutor
     {
         public ConcurrentBag<TriggerEvent> Events { get; } = new();
@@ -148,7 +166,7 @@ public sealed class ChainTriggerTests
     public async Task AllFourTriggers_EmitTriggerEvent_WithCorrectProperties_AndCallExecutorOnce()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var cronRegistrar = new FakeCronTriggerRegistrar();
         var messageSource = new FakeInboundMessageSource();
@@ -223,7 +241,7 @@ public sealed class ChainTriggerTests
     public async Task Webhook_DuplicateWithSameIdempotencyKey_DoesNotCallExecutorSecondTime()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var webhookHandler = new WebhookTriggerHandler(repo, executor, idempotencyStore);
 
@@ -277,7 +295,7 @@ public sealed class ChainTriggerTests
     public async Task Webhook_SecretMismatch_Returns401_AndExecutorNotCalled()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var secretStore = new FakeSecretStore();
         secretStore.Set("webhook:secret_1", "correct-horse-battery-staple");
@@ -318,7 +336,7 @@ public sealed class ChainTriggerTests
     public async Task Webhook_DisabledChain_Returns409()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var webhookHandler = new WebhookTriggerHandler(repo, executor, idempotencyStore);
 
@@ -341,7 +359,7 @@ public sealed class ChainTriggerTests
     public async Task Webhook_BodyOverLimit_Returns413()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         // Set maximum body limit to 10 bytes
         var webhookHandler = new WebhookTriggerHandler(repo, executor, idempotencyStore, maxBodySizeBytes: 10);
@@ -365,7 +383,7 @@ public sealed class ChainTriggerTests
     public async Task Webhook_NonJsonBody_Returns400()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var webhookHandler = new WebhookTriggerHandler(repo, executor, idempotencyStore);
 
@@ -388,7 +406,7 @@ public sealed class ChainTriggerTests
     public async Task ChatMessage_NoFilterMatch_DoesNotStartExecution()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var messageSource = new FakeInboundMessageSource();
 
@@ -415,7 +433,7 @@ public sealed class ChainTriggerTests
     public async Task FunctionCall_UnknownChain_ThrowsChainNotFoundException()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var functionInvoker = new FunctionCallTriggerInvoker(repo, executor);
 
         ChainId nonExistentChainId = ChainId.New();
@@ -431,7 +449,7 @@ public sealed class ChainTriggerTests
     public async Task Unregister_StopsSubsequentRuns_AcrossAllTriggers()
     {
         var executor = new FakeChainExecutor();
-        var repo = new InMemoryChainDefinitionRepository();
+        ChainCatalogService repo = Catalog;
         var idempotencyStore = new InMemoryIdempotencyStore();
         var cronRegistrar = new FakeCronTriggerRegistrar();
         var messageSource = new FakeInboundMessageSource();

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Skills.Knowledge.Services;
 
@@ -22,13 +23,13 @@ public interface IKnowledgeService
 /// </summary>
 public sealed class KnowledgeService : IKnowledgeService
 {
-    private readonly IEmbeddingStore _store;
+    private readonly EmbeddingStoreService _store;
     private readonly IEmbeddingProvider _embeddingProvider;
     private readonly KnowledgeOptions _options;
     private readonly ConcurrentDictionary<string, List<string>> _docChunksIndex = new(StringComparer.OrdinalIgnoreCase);
 
     public KnowledgeService(
-        IEmbeddingStore store,
+        EmbeddingStoreService store,
         IEmbeddingProvider embeddingProvider,
         KnowledgeOptions? options = null)
     {

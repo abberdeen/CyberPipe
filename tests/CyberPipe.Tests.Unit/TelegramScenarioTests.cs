@@ -6,6 +6,7 @@ using CyberPipe.Channels.Telegram;
 using CyberPipe.Channels.Telegram.Adapter;
 using CyberPipe.Channels.Telegram.Model;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Router;
 using CyberPipe.Security;
 using CyberPipe.Service.Messaging;
@@ -124,7 +125,7 @@ public sealed class TelegramScenarioTests
                 ct);
     }
 
-    private sealed class Harness
+    private sealed class Harness : IAsyncDisposable
     {
         public FakeTelegramBotClientAdapter Adapter { get; } = new();
 
@@ -144,9 +145,13 @@ public sealed class TelegramScenarioTests
 
         public HitlApprovalGate Gate { get; }
 
-        public InMemoryHitlApprovalRepository HitlRepo { get; } = new();
+        public HitlApprovalStoreService HitlRepo { get; }
 
-        public Harness(decimal dailyCapUsd = 100m, ModelHostingType hostingType = ModelHostingType.Local)
+        private readonly TestDatabase _db;
+
+        public static async Task<Harness> CreateAsync(
+            decimal dailyCapUsd = 100m,
+            ModelHostingType hostingType = ModelHostingType.Local)
         {
             var options = new CyberPipeOptions
             {
@@ -157,6 +162,28 @@ public sealed class TelegramScenarioTests
             {
                 TelegramOwnerIds = [OwnerId],
             });
+            var db = await TestDatabase.CreateAsync();
+            try
+            {
+                return new Harness(options, whitelist, db, hostingType);
+            }
+            catch
+            {
+                await db.DisposeAsync();
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync() => await _db.DisposeAsync();
+
+        private Harness(
+            CyberPipeOptions options,
+            MutableWhitelist whitelist,
+            TestDatabase db,
+            ModelHostingType hostingType)
+        {
+            _db = db;
+            HitlRepo = db.Hitl;
             Authorizer = new OwnerAuthorizer(whitelist);
             Router = new Tier0RegexRouter(new ConfigurationRegexRuleProvider(options));
             var governor = new TokenBudgetGovernor(new InMemoryBudgetStore(), options);
@@ -167,7 +194,7 @@ public sealed class TelegramScenarioTests
                 [new ForwardingCardSender(() => channelService!)],
                 guard,
                 new StubExecutor(),
-                executions: new InMemoryChainExecutionRepository());
+                executions: db.Executions);
             Channel = new TelegramChannelService(
                 Adapter,
                 guard,
@@ -234,7 +261,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task OwnerVolumeCommand_RunsSkillOnceAndRepliesToSameChat()
     {
-        var harness = new Harness();
+        await using var harness = await Harness.CreateAsync();
 
         await harness.FeedTextAsync(OwnerChatId, long.Parse(OwnerId), "громкость на 100");
 
@@ -249,7 +276,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task NonOwnerMessage_RejectedBeforeRouter()
     {
-        var harness = new Harness();
+        await using var harness = await Harness.CreateAsync();
 
         await harness.FeedTextAsync(OwnerChatId, long.Parse(StrangerId), "громкость на 100");
 
@@ -261,7 +288,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task BudgetExhausted_OwnerGetsRefusalWithoutSkillCall()
     {
-        var harness = new Harness(dailyCapUsd: 0.000001m, hostingType: ModelHostingType.RemoteCloud);
+        await using var harness = await Harness.CreateAsync(dailyCapUsd: 0.000001m, hostingType: ModelHostingType.RemoteCloud);
 
         await harness.FeedTextAsync(OwnerChatId, long.Parse(OwnerId), "громкость на 100");
 
@@ -273,7 +300,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task HitlApprove_RunsSkillOnceAndReplies()
     {
-        var harness = new Harness();
+        await using var harness = await Harness.CreateAsync();
         HitlApprovalRequest request = ApprovalRequest();
         await harness.Hitl.CreateAsync(request);
 
@@ -294,7 +321,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task HitlRejectFromNonOwner_DoesNotResolve()
     {
-        var harness = new Harness();
+        await using var harness = await Harness.CreateAsync();
         HitlApprovalRequest request = ApprovalRequest();
         await harness.Hitl.CreateAsync(request);
 
@@ -312,7 +339,7 @@ public sealed class TelegramScenarioTests
     [Fact]
     public async Task HitlExpired_ApprovalCannotResolve()
     {
-        var harness = new Harness();
+        await using var harness = await Harness.CreateAsync();
         HitlApprovalRequest request = ApprovalRequest(TimeSpan.FromMilliseconds(200));
         await harness.Hitl.CreateAsync(request);
 

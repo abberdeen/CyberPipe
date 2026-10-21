@@ -2,7 +2,6 @@ using CyberPipe.Contracts;
 using CyberPipe.Data;
 using CyberPipe.Data.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
@@ -16,17 +15,6 @@ public sealed class RepositoryUnitTests
 
         public Task<CyberPipeDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Database must not be called in unit tests.");
-    }
-
-    private sealed class ProbeRepository : RepositoryBase
-    {
-        public ProbeRepository(RepositoryOptions? options = null)
-            : base(new NeverCalledFactory(), options)
-        {
-        }
-
-        public string SortKey(PagedQuery query) =>
-            ResolveSortKey(query, new Dictionary<string, string> { ["created_at"] = "created_at", ["name"] = "name" });
     }
 
     private static ChainDefinitionDto SampleChain() => new()
@@ -67,13 +55,23 @@ public sealed class RepositoryUnitTests
     }
 
     [Fact]
-    public void SortKey_WhitelistOnly_AndInjectionRejected()
+    public void ServiceCtor_NegativeOptions_ThrowBeforeDb()
     {
-        var probe = new ProbeRepository();
-        Assert.Equal("created_at", probe.SortKey(new PagedQuery()));
-        Assert.Equal("name", probe.SortKey(new PagedQuery { SortBy = "name", Descending = false }));
-        Assert.Throws<ArgumentException>(() => probe.SortKey(new PagedQuery { SortBy = "created_at; DROP TABLE app.chains" }));
-        Assert.Throws<ArgumentException>(() => probe.SortKey(new PagedQuery { SortBy = "definition_json" }));
+        var bad = new RepositoryOptions { SlowQueryThreshold = TimeSpan.FromMilliseconds(-1) };
+        Assert.Throws<ArgumentException>(() => new ChainCatalogService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new ChainRunRecordService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new CheckpointStoreService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new ApprovalLedgerService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new TokenBudgetLedgerService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new KvSettingsService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new AuditLogService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new HitlApprovalStoreService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new NetrunnerPackageStoreService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new NoteStoreService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new FinanceLedgerService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new ReminderStoreService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new ContactStoreService(new NeverCalledFactory(), bad));
+        Assert.Throws<ArgumentException>(() => new EmbeddingStoreService(new NeverCalledFactory(), bad));
     }
 
     [Fact]
@@ -83,13 +81,6 @@ public sealed class RepositoryUnitTests
         Assert.Equal("approvals", ex.Aggregate);
         Assert.Equal("42", ex.Id);
         Assert.Contains("approvals", ex.Message);
-    }
-
-    [Fact]
-    public void RepositoryOptions_NegativeThreshold_Throws()
-    {
-        Assert.Throws<ArgumentException>(() =>
-            new ProbeRepository(new RepositoryOptions { SlowQueryThreshold = TimeSpan.FromMilliseconds(-1) }));
     }
 
     [Fact]
@@ -141,13 +132,16 @@ public sealed class RepositoryUnitTests
     }
 
     [Fact]
-    public void PublicRepositoryContracts_ContainNoNpgsqlTypes()
+    public void PublicServiceContracts_ContainNoNpgsqlTypes()
     {
         Type[] contracts =
         [
-            typeof(IChainRepository), typeof(IChainRunRepository), typeof(ICheckpointRepository),
-            typeof(IApprovalRepository), typeof(ITokenBudgetRepository), typeof(IKeyValueSettingsRepository),
-            typeof(IAuditLogRepository), typeof(IUnitOfWork), typeof(IUnitOfWorkFactory),
+            typeof(ChainCatalogService), typeof(ChainRunRecordService), typeof(CheckpointStoreService),
+            typeof(ApprovalLedgerService), typeof(TokenBudgetLedgerService), typeof(KvSettingsService),
+            typeof(AuditLogService), typeof(ChainExecutionStoreService), typeof(HitlApprovalStoreService),
+            typeof(NetrunnerPackageStoreService), typeof(NoteStoreService), typeof(FinanceLedgerService),
+            typeof(ReminderStoreService), typeof(ContactStoreService), typeof(EmbeddingStoreService),
+            typeof(BudgetLedgerService), typeof(UnitOfWorkMetrics), typeof(IUnitOfWorkMetrics),
             typeof(ChainRunRecord), typeof(CheckpointRecord), typeof(ApprovalRecord),
             typeof(TokenBudgetEntryRecord), typeof(KeyValueSettingRecord), typeof(AuditLogRecord),
             typeof(PagedQuery), typeof(PagedResult<>),

@@ -8,7 +8,7 @@ using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>Стратегия поиска ближайших соседей (TASK-012). Смена стратегии не меняет контракт.</summary>
+/// <summary>Стратегия поиска ближайших соседей. Смена стратегии не меняет контракт.</summary>
 public enum EmbeddingSearchStrategy
 {
     /// <summary>Точный поиск: полное сканирование с сортировкой по косинусному расстоянию.</summary>
@@ -119,7 +119,7 @@ public static class CosineScore
     }
 }
 
-/// <summary>Валидация входных данных хранилища до обращения к БД (TASK-012).</summary>
+/// <summary>Валидация входных данных хранилища до обращения к БД.</summary>
 public static class EmbeddingValidation
 {
     /// <summary>Проверяет запись; размерность сверяется с Dimension записи и конфигурацией модели.</summary>
@@ -187,89 +187,105 @@ public static class EmbeddingValidation
 }
 
 /// <summary>
-/// Хранилище эмбеддингов на SQLite (TASK-012). Потребители: TASK-031, TASK-034, TASK-053, TASK-071.
-/// Только хранилище: без генерации эмбеддингов, классификации и политики кэша.
-
-/// <summary>
-/// Реализация <see cref="IEmbeddingStore" /> поверх таблицы embeddings (TASK-011).
+/// Хранилище эмбеддингов на SQLite поверх таблицы embeddings.
 /// Вектор хранится текстом (JSON-массив float), косинусное сходство считается в C# полным
 /// перебором кандидатов; порядок и контракт не зависят от стратегии поиска.
+/// Только хранилище: без генерации эмбеддингов, классификации и политики кэша.
+/// Сырых SQL-строк нет; все чтения — LINQ с AsNoTracking.
 /// </summary>
-public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
+public sealed class EmbeddingStoreService
 {
-    private readonly EmbeddingStoreOptions _options;
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly EmbeddingStoreOptions _storeOptions;
+    private readonly ILogger _logger;
     private readonly ILogger _storeLogger;
+    private readonly UnitOfWorkMetrics _metrics;
 
     /// <summary>Создаёт хранилище поверх фабрики контекстов SQLite.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции размерностей и стратегии; null — значения по умолчанию.</param>
-    /// <param name="logger">Логгер; векторы и метаданные в логи не пишутся.</param>
-    public SqliteEmbeddingStore(
-        IDbContextFactory<CyberPipeDbContext> dbFactory,
-        EmbeddingStoreOptions? options = null,
-        ILogger<SqliteEmbeddingStore>? logger = null)
-        : base(dbFactory)
-    {
-        _options = options ?? new EmbeddingStoreOptions();
-        _storeLogger = logger ?? NullLogger<SqliteEmbeddingStore>.Instance;
-        IReadOnlyList<string> errors = _options.Validate();
-        if (errors.Count > 0)
-            throw new ArgumentException(string.Join(" ", errors), nameof(options));
-    }
-
-    /// <summary>Создаёт хранилище поверх фабрики контекстов с опциями репозиториев.</summary>
-    /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="repositoryOptions">Опции репозиториев (таймауты/ретраи).</param>
-    /// <param name="options">Опции размерностей и стратегии; null — значения по умолчанию.</param>
+    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="storeOptions">Опции размерностей и стратегии; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; векторы и метаданные в логи не пишутся.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
-    public SqliteEmbeddingStore(
+    public EmbeddingStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
-        RepositoryOptions repositoryOptions,
-        EmbeddingStoreOptions? options = null,
-        ILogger? logger = null,
+        RepositoryOptions? options = null,
+        EmbeddingStoreOptions? storeOptions = null,
+        ILogger<EmbeddingStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null)
-        : base(dbFactory, repositoryOptions, logger, metrics)
     {
-        _options = options ?? new EmbeddingStoreOptions();
-        _storeLogger = logger ?? NullLogger<SqliteEmbeddingStore>.Instance;
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
         IReadOnlyList<string> errors = _options.Validate();
         if (errors.Count > 0)
             throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _storeOptions = storeOptions ?? new EmbeddingStoreOptions();
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _storeLogger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
+        IReadOnlyList<string> storeErrors = _storeOptions.Validate();
+        if (storeErrors.Count > 0)
+            throw new ArgumentException(string.Join(" ", storeErrors), nameof(storeOptions));
     }
 
-    /// <inheritdoc />
+    /// <summary>Создаёт или обновляет запись эмбеддинга.</summary>
+    /// <param name="record">Запись для сохранения.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Задача сохранения.</returns>
     public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default)
     {
-        EmbeddingValidation.ValidateRecord(record, _options);
-        return ExecuteAsync("embeddings.upsert", async (db, token) =>
+        EmbeddingValidation.ValidateRecord(record, _storeOptions);
+        return EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, "embeddings.upsert", async (db, token) =>
         {
             await UpsertCoreAsync(db, record, token).ConfigureAwait(false);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Создаёт или обновляет несколько записей одним SaveChanges внутри явной транзакции
+    /// метода; отмена откатывает все записи целиком.
+    /// </summary>
+    /// <param name="records">Записи для сохранения.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Задача сохранения.</returns>
     public Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(records);
         foreach (EmbeddingRecord record in records)
-            EmbeddingValidation.ValidateRecord(record, _options);
+            EmbeddingValidation.ValidateRecord(record, _storeOptions);
         if (records.Count == 0)
             return Task.CompletedTask;
-        return ExecuteAsync("embeddings.upsert_many", async (db, token) =>
+        return EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, "embeddings.upsert_many", async (db, token) =>
         {
-            foreach (EmbeddingRecord record in records)
-                await UpsertCoreAsync(db, record, token).ConfigureAwait(false);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await using var transaction = await db.Database.BeginTransactionAsync(token).ConfigureAwait(false);
+            try
+            {
+                foreach (EmbeddingRecord record in records)
+                    await UpsertCoreAsync(db, record, token).ConfigureAwait(false);
+                await db.SaveChangesAsync(token).ConfigureAwait(false);
+                await transaction.CommitAsync(token).ConfigureAwait(false);
+                _metrics.IncrementCommitted();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                _metrics.IncrementRolledBack();
+                throw;
+            }
+
             _storeLogger.LogDebug("Upserted {Count} embeddings.", records.Count);
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Ищет ближайшие эмбеддинги полным перебором кандидатов с косинусным сходством.</summary>
+    /// <param name="query">Запрос поиска.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Совпадения по убыванию сходства, не более TopK.</returns>
     public Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default)
     {
-        EmbeddingValidation.ValidateQuery(query, _options);
+        EmbeddingValidation.ValidateQuery(query, _storeOptions);
         return ExecuteAsync<IReadOnlyList<EmbeddingMatch>>("embeddings.search", async (db, token) =>
         {
             // SQLite без pgvector: кандидаты фильтруются LINQ, сходство считается в C#.
@@ -298,7 +314,11 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Удаляет запись эмбеддинга.</summary>
+    /// <param name="namespace">Пространство имён.</param>
+    /// <param name="sourceRef">Ссылка на источник.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>true, если запись существовала и удалена.</returns>
     public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
@@ -314,7 +334,10 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Удаляет все записи пространства имён.</summary>
+    /// <param name="namespace">Пространство имён.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Число удалённых записей.</returns>
     public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
@@ -324,7 +347,10 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
             .ExecuteDeleteAsync(token), cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Возвращает число записей пространства имён.</summary>
+    /// <param name="namespace">Пространство имён.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Число записей.</returns>
     public Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
@@ -334,7 +360,11 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
             .LongCountAsync(e => e.Namespace == @namespace, token), cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Удаляет старейшие записи пространства, оставляя keepCount свежих.</summary>
+    /// <param name="namespace">Пространство имён.</param>
+    /// <param name="keepCount">Сколько свежих записей оставить.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Число удалённых записей.</returns>
     public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace))
@@ -383,7 +413,7 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
         Guid id = record.Id == Guid.Empty ? Guid.NewGuid() : record.Id;
         db.Embeddings.Add(new EmbeddingEntity
         {
-            Id = GuidKey(id),
+            Id = EfServiceHelper.GuidKey(id),
             Namespace = record.Namespace,
             SourceRef = record.SourceRef,
             ModelId = record.ModelId,
@@ -416,4 +446,10 @@ public sealed class SqliteEmbeddingStore : RepositoryBase, IEmbeddingStore
         return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
             ?? new Dictionary<string, string>();
     }
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }

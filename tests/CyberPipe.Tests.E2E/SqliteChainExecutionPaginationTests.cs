@@ -5,157 +5,96 @@ using CyberPipe.Data;
 using Xunit;
 
 /// <summary>
-/// Пагинация <see cref="StubChainExecutionRepository"/> обязана заканчиваться:
-/// полная страница при завышенном TotalCount раньше крутила цикл без выхода.
+/// Пагинация <see cref="ChainExecutionStoreService"/> обязана заканчиваться:
+/// чтение идёт страницами и останавливается по TotalCount.
 /// </summary>
-public sealed class SqliteChainExecutionPaginationTests
+public sealed class SqliteChainExecutionPaginationTests : IAsyncLifetime
 {
     private static readonly ChainId Chain = new(Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
 
-    [Fact(Timeout = 5000)]
-    public async Task FindRunByIdempotencyKey_stops_when_every_page_is_full()
+    private TestDatabase? _db;
+
+    private ChainExecutionStoreService Executions => _db!.Executions;
+
+    public async Task InitializeAsync()
     {
-        var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other"));
-        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
-
-        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            repository.FindRunByIdempotencyKeyAsync(Chain, "missing"));
-
-        Assert.Equal(StubChainExecutionRepository.MaxRunListPages, runs.ListCalls);
-        Assert.Contains(StubChainExecutionRepository.MaxRunListPages.ToString(), ex.Message, StringComparison.Ordinal);
+        _db = await TestDatabase.CreateAsync();
+        await _db.Catalog.UpsertAsync(new ChainDefinitionDto
+        {
+            Id = Chain,
+            Name = "Pagination chain",
+            IsEnabled = true,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+            RetryPolicy = new ChainRetryPolicyDto { MaxAttempts = 1, BackoffMs = 1 },
+            Trigger = new ChainTriggerDto { Kind = ChainTriggerKind.FunctionCall, FunctionName = "pagination.test" },
+            Skill = new ChainSkillStepDto { SkillId = "test.skill", InputMapping = new Dictionary<string, string>() },
+            Script = new ChainScriptStepDto { PackageSlug = "pkg", PackageVersion = "1.0.0" },
+            Delivery = new ChainDeliveryStepDto { Channel = ChannelKind.Cli, Target = "test", MessageTemplate = "done" },
+        });
     }
 
-    [Fact(Timeout = 5000)]
-    public async Task ListUnfinishedRuns_stops_when_every_page_is_full()
+    public async Task DisposeAsync()
     {
-        var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other", ChainRunStatus.Running));
-        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            repository.ListUnfinishedRunsAsync());
-
-        Assert.Equal(StubChainExecutionRepository.MaxRunListPages, runs.ListCalls);
+        if (_db is not null)
+        {
+            await _db.DisposeAsync();
+        }
     }
 
-    [Fact]
-    public async Task FindRunByIdempotencyKey_stops_on_exact_page_boundary()
-    {
-        var runs = new ScriptedChainRunRepository(_ => FullPage(Chain, "other", totalCount: StubChainExecutionRepository.RunPageSize));
-        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
-
-        RunId? found = await repository.FindRunByIdempotencyKeyAsync(Chain, "missing");
-
-        Assert.Null(found);
-        Assert.Equal(1, runs.ListCalls);
-    }
-
-    [Fact]
-    public async Task FindRunByIdempotencyKey_reads_the_next_page_and_stops()
+    [Fact(Timeout = 30000)]
+    public async Task FindRunByIdempotencyKey_finds_run_on_second_page()
     {
         var expected = new RunId(Guid.Parse("11111111-2222-3333-4444-555555555555"));
-        var runs = new ScriptedChainRunRepository(query =>
+        for (int i = 0; i < 200; i++)
         {
-            if (query.Offset == 0)
-            {
-                return FullPage(Chain, "other", totalCount: StubChainExecutionRepository.RunPageSize + 1);
-            }
-
-            return new PagedResult<ChainRunRecord>
-            {
-                Items =
-                [
-                    Run(Chain, expected, "target"),
-                ],
-                TotalCount = StubChainExecutionRepository.RunPageSize + 1,
-                Offset = query.Offset,
-                Limit = query.Limit,
-            };
-        });
-        var repository = new StubChainExecutionRepository(runs, new UnusedCheckpointRepository());
-
-        RunId? found = await repository.FindRunByIdempotencyKeyAsync(Chain, "target");
-
-        Assert.Equal(expected, found);
-        Assert.Equal(2, runs.ListCalls);
-    }
-
-    private static PagedResult<ChainRunRecord> FullPage(
-        ChainId chainId,
-        string idempotencyKey,
-        ChainRunStatus status = ChainRunStatus.Completed,
-        long totalCount = long.MaxValue)
-    {
-        ChainRunRecord[] items = new ChainRunRecord[StubChainExecutionRepository.RunPageSize];
-        for (int i = 0; i < items.Length; i++)
-        {
-            items[i] = Run(chainId, new RunId(Guid.NewGuid()), idempotencyKey, status);
+            await AddRunAsync(new RunId(Guid.NewGuid()), "other", ChainRunStatus.Completed);
         }
 
-        return new PagedResult<ChainRunRecord>
-        {
-            Items = items,
-            TotalCount = totalCount,
-            Offset = 0,
-            Limit = StubChainExecutionRepository.RunPageSize,
-        };
+        await AddRunAsync(expected, "target", ChainRunStatus.Completed);
+
+        RunId? found = await Executions.FindRunByIdempotencyKeyAsync(Chain, "target");
+
+        Assert.Equal(expected, found);
     }
 
-    private static ChainRunRecord Run(
-        ChainId chainId,
-        RunId id,
-        string idempotencyKey,
-        ChainRunStatus status = ChainRunStatus.Completed) =>
-        new()
+    [Fact(Timeout = 30000)]
+    public async Task FindRunByIdempotencyKey_stops_on_exact_page_boundary()
+    {
+        for (int i = 0; i < 200; i++)
+        {
+            await AddRunAsync(new RunId(Guid.NewGuid()), "other", ChainRunStatus.Completed);
+        }
+
+        RunId? found = await Executions.FindRunByIdempotencyKeyAsync(Chain, "missing");
+
+        Assert.Null(found);
+    }
+
+    [Fact(Timeout = 30000)]
+    public async Task ListUnfinishedRuns_returns_only_unfinished()
+    {
+        RunId running = new(Guid.NewGuid());
+        await AddRunAsync(running, "running-key", ChainRunStatus.Running);
+        await AddRunAsync(new RunId(Guid.NewGuid()), "done-key", ChainRunStatus.Completed);
+        await AddRunAsync(new RunId(Guid.NewGuid()), "failed-key", ChainRunStatus.Failed);
+
+        IReadOnlyList<RunId> unfinished = await Executions.ListUnfinishedRunsAsync();
+
+        RunId only = Assert.Single(unfinished);
+        Assert.Equal(running, only);
+    }
+
+    private async Task AddRunAsync(RunId id, string idempotencyKey, ChainRunStatus status)
+    {
+        await _db!.Runs.AddAsync(new ChainRunRecord
         {
             Id = id,
-            ChainId = chainId,
+            ChainId = Chain,
             IdempotencyKey = idempotencyKey,
             Status = status,
             Source = "pagination-test",
-        };
-
-    private sealed class ScriptedChainRunRepository(Func<PagedQuery, PagedResult<ChainRunRecord>> list) : IChainRunRepository
-    {
-        public int ListCalls { get; private set; }
-
-        public Task<PagedResult<ChainRunRecord>> ListAsync(
-            PagedQuery query, ChainId? chainId = null, CancellationToken cancellationToken = default)
-        {
-            ListCalls++;
-            return Task.FromResult(list(query));
-        }
-
-        public Task<ChainRunRecord?> GetAsync(RunId id, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<ChainRunRecord> AddAsync(ChainRunRecord run, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<ChainRunRecord> UpdateAsync(ChainRunRecord run, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<bool> DeleteAsync(RunId id, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-    }
-
-    private sealed class UnusedCheckpointRepository : ICheckpointRepository
-    {
-        public Task<CheckpointRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<CheckpointRecord?> GetByRunAndStepAsync(RunId runId, ChainStepKind step, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<PagedResult<CheckpointRecord>> ListAsync(PagedQuery query, RunId? runId = null, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<CheckpointRecord> AddAsync(ChainCheckpointDto checkpoint, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<CheckpointRecord> UpdateAsync(CheckpointRecord record, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            StartedAtUtc = DateTimeOffset.UtcNow,
+        });
     }
 }

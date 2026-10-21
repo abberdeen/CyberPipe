@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Router;
@@ -13,7 +14,7 @@ namespace CyberPipe.Router;
 public sealed class Tier1SemanticRouter : IRouterTier
 {
     private readonly IEmbeddingProvider _embeddingProvider;
-    private readonly IEmbeddingStore _embeddingStore;
+    private readonly EmbeddingStoreService _embeddingStore;
     private readonly ISemanticCache? _semanticCache;
     private readonly ISemanticExampleProvider _exampleProvider;
     private readonly CyberPipeOptions _options;
@@ -24,7 +25,7 @@ public sealed class Tier1SemanticRouter : IRouterTier
 
     public Tier1SemanticRouter(
         IEmbeddingProvider embeddingProvider,
-        IEmbeddingStore embeddingStore,
+        EmbeddingStoreService embeddingStore,
         CyberPipeOptions? options = null,
         ISemanticCache? semanticCache = null,
         ISemanticExampleProvider? exampleProvider = null,

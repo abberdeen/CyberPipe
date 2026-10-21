@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using CyberPipe.Chains;
 using CyberPipe.Chains.Execution;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
@@ -126,37 +127,6 @@ public sealed class ChainExecutorTests
                 stdoutTail: "ok",
                 stderrTail: "",
                 durationMs: 10));
-        }
-    }
-
-    private sealed class FakePackageRegistryRepository : IPackageRegistryRepository
-    {
-        private readonly ConcurrentDictionary<string, PackageRegistrationRecord> _packages = new(StringComparer.Ordinal);
-
-        public void AddPackage(PackageRegistrationRecord record)
-        {
-            _packages[$"{record.Slug}@{record.Version}"] = record;
-        }
-
-        public Task<PackageRegistrationRecord?> GetPackageAsync(string slug, string version, CancellationToken cancellationToken = default)
-        {
-            _packages.TryGetValue($"{slug}@{version}", out PackageRegistrationRecord? record);
-            return Task.FromResult(record);
-        }
-
-        public Task<PackageRegistrationRecord> RegisterPackageAsync(NetrunnerManifestDto manifest, string packageDir, string manifestHash, CancellationToken cancellationToken = default)
-        {
-            var record = new PackageRegistrationRecord
-            {
-                Slug = manifest.Slug,
-                Version = manifest.Version,
-                Manifest = manifest,
-                PackageDir = packageDir,
-                ManifestHash = manifestHash,
-                RegisteredAtUtc = DateTimeOffset.UtcNow,
-            };
-            _packages[$"{manifest.Slug}@{manifest.Version}"] = record;
-            return Task.FromResult(record);
         }
     }
 
@@ -286,12 +256,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain();
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         var skillInvoker = new FakeSkillInvoker();
         var scriptRunner = new FakeScriptRunner();
@@ -334,12 +303,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain(maxAttempts: 3, backoffMs: 1);
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         var skillInvoker = new FakeSkillInvoker();
         var scriptRunner = new FakeScriptRunner
@@ -389,12 +357,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain();
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         // Simulate that Skill and Script have already completed in a prior instance
         RunId runId = RunId.New();
@@ -469,12 +436,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain();
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         RunId runId = RunId.New();
         await repo.CreateRunAsync(runId, def.Id, trigger);
@@ -515,12 +481,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain(requiresHitl: true);
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         var skillInvoker = new FakeSkillInvoker();
         var scriptRunner = new FakeScriptRunner();
@@ -569,12 +534,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain(requiresHitl: true);
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         var skillInvoker = new FakeSkillInvoker();
         var scriptRunner = new FakeScriptRunner();
@@ -620,12 +584,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain();
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         var skillInvoker = new FakeSkillInvoker();
         var scriptRunner = new FakeScriptRunner();
@@ -657,12 +620,11 @@ public sealed class ChainExecutorTests
     {
         var (def, trigger, pkg) = CreateTestChain();
 
-        var repo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Executions;
+        var defRepo = db.Catalog;
         await defRepo.UpsertAsync(def);
 
-        var pkgRepo = new FakePackageRegistryRepository();
-        pkgRepo.AddPackage(pkg);
+        var pkgRepo = db.Packages;        await pkgRepo.RegisterPackageAsync(pkg.Manifest!, pkg.PackageDir, pkg.ManifestHash);
 
         var skillInvoker = new FakeSkillInvoker();
         var scriptRunner = new FakeScriptRunner

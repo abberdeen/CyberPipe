@@ -1,20 +1,36 @@
 using System.Text.Json;
 using CyberPipe.Chains.Packages;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
 
-public sealed class NetrunnerPackageValidatorTests : IDisposable
+public sealed class NetrunnerPackageValidatorTests : IDisposable, IAsyncLifetime
 {
     private readonly string _tempRoot;
     private readonly NetrunnerPackageValidator _validator = new();
-    private readonly InMemoryPackageRegistryRepository _registry = new();
+    private TestDatabase? _db;
+
+    private NetrunnerPackageStoreService Registry => _db!.Packages;
 
     public NetrunnerPackageValidatorTests()
     {
         _tempRoot = Path.Combine(Path.GetTempPath(), "cyberpipe-tests-packages", Guid.NewGuid().ToString());
         Directory.CreateDirectory(_tempRoot);
+    }
+
+    public async Task InitializeAsync()
+    {
+        _db = await TestDatabase.CreateAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_db is not null)
+        {
+            await _db.DisposeAsync();
+        }
     }
 
     public void Dispose()
@@ -288,7 +304,7 @@ public sealed class NetrunnerPackageValidatorTests : IDisposable
         string manifestHash1 = NetrunnerPackageValidator.ComputeSha256(manifestPath);
 
         // 1. First registration
-        PackageRegistrationRecord reg1 = await _registry.RegisterPackageAsync(
+        PackageRegistrationRecord reg1 = await Registry.RegisterPackageAsync(
             validation.Manifest!,
             packageDir,
             manifestHash1);
@@ -297,7 +313,7 @@ public sealed class NetrunnerPackageValidatorTests : IDisposable
         Assert.Equal("1.0.0", reg1.Version);
 
         // 2. Repeated registration with identical hash -> idempotent
-        PackageRegistrationRecord reg2 = await _registry.RegisterPackageAsync(
+        PackageRegistrationRecord reg2 = await Registry.RegisterPackageAsync(
             validation.Manifest!,
             packageDir,
             manifestHash1);
@@ -307,7 +323,7 @@ public sealed class NetrunnerPackageValidatorTests : IDisposable
         // 3. Repeated registration with different hash -> throws PackageRegistrationException
         string manifestHash2 = "different_hash_000000000000000000000000000000000000000000000000000000000000";
         var ex = await Assert.ThrowsAsync<PackageRegistrationException>(() =>
-            _registry.RegisterPackageAsync(validation.Manifest!, packageDir, manifestHash2));
+            Registry.RegisterPackageAsync(validation.Manifest!, packageDir, manifestHash2));
 
         Assert.Equal(PackageErrorCodes.VersionAlreadyRegistered, ex.Code);
     }

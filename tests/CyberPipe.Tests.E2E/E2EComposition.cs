@@ -543,7 +543,7 @@ internal sealed class E2EHost : IAsyncDisposable
 
     public IHitlApprovalService Hitl { get; }
 
-    public IHitlApprovalRepository HitlRepository { get; }
+    public HitlApprovalStoreService HitlRepository { get; }
 
     public ISemanticCache SemanticCache { get; }
 
@@ -566,7 +566,7 @@ internal sealed class E2EHost : IAsyncDisposable
         ITokenBudgetGovernor governor,
         IHitlApprovalGate gate,
         IHitlApprovalService hitl,
-        IHitlApprovalRepository hitlRepository,
+        HitlApprovalStoreService hitlRepository,
         TelegramChannelService channel,
         long chatId,
         long ownerUserId)
@@ -711,7 +711,7 @@ internal sealed class E2EHost : IAsyncDisposable
                     provider.GetRequiredService<ITokenBudgetGovernor>(),
                     provider.GetRequiredService<IHitlApprovalGate>(),
                     provider.GetRequiredService<IHitlApprovalService>(),
-                    provider.GetRequiredService<IHitlApprovalRepository>(),
+                    provider.GetRequiredService<HitlApprovalStoreService>(),
                     provider.GetRequiredService<TelegramChannelService>(),
                     chatId,
                     ownerUserId);

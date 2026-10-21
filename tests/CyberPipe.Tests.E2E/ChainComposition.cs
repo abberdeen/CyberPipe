@@ -1,4 +1,4 @@
-namespace CyberPipe.Tests.E2E;
+﻿namespace CyberPipe.Tests.E2E;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -15,200 +15,6 @@ using CyberPipe.Service.Composition;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-/// <summary>
-/// SQLite-адаптер <see cref="IChainExecutionRepository"/> поверх настоящих
-/// PG-репозиториев (TASK-092, фикстура тестового проекта): прогоны — через
-/// <see cref="IChainRunRepository"/>, чекпоинты — через <see cref="ICheckpointRepository"/>.
-/// Семантика повторяет <c>InMemoryChainExecutionRepository</c> (идемпотентность
-/// по (ChainId, IdempotencyKey), терминальные статусы, порядок чекпоинтов).
-/// Полный <see cref="TriggerEvent"/> кэшируется в памяти; после рестарта хоста
-/// событие восстанавливается из записи (вид триггера в конвейере не используется,
-/// нужны только нагрузка, ключ идемпотентности и источник).
-/// </summary>
-internal sealed class StubChainExecutionRepository(
-    IChainRunRepository runs,
-    ICheckpointRepository checkpoints) : IChainExecutionRepository
-{
-    private static readonly PagedQuery BigPage = new() { Offset = 0, Limit = RunPageSize, SortBy = "created_at", Descending = false };
-
-    /// <summary>Размер страницы списка запусков. Последняя короткая страница — конец набора.</summary>
-    internal const int RunPageSize = 200;
-
-    /// <summary>
-    /// Потолок страниц: репозиторий, который всегда отдаёт полную страницу и завышает
-    /// <see cref="PagedResult{T}.TotalCount"/>, иначе крутит <c>while (true)</c> без выхода.
-    /// </summary>
-    internal const int MaxRunListPages = 500;
-
-    private static readonly IReadOnlySet<ChainRunStatus> UnfinishedStatuses =
-        new HashSet<ChainRunStatus>
-        {
-            ChainRunStatus.Running,
-            ChainRunStatus.WaitingForHitl,
-            ChainRunStatus.WaitingForRetry,
-        };
-
-    private readonly ConcurrentDictionary<RunId, TriggerEvent> _triggers = new();
-
-    public async Task<ChainRunState?> GetRunAsync(RunId runId, CancellationToken cancellationToken = default)
-    {
-        ChainRunRecord? record = await runs.GetAsync(runId, cancellationToken).ConfigureAwait(false);
-        if (record is null)
-        {
-            return null;
-        }
-
-        IReadOnlyList<ChainCheckpointDto> steps = await GetCheckpointsAsync(runId, cancellationToken)
-            .ConfigureAwait(false);
-        return MapState(record, GetTrigger(record), steps);
-    }
-
-    public async Task<RunId?> FindRunByIdempotencyKeyAsync(ChainId chainId, string idempotencyKey, CancellationToken cancellationToken = default)
-    {
-        // Пагинация до конца: общая тестовая БД накапливает сотни прогонов,
-        // однопроходный лимит 200 прятал свежие строки (TASK-093).
-        await foreach (ChainRunRecord record in EnumerateRunsAsync(chainId, cancellationToken).ConfigureAwait(false))
-        {
-            if (string.Equals(record.IdempotencyKey, idempotencyKey, StringComparison.Ordinal))
-            {
-                return record.Id;
-            }
-        }
-
-        return null;
-    }
-
-    public async Task<ChainRunState> CreateRunAsync(RunId runId, ChainId chainId, TriggerEvent trigger, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(trigger);
-        var now = DateTimeOffset.UtcNow;
-        ChainRunRecord saved = await runs.AddAsync(new ChainRunRecord
-        {
-            Id = runId,
-            ChainId = chainId,
-            TriggerEventId = trigger.EventId,
-            IdempotencyKey = trigger.IdempotencyKey,
-            Status = ChainRunStatus.Running,
-            Source = trigger.Source,
-            PayloadJson = trigger.PayloadJson,
-            StartedAtUtc = now,
-        }, cancellationToken).ConfigureAwait(false);
-
-        _triggers[saved.Id] = trigger;
-        return MapState(saved, trigger, []);
-    }
-
-    public async Task UpdateRunStatusAsync(RunId runId, ChainRunStatus status, ErrorDto? error = null, CancellationToken cancellationToken = default)
-    {
-        ChainRunRecord? current = await runs.GetAsync(runId, cancellationToken).ConfigureAwait(false);
-        if (current is null)
-        {
-            throw new KeyNotFoundException($"Run '{runId}' not found.");
-        }
-
-        ChainRunRecord updated = current with
-        {
-            Status = status,
-            Error = error ?? current.Error,
-            FinishedAtUtc = status is ChainRunStatus.Completed or ChainRunStatus.Failed
-                or ChainRunStatus.Cancelled or ChainRunStatus.CancelledByCrash
-                ? DateTimeOffset.UtcNow
-                : current.FinishedAtUtc,
-        };
-        await runs.UpdateAsync(updated, current.RowVersion, cancellationToken).ConfigureAwait(false);
-    }
-
-    public Task SaveCheckpointAsync(ChainCheckpointDto checkpoint, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(checkpoint);
-        return checkpoints.AddAsync(checkpoint, cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<ChainCheckpointDto>> GetCheckpointsAsync(RunId runId, CancellationToken cancellationToken = default)
-    {
-        PagedResult<CheckpointRecord> page = await checkpoints.ListAsync(BigPage, runId, cancellationToken)
-            .ConfigureAwait(false);
-        return page.Items.Select(r => r.Checkpoint).OrderBy(c => c.Step).ToArray();
-    }
-
-    public async Task<IReadOnlyList<RunId>> ListUnfinishedRunsAsync(CancellationToken cancellationToken = default)
-    {
-        // Пагинация до конца: см. FindRunByIdempotencyKeyAsync (TASK-093).
-        var result = new List<RunId>();
-        await foreach (ChainRunRecord record in EnumerateRunsAsync(null, cancellationToken).ConfigureAwait(false))
-        {
-            if (UnfinishedStatuses.Contains(record.Status))
-            {
-                result.Add(record.Id);
-            }
-        }
-
-        return result;
-    }
-
-    private async IAsyncEnumerable<ChainRunRecord> EnumerateRunsAsync(
-        ChainId? chainId,
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        int offset = 0;
-        for (int pageIndex = 0; pageIndex < MaxRunListPages; pageIndex++)
-        {
-            PagedResult<ChainRunRecord> page = await runs.ListAsync(
-                    new PagedQuery { Offset = offset, Limit = RunPageSize, SortBy = "created_at", Descending = false },
-                    chainId, cancellationToken).ConfigureAwait(false);
-
-            foreach (ChainRunRecord record in page.Items)
-            {
-                yield return record;
-            }
-
-            // Короткая страница или достигнут TotalCount — конец. Полная страница при
-            // завышенном TotalCount не должна крутить цикл: есть потолок MaxRunListPages.
-            if (page.Items.Count < RunPageSize || (long)offset + page.Items.Count >= page.TotalCount)
-            {
-                yield break;
-            }
-
-            offset += page.Items.Count;
-        }
-
-        throw new InvalidOperationException(
-            $"Chain run pagination exceeded {MaxRunListPages} pages of {RunPageSize}.");
-    }
-
-    private TriggerEvent GetTrigger(ChainRunRecord record)
-    {
-        if (_triggers.TryGetValue(record.Id, out TriggerEvent? cached))
-        {
-            return cached;
-        }
-
-        return new TriggerEvent
-        {
-            EventId = record.TriggerEventId ?? Guid.Empty,
-            ChainId = record.ChainId,
-            Kind = default,
-            OccurredAtUtc = record.StartedAtUtc,
-            PayloadJson = record.PayloadJson,
-            FileRefs = [],
-            IdempotencyKey = record.IdempotencyKey,
-            Source = record.Source,
-        };
-    }
-
-    private static ChainRunState MapState(ChainRunRecord record, TriggerEvent trigger, IReadOnlyList<ChainCheckpointDto> steps) =>
-        new()
-        {
-            RunId = record.Id,
-            ChainId = record.ChainId,
-            Status = record.Status,
-            Trigger = trigger,
-            StartedAtUtc = record.StartedAtUtc,
-            FinishedAtUtc = record.FinishedAtUtc,
-            Error = record.Error,
-            Checkpoints = steps,
-        };
-}
 
 /// <summary>
 /// Считающий декоратор реестра раннеров (TASK-092): все раннеры настоящие,
@@ -619,8 +425,8 @@ internal static class ChainPackageFixture
 
 /// <summary>
 /// Хост E2E-сценариев цепочек (TASK-092): полная композиция TASK-090 на тестовой
-/// SQLite. Настоящие: определения (PG), валидаторы, раннеры (включая Python
-/// через песочницу), исполнитель, PG-адаптер запусков/чекпоинтов, Quartz, HITL.
+/// SQLite. Настоящие: определения, валидаторы, раннеры (включая Python
+/// через песочницу), исполнитель, сервисы запусков/чекпоинтов, Quartz, HITL.
 /// Фейки: скиллы, доставка, пакетный реестр поверх настоящего пакета на диске.
 /// </summary>
 internal sealed class ChainE2EHost : IAsyncDisposable
@@ -639,15 +445,15 @@ internal sealed class ChainE2EHost : IAsyncDisposable
 
     public IChainExecutor Executor { get; }
 
-    public IChainDefinitionRepository Definitions { get; }
+    public ChainCatalogService Definitions { get; }
 
-    public IChainExecutionRepository Executions { get; }
+    public ChainExecutionStoreService Executions { get; }
 
-    public ICheckpointRepository Checkpoints { get; }
+    public CheckpointStoreService Checkpoints { get; }
 
     public IHitlApprovalService Hitl { get; }
 
-    public IHitlApprovalRepository HitlRepository { get; }
+    public HitlApprovalStoreService HitlRepository { get; }
 
     public ITriggerInvoker FunctionCalls { get; }
 
@@ -675,11 +481,11 @@ internal sealed class ChainE2EHost : IAsyncDisposable
         Scripts = scripts;
         HitlCards = hitlCards;
         Executor = provider.GetRequiredService<IChainExecutor>();
-        Definitions = provider.GetRequiredService<IChainDefinitionRepository>();
-        Executions = provider.GetRequiredService<IChainExecutionRepository>();
-        Checkpoints = provider.GetRequiredService<ICheckpointRepository>();
+        Definitions = provider.GetRequiredService<ChainCatalogService>();
+        Executions = provider.GetRequiredService<ChainExecutionStoreService>();
+        Checkpoints = provider.GetRequiredService<CheckpointStoreService>();
         Hitl = provider.GetRequiredService<IHitlApprovalService>();
-        HitlRepository = provider.GetRequiredService<IHitlApprovalRepository>();
+        HitlRepository = provider.GetRequiredService<HitlApprovalStoreService>();
         FunctionCalls = provider.GetRequiredService<ITriggerInvoker>();
         Webhooks = provider.GetRequiredService<WebhookTriggerHandler>();
         Idempotency = provider.GetRequiredService<IIdempotencyStore>();
@@ -718,10 +524,6 @@ internal sealed class ChainE2EHost : IAsyncDisposable
         services.AddSingleton<ISecretStore>(secrets);
         services.AddSingleton<ISandboxLauncher, DirectProcessSandboxLauncher>();
         services.AddSingleton<IHitlCardSender>(hitlCards);
-        services.AddSingleton<IChainExecutionRepository>(sp =>
-            new SqliteChainExecutionRepository(
-                sp.GetRequiredService<IChainRunRepository>(),
-                sp.GetRequiredService<ICheckpointRepository>()));
         services.AddSingleton<ISkillInvoker>(skills);
         services.AddSingleton<IDeliveryPort>(delivery);
         services.AddSingleton<IScriptRunnerRegistry>(sp =>
@@ -755,8 +557,8 @@ internal sealed class ChainE2EHost : IAsyncDisposable
                 // не мешают (идемпотентность и выборки идут по своим id).
                 // Рестарт-тесты передают cleanDefinitions: false, чтобы
                 // определение и приостановленный запуск пережили пересоздание.
-                IChainDefinitionRepository definitions =
-                    provider.GetRequiredService<IChainDefinitionRepository>();
+                ChainCatalogService definitions =
+                    provider.GetRequiredService<ChainCatalogService>();
                 IReadOnlyList<ChainDefinitionDto> enabled =
                     await definitions.ListEnabledAsync(CancellationToken.None).ConfigureAwait(false);
                 foreach (ChainDefinitionDto existing in enabled)
@@ -773,8 +575,8 @@ internal sealed class ChainE2EHost : IAsyncDisposable
                 // незавершённое как CancelledByCrash; свой приостановленный
                 // запуск рестарт-тесты создают ПОСЛЕ этого места, а их второй
                 // хост идёт с cleanDefinitions: false и зачистку пропускает.
-                IChainExecutionRepository executions =
-                    provider.GetRequiredService<IChainExecutionRepository>();
+                ChainExecutionStoreService executions =
+                    provider.GetRequiredService<ChainExecutionStoreService>();
                 IReadOnlyList<RunId> unfinished =
                     await executions.ListUnfinishedRunsAsync(CancellationToken.None).ConfigureAwait(false);
                 var crashError = new ErrorDto
@@ -799,7 +601,7 @@ internal sealed class ChainE2EHost : IAsyncDisposable
                     string.Join("; ", packageValidation.Errors.Select(e => e.Message)));
             }
 
-            IPackageRegistryRepository packages = provider.GetRequiredService<IPackageRegistryRepository>();
+            NetrunnerPackageStoreService packages = provider.GetRequiredService<NetrunnerPackageStoreService>();
             string manifestHash = NetrunnerPackageValidator.ComputeSha256(
                 Path.Combine(packageDir, "netrunner.manifest.json"));
             await packages.RegisterPackageAsync(packageValidation.Manifest, packageDir, manifestHash)

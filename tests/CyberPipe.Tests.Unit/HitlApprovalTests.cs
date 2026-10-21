@@ -3,6 +3,7 @@ using CyberPipe.Chains;
 using CyberPipe.Chains.Execution;
 using CyberPipe.Chains.Hitl;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
@@ -66,37 +67,6 @@ public sealed class HitlApprovalTests
             Task.FromResult<ChainRunState?>(null);
     }
 
-    private sealed class FakePackageRegistryRepository : IPackageRegistryRepository
-    {
-        private readonly ConcurrentDictionary<string, PackageRegistrationRecord> _packages = new(StringComparer.Ordinal);
-
-        public void AddPackage(PackageRegistrationRecord record)
-        {
-            _packages[$"{record.Slug}@{record.Version}"] = record;
-        }
-
-        public Task<PackageRegistrationRecord?> GetPackageAsync(string slug, string version, CancellationToken cancellationToken = default)
-        {
-            _packages.TryGetValue($"{slug}@{version}", out PackageRegistrationRecord? record);
-            return Task.FromResult(record);
-        }
-
-        public Task<PackageRegistrationRecord> RegisterPackageAsync(NetrunnerManifestDto manifest, string packageDir, string manifestHash, CancellationToken cancellationToken = default)
-        {
-            var record = new PackageRegistrationRecord
-            {
-                Slug = manifest.Slug,
-                Version = manifest.Version,
-                Manifest = manifest,
-                PackageDir = packageDir,
-                ManifestHash = manifestHash,
-                RegisteredAtUtc = DateTimeOffset.UtcNow,
-            };
-            _packages[$"{manifest.Slug}@{manifest.Version}"] = record;
-            return Task.FromResult(record);
-        }
-    }
-
     private sealed class FakeSchemaValidator : ISchemaValidator
     {
         public List<string> ErrorsToReturn { get; set; } = [];
@@ -106,6 +76,32 @@ public sealed class HitlApprovalTests
             return ErrorsToReturn;
         }
     }
+
+    private static ChainDefinitionDto CreateChainDef(ChainId chainId, string slug = "sample-worker") => new()
+    {
+        Id = chainId,
+        Name = "Hitl Chain",
+        IsEnabled = true,
+        RequiresHitl = true,
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UpdatedAtUtc = DateTimeOffset.UtcNow,
+        RetryPolicy = new ChainRetryPolicyDto(),
+        Trigger = new ChainTriggerDto { Kind = ChainTriggerKind.Webhook, WebhookPath = "/test" },
+        Skill = new ChainSkillStepDto { SkillId = "csharp.test", InputMapping = new Dictionary<string, string>() },
+        Script = new ChainScriptStepDto { PackageSlug = slug, PackageVersion = "1.0.0" },
+        Delivery = new ChainDeliveryStepDto { Channel = ChannelKind.Desktop, Target = "local", MessageTemplate = "Done" },
+    };
+
+    private static TriggerEvent CreateTrigger(ChainId chainId) => new()
+    {
+        EventId = Guid.NewGuid(),
+        ChainId = chainId,
+        Kind = ChainTriggerKind.Webhook,
+        OccurredAtUtc = DateTimeOffset.UtcNow,
+        PayloadJson = "{}",
+        IdempotencyKey = "key-" + Guid.NewGuid().ToString("N"),
+        Source = "/test",
+    };
 
     private static (HitlApprovalRequest Request, Guid ApprovalId, RunId RunId, ChainId ChainId) CreateSampleRequest(
         TimeSpan? lifetime = null)
@@ -136,12 +132,12 @@ public sealed class HitlApprovalTests
     public async Task Approve_ValidOwner_ResolvesAndResumesExecutor()
     {
         // Arrange
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var telegramSender = new FakeHitlCardSender(ChannelKind.Telegram);
         var desktopSender = new FakeHitlCardSender(ChannelKind.Desktop);
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
-        var executionRepo = new InMemoryChainExecutionRepository();
+        var executionRepo = db.Executions;
 
         var service = new HitlApprovalService(
             repo,
@@ -150,7 +146,9 @@ public sealed class HitlApprovalTests
             executor,
             executions: executionRepo);
 
-        var (request, approvalId, runId, _) = CreateSampleRequest();
+        var (request, approvalId, runId, chainId) = CreateSampleRequest();
+        await db.Catalog.UpsertAsync(CreateChainDef(chainId));
+        await executionRepo.CreateRunAsync(runId, chainId, CreateTrigger(chainId));
         await service.CreateAsync(request);
 
         // Cards were broadcast to both channels
@@ -185,13 +183,13 @@ public sealed class HitlApprovalTests
     public async Task Edit_ValidPayloadAndSchema_ResolvesWithEditedPayloadAndResumes()
     {
         // Arrange
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var sender = new FakeHitlCardSender(ChannelKind.Telegram);
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
-        var executionRepo = new InMemoryChainExecutionRepository();
-        var defRepo = new InMemoryChainDefinitionRepository();
-        var pkgRepo = new FakePackageRegistryRepository();
+        var executionRepo = db.Executions;
+        var defRepo = db.Catalog;
+        var pkgRepo = db.Packages;
         var schemaValidator = new FakeSchemaValidator();
 
         string tempPkgDir = Path.Combine(Path.GetTempPath(), "test_pkg_hitl_" + Guid.NewGuid().ToString("N")[..8]);
@@ -224,16 +222,7 @@ public sealed class HitlApprovalTests
             Integrity = new NetrunnerIntegrityDto(),
         };
 
-        var pkgRecord = new PackageRegistrationRecord
-        {
-            Slug = "sample-worker",
-            Version = "1.0.0",
-            PackageDir = tempPkgDir,
-            Manifest = manifest,
-            ManifestHash = "hash123",
-            RegisteredAtUtc = DateTimeOffset.UtcNow,
-        };
-        pkgRepo.AddPackage(pkgRecord);
+        await pkgRepo.RegisterPackageAsync(manifest, tempPkgDir, "hash123");
 
         var (request, approvalId, runId, chainId) = CreateSampleRequest();
 
@@ -252,6 +241,7 @@ public sealed class HitlApprovalTests
             Delivery = new ChainDeliveryStepDto { Channel = ChannelKind.Desktop, Target = "local", MessageTemplate = "Done: {{scriptResult}}" },
         };
         await defRepo.UpsertAsync(chainDef);
+        await executionRepo.CreateRunAsync(runId, chainId, CreateTrigger(chainId));
 
         var service = new HitlApprovalService(
             repo,
@@ -303,7 +293,7 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task Edit_InvalidJson_ThrowsInvalidEditedPayload_AndStaysPending()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
 
@@ -326,11 +316,11 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task Edit_SchemaValidationFailed_ThrowsInvalidEditedPayload_AndStaysPending()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
-        var defRepo = new InMemoryChainDefinitionRepository();
-        var pkgRepo = new FakePackageRegistryRepository();
+        var defRepo = db.Catalog;
+        var pkgRepo = db.Packages;
         var schemaValidator = new FakeSchemaValidator
         {
             ErrorsToReturn = ["Property 'count' must be positive integer"]
@@ -366,16 +356,7 @@ public sealed class HitlApprovalTests
             Integrity = new NetrunnerIntegrityDto(),
         };
 
-        var pkgRecord = new PackageRegistrationRecord
-        {
-            Slug = "worker-err",
-            Version = "1.0.0",
-            PackageDir = tempPkgDir,
-            Manifest = manifest,
-            ManifestHash = "hash123",
-            RegisteredAtUtc = DateTimeOffset.UtcNow,
-        };
-        pkgRepo.AddPackage(pkgRecord);
+        await pkgRepo.RegisterPackageAsync(manifest, tempPkgDir, "hash123");
 
         var (request, approvalId, _, chainId) = CreateSampleRequest();
 
@@ -430,13 +411,14 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task Reject_ValidOwner_CancelsRun_AndDoesNotResume()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
-        var executionRepo = new InMemoryChainExecutionRepository();
+        var executionRepo = db.Executions;
 
         var service = new HitlApprovalService(repo, [], ownerGuard, executor, executions: executionRepo);
         var (request, approvalId, runId, chainId) = CreateSampleRequest();
+        await db.Catalog.UpsertAsync(CreateChainDef(chainId));
         await executionRepo.CreateRunAsync(runId, chainId, new TriggerEvent
         {
             EventId = Guid.NewGuid(),
@@ -484,15 +466,16 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task ExpireOverdue_TransitionsPendingToExpired_AndCancelsRun()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
-        var executionRepo = new InMemoryChainExecutionRepository();
+        var executionRepo = db.Executions;
 
         var service = new HitlApprovalService(repo, [], ownerGuard, executor, executions: executionRepo);
 
         // Create an already-expired request
         var (request, approvalId, runId, chainId) = CreateSampleRequest(lifetime: TimeSpan.FromMinutes(-10));
+        await db.Catalog.UpsertAsync(CreateChainDef(chainId));
         await executionRepo.CreateRunAsync(runId, chainId, new TriggerEvent
         {
             EventId = Guid.NewGuid(),
@@ -535,7 +518,7 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task NonOwner_ThrowsAccessDenied_AndStaysPending()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard(); // only "owner-1" is authorized
         var executor = new FakeChainExecutor();
 
@@ -563,7 +546,7 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task AlreadyResolved_SecondDecisionFromAnotherChannel_ThrowsAlreadyResolved()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
 
@@ -587,7 +570,7 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task RestartSimulation_NewServiceInstanceOnSameRepo_ResolvesPending()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor1 = new FakeChainExecutor();
 
@@ -615,7 +598,7 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task GateWaiter_RequestApprovalAsync_UnblocksWhenApproved()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var ownerGuard = new FakeOwnerGuard();
         var executor = new FakeChainExecutor();
 
@@ -646,7 +629,7 @@ public sealed class HitlApprovalTests
     [Fact]
     public async Task CardSender_FailingChannel_DoesNotBlockRequestCreation()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var failingSender = new FakeHitlCardSender(ChannelKind.Telegram) { ShouldThrow = true };
         var workingSender = new FakeHitlCardSender(ChannelKind.Desktop) { ShouldThrow = false };
         var ownerGuard = new FakeOwnerGuard();
@@ -668,9 +651,9 @@ public sealed class HitlApprovalTests
     }
 
     [Fact]
-    public async Task InMemoryRepository_ConcurrentTryResolve_OnlyOneSucceeds()
+    public async Task Store_ConcurrentTryResolve_OnlyOneSucceeds()
     {
-        var repo = new InMemoryHitlApprovalRepository();
+        await using var db = await TestDatabase.CreateAsync();         var repo = db.Hitl;
         var (request, approvalId, runId, chainId) = CreateSampleRequest();
 
         var record = new HitlApprovalRecord

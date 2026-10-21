@@ -1,12 +1,17 @@
 using CyberPipe.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>Репозиторий контрольных точек на EF Core; идемпотентность по (run_id, step).</summary>
-public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
+/// <summary>
+/// Хранилище контрольных точек (таблица app.chain_checkpoints):
+/// идемпотентность по (run_id, step). Все чтения — LINQ с AsNoTracking,
+/// сырых SQL-строк нет.
+/// </summary>
+public sealed class CheckpointStoreService
 {
     private static readonly IReadOnlyDictionary<string, string> Sorts = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -16,36 +21,54 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
         ["step"] = nameof(CheckpointEntity.Step),
     };
 
-    /// <summary>Создаёт репозиторий контрольных точек поверх фабрики контекстов.</summary>
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
+
+    /// <summary>Создаёт хранилище контрольных точек поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
-    public CheckpointRepository(
+    public CheckpointStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<CheckpointStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
     }
 
-    /// <inheritdoc />
+    /// <summary>Возвращает чекпоинт по идентификатору строки; отсутствие — null.</summary>
+    /// <param name="id">Идентификатор строки чекпоинта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Чекпоинт или null.</returns>
     public Task<CheckpointRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
         ExecuteAsync<CheckpointRecord?>("checkpoints.get", async (db, token) =>
         {
-            string key = GuidKey(id);
+            string key = EfServiceHelper.GuidKey(id);
             CheckpointEntity? entity = await db.Checkpoints
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает чекпоинт запуска по шагу; отсутствие — null.</summary>
+    /// <param name="runId">Идентификатор запуска.</param>
+    /// <param name="step">Шаг цепочки.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Чекпоинт или null.</returns>
     public Task<CheckpointRecord?> GetByRunAndStepAsync(RunId runId, ChainStepKind step, CancellationToken cancellationToken = default) =>
         ExecuteAsync<CheckpointRecord?>("checkpoints.get_by_run_step", async (db, token) =>
         {
-            string runKey = GuidKey(runId.Value);
+            string runKey = EfServiceHelper.GuidKey(runId.Value);
             string stepKey = step.ToString();
             CheckpointEntity? entity = await db.Checkpoints
                 .AsNoTracking()
@@ -54,16 +77,20 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Страница чекпоинтов; сортировка из белого списка.</summary>
+    /// <param name="query">Запрос страницы.</param>
+    /// <param name="runId">Необязательный фильтр по запуску.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Страница чекпоинтов.</returns>
     public Task<PagedResult<CheckpointRecord>> ListAsync(PagedQuery query, RunId? runId = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("checkpoints.list", async (db, token) =>
         {
-            string sort = ResolveSortKey(query, Sorts);
-            string? runKey = runId is null ? null : GuidKey(runId.Value.Value);
+            string sort = EfServiceHelper.ResolveSortKey(query, Sorts, _options.MaxPageLimit);
+            string? runKey = runId is null ? null : EfServiceHelper.GuidKey(runId.Value.Value);
             IQueryable<CheckpointEntity> filtered = db.Checkpoints
                 .AsNoTracking()
                 .Where(e => runKey == null || e.RunId == runKey);
-            IQueryable<CheckpointEntity> ordered = ApplyOrdering(filtered, sort, query.Descending, nameof(CheckpointEntity.Id));
+            IQueryable<CheckpointEntity> ordered = EfServiceHelper.ApplyOrdering(filtered, sort, query.Descending, nameof(CheckpointEntity.Id));
             long total = await filtered.LongCountAsync(token).ConfigureAwait(false);
             List<CheckpointEntity> entities = await ordered
                 .Skip(query.Offset).Take(query.Limit)
@@ -77,7 +104,13 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
             };
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Добавляет чекпоинт. Идемпотентность: уникальный ключ (RunId, Step) — повтор обновляет
+    /// состояние существующей строки и возвращает её, а не создаёт дубль.
+    /// </summary>
+    /// <param name="checkpoint">DTO чекпоинта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Сохранённый чекпоинт с идентификатором и версией.</returns>
     public Task<CheckpointRecord> AddAsync(ChainCheckpointDto checkpoint, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
@@ -87,7 +120,7 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
         string? output = checkpoint.OutputJson is null ? null : RepositoryJson.EnsureJson(checkpoint.OutputJson, nameof(checkpoint.OutputJson));
         return ExecuteAsync("checkpoints.add", async (db, token) =>
         {
-            string runKey = GuidKey(checkpoint.RunId.Value);
+            string runKey = EfServiceHelper.GuidKey(checkpoint.RunId.Value);
             string stepKey = checkpoint.Step.ToString();
             CheckpointEntity? existing = await db.Checkpoints
                 .FirstOrDefaultAsync(e => e.RunId == runKey && e.Step == stepKey, token)
@@ -104,7 +137,7 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
                 existing.ErrorJson = errorJson;
                 existing.CheckpointAt = checkpointAt;
                 existing.UpdatedAt = now;
-                await SaveAsync(db, token).ConfigureAwait(false);
+                await db.SaveChangesAsync(token).ConfigureAwait(false);
                 return Map(existing);
             }
 
@@ -112,7 +145,7 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
             {
                 Id = Guid.NewGuid().ToString("D"),
                 RunId = runKey,
-                ChainId = GuidKey(checkpoint.ChainId.Value),
+                ChainId = EfServiceHelper.GuidKey(checkpoint.ChainId.Value),
                 Step = stepKey,
                 State = checkpoint.State.ToString(),
                 AttemptCount = checkpoint.AttemptCount,
@@ -126,7 +159,7 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
             db.Checkpoints.Add(entity);
             try
             {
-                await SaveAsync(db, token).ConfigureAwait(false);
+                await db.SaveChangesAsync(token).ConfigureAwait(false);
             }
             catch (DbUpdateException)
             {
@@ -143,7 +176,12 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Обновляет чекпоинт при совпадении expectedRowVersion с updated_at записи.</summary>
+    /// <param name="record">Новое состояние чекпоинта.</param>
+    /// <param name="expectedRowVersion">Версия строки, полученная при чтении.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Обновлённый чекпоинт с новой версией.</returns>
+    /// <exception cref="OptimisticConcurrencyException">Версия устарела или запись отсутствует.</exception>
     public Task<CheckpointRecord> UpdateAsync(CheckpointRecord record, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -154,7 +192,7 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
         return ExecuteAsync("checkpoints.update", async (db, token) =>
         {
             DateTimeOffset now = DateTimeOffset.UtcNow;
-            string key = GuidKey(record.Id);
+            string key = EfServiceHelper.GuidKey(record.Id);
             int affected = await db.Checkpoints
                 .Where(e => e.Id == key && e.UpdatedAt == expectedRowVersion)
                 .ExecuteUpdateAsync(s => s
@@ -176,11 +214,14 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Удаляет чекпоинт; отсутствие — false.</summary>
+    /// <param name="id">Идентификатор строки чекпоинта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>true, если запись была удалена.</returns>
     public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) =>
         ExecuteAsync("checkpoints.delete", async (db, token) =>
         {
-            string key = GuidKey(id);
+            string key = EfServiceHelper.GuidKey(id);
             int affected = await db.Checkpoints
                 .Where(e => e.Id == key)
                 .ExecuteDeleteAsync(token).ConfigureAwait(false);
@@ -205,4 +246,10 @@ public sealed class CheckpointRepository : RepositoryBase, ICheckpointRepository
         CreatedAtUtc = entity.CreatedAt,
         RowVersion = entity.UpdatedAt,
     };
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }

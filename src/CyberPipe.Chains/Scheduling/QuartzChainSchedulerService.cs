@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Quartz;
 using Quartz.Impl;
 using Quartz.Impl.Matchers;
@@ -270,8 +271,17 @@ public sealed class QuartzChainSchedulerService : IChainSchedulerService, ICronT
     }
 
     /// <inheritdoc />
-    public async Task SyncWithRepositoryAsync(
+    Task IChainSchedulerService.SyncWithRepositoryAsync(
         IChainDefinitionRepository repository,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Scheduler sync uses ChainCatalogService; resolve QuartzChainSchedulerService directly.");
+
+    /// <summary>
+    /// Синхронизирует расписание с каталогом цепочек: регистрирует включённые Cron-цепочки
+    /// и снимает отключённые или отсутствующие.
+    /// </summary>
+    public async Task SyncWithRepositoryAsync(
+        ChainCatalogService repository,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(repository);

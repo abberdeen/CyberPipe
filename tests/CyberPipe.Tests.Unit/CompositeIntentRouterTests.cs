@@ -1,10 +1,11 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Router;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
 
-public sealed class CompositeIntentRouterTests
+public sealed class CompositeIntentRouterTests : IAsyncLifetime
 {
     private sealed class EmptyRuleProvider : IRegexRuleProvider
     {
@@ -23,16 +24,9 @@ public sealed class CompositeIntentRouterTests
             Task.FromResult(new float[] { 1f, 0f, 0f });
     }
 
-    private sealed class EmptyStore : IEmbeddingStore
+    private sealed class NoExamplesProvider : ISemanticExampleProvider
     {
-        public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<EmbeddingMatch>>([]);
-        public Task<bool> DeleteAsync(string ns, string sourceRef, CancellationToken cancellationToken = default) => Task.FromResult(false);
-        public Task<int> DeleteByOwnerScopeAsync(string ns, CancellationToken cancellationToken = default) => Task.FromResult(0);
-        public Task<long> CountAsync(string ns, CancellationToken cancellationToken = default) => Task.FromResult(0L);
-        public Task<int> DeleteOldestAsync(string ns, int keepCount, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public IReadOnlyList<SemanticExampleDefinition> GetExamples() => [];
     }
 
     private sealed class FakeChat : IChatModelProvider
@@ -95,10 +89,28 @@ public sealed class CompositeIntentRouterTests
         }
     }
 
-    private static CompositeIntentRouter Create(IRegexRuleProvider rules, FakeChat chat, ISkillInvoker? invoker = null) =>
+    private TestDatabase? _db;
+
+    public async Task InitializeAsync()
+    {
+        _db = await TestDatabase.CreateAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_db is not null)
+        {
+            await _db.DisposeAsync();
+        }
+    }
+
+    private CompositeIntentRouter Create(IRegexRuleProvider rules, FakeChat chat, ISkillInvoker? invoker = null) =>
         new(
             new Tier0RegexRouter(rules),
-            new Tier1SemanticRouter(new FixedEmbeddingProvider(), new EmptyStore()),
+            new Tier1SemanticRouter(
+                new FixedEmbeddingProvider(),
+                _db!.Embeddings,
+                exampleProvider: new NoExamplesProvider()),
             new Tier23LlmRouter(chat, new AllowGovernor()),
             invoker);
 

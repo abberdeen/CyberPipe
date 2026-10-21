@@ -2,55 +2,73 @@ using System.Text.Json;
 using CyberPipe.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>SQLite реализация репозитория HITL-подтверждений (TASK-046) на EF Core.
+/// <summary>
+/// Хранилище HITL-подтверждений (таблица chain_hitl_approvals) на EF Core.
 /// Атомарное разрешение запросов: UPDATE выполняется одним оператором с проверкой
-/// статуса 'Pending', поэтому побеждает ровно один конкурент.
+/// статуса 'Pending', поэтому побеждает ровно один конкурент. Сырых SQL-строк нет.
 /// </summary>
-public sealed class SqliteHitlApprovalRepository : RepositoryBase, IHitlApprovalRepository
+public sealed class HitlApprovalStoreService
 {
-    /// <summary>Создаёт репозиторий HITL-подтверждений поверх фабрики контекстов.</summary>
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
+
+    /// <summary>Создаёт хранилище HITL-подтверждений поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
-    public SqliteHitlApprovalRepository(
+    public HitlApprovalStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<HitlApprovalStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
     }
 
     /// <summary>
     /// Обеспечивает существование таблицы chain_hitl_approvals: схема покрыта EF-миграцией,
     /// поэтому метод доводит базу до актуального состояния миграций (идемпотентно).
     /// </summary>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Задача подготовки таблицы.</returns>
     public Task EnsureTableCreatedAsync(CancellationToken cancellationToken = default) =>
-        ExecuteAsync("hitl_approvals.ensure_table", async (db, token) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, "hitl_approvals.ensure_table", async (db, token) =>
         {
             await EfBaseline.EnsureBaselineAsync(db, token).ConfigureAwait(false);
             await db.Database.MigrateAsync(token).ConfigureAwait(false);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Создаёт запрос подтверждения; повтор того же идентификатора перезаписывает поля.</summary>
+    /// <param name="record">Запись подтверждения.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Сохранённая запись.</returns>
     public Task<HitlApprovalRecord> CreateAsync(HitlApprovalRecord record, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
         return ExecuteAsync("hitl_approvals.create", async (db, token) =>
         {
-            string key = GuidKey(record.ApprovalId);
+            string key = EfServiceHelper.GuidKey(record.ApprovalId);
             HitlEntity? existing = await db.HitlApprovals
                 .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
             var entity = new HitlEntity
             {
                 Id = key,
-                RunId = GuidKey(record.RunId.Value),
-                ChainId = GuidKey(record.ChainId.Value),
+                RunId = EfServiceHelper.GuidKey(record.RunId.Value),
+                ChainId = EfServiceHelper.GuidKey(record.ChainId.Value),
                 Title = record.Title,
                 PreviewText = record.PreviewText,
                 PayloadJson = record.PayloadJson,
@@ -78,7 +96,7 @@ public sealed class SqliteHitlApprovalRepository : RepositoryBase, IHitlApproval
                 existing.ExpiresAt = entity.ExpiresAt;
             }
 
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             HitlEntity? stored = await db.HitlApprovals
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
@@ -86,39 +104,58 @@ public sealed class SqliteHitlApprovalRepository : RepositoryBase, IHitlApproval
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Возвращает подтверждение; отсутствие — null.</summary>
+    /// <param name="approvalId">Идентификатор подтверждения.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Подтверждение или null.</returns>
     public Task<HitlApprovalRecord?> GetAsync(Guid approvalId, CancellationToken cancellationToken = default) =>
         ExecuteAsync<HitlApprovalRecord?>("hitl_approvals.get", async (db, token) =>
         {
-            string key = GuidKey(approvalId);
+            string key = EfServiceHelper.GuidKey(approvalId);
             HitlEntity? entity = await db.HitlApprovals
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Атомарно разрешает подтверждение одним условным UPDATE вне транзакций:
+    /// побеждает ровно один конкурент, остальные получают false.
+    /// </summary>
+    /// <param name="approvalId">Идентификатор подтверждения.</param>
+    /// <param name="result">Результат решения владельца.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>true, если статус перешёл из Pending в разрешённый.</returns>
     public Task<bool> TryResolveAsync(Guid approvalId, HitlApprovalResult result, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(result);
         return ExecuteAsync("hitl_approvals.resolve", async (db, token) =>
         {
-            string key = GuidKey(approvalId);
+            string key = EfServiceHelper.GuidKey(approvalId);
             HitlStatus newStatus = result.Decision == HitlDecision.Expired
                 ? HitlStatus.Expired
                 : HitlStatus.Resolved;
             string resolutionJson = JsonSerializer.Serialize(result);
+            // При решении Edited нагрузка подтверждения заменяется отредактированной,
+            // как делал предыдущий репозиторий: чтения GetAsync видят итог.
+            string? editedPayload = result.Decision == HitlDecision.Edited
+                ? result.EditedPayloadJson
+                : null;
             int affected = await db.HitlApprovals
                 .Where(e => e.Id == key && e.Status == nameof(HitlStatus.Pending))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(e => e.Status, newStatus.ToString())
-                    .SetProperty(e => e.ResolutionJson, resolutionJson), token)
+                    .SetProperty(e => e.ResolutionJson, resolutionJson)
+                    .SetProperty(e => e.PayloadJson, e => editedPayload ?? e.PayloadJson), token)
                 .ConfigureAwait(false);
             return affected > 0;
         }, cancellationToken);
     }
 
-    /// <inheritdoc />
+    /// <summary>Возвращает ожидающие подтверждения с истёкшим сроком, по возрастанию срока.</summary>
+    /// <param name="nowUtc">Текущий момент (UTC).</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Просроченные ожидающие подтверждения.</returns>
     public Task<IReadOnlyList<HitlApprovalRecord>> ListPendingExpiredAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken = default) =>
         ExecuteAsync<IReadOnlyList<HitlApprovalRecord>>("hitl_approvals.list_pending_expired", async (db, token) =>
         {
@@ -177,4 +214,10 @@ public sealed class SqliteHitlApprovalRepository : RepositoryBase, IHitlApproval
             Resolution = resolution,
         };
     }
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }

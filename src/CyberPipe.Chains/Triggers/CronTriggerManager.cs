@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains.Triggers;
 
@@ -9,7 +10,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class CronTriggerManager
 {
-    private readonly IChainDefinitionRepository _repository;
+    private readonly ChainCatalogService _repository;
     private readonly IChainExecutor _executor;
     private readonly ICronTriggerRegistrar _cronRegistrar;
     private readonly IIdempotencyStore _idempotencyStore;
@@ -19,7 +20,7 @@ public sealed class CronTriggerManager
     /// Инициализирует менеджер cron-триггеров.
     /// </summary>
     public CronTriggerManager(
-        IChainDefinitionRepository repository,
+        ChainCatalogService repository,
         IChainExecutor executor,
         ICronTriggerRegistrar cronRegistrar,
         IIdempotencyStore idempotencyStore,

@@ -44,7 +44,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task Upsert_EmptyVector_ThrowsArgumentBeforeDb()
     {
         var factory = new ThrowingFactory();
-        var store = new SqliteEmbeddingStore(factory, Options);
+        var store = new EmbeddingStoreService(factory, storeOptions: Options);
         await Assert.ThrowsAsync<ArgumentException>(() => store.UpsertAsync(Record([])));
         Assert.Equal(0, factory.CallCount);
     }
@@ -52,7 +52,7 @@ public sealed class EmbeddingStoreValidationTests
     [Fact]
     public async Task Upsert_WrongDimensionForConfiguredModel_ThrowsMismatch()
     {
-        var store = new SqliteEmbeddingStore(new ThrowingFactory(), Options);
+        var store = new EmbeddingStoreService(new ThrowingFactory(), storeOptions: Options);
         EmbeddingDimensionMismatchException ex = await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(
             () => store.UpsertAsync(Record([1f, 0f])));
         Assert.Equal(3, ex.Expected);
@@ -64,7 +64,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task Upsert_DeclaredDimensionDiffersFromVector_ThrowsMismatch()
     {
         // Модель не в конфигурации: ожидаемая размерность — поле Dimension записи.
-        var store = new SqliteEmbeddingStore(new ThrowingFactory(), new EmbeddingStoreOptions());
+        var store = new EmbeddingStoreService(new ThrowingFactory(), storeOptions: new EmbeddingStoreOptions());
         EmbeddingDimensionMismatchException ex = await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(
             () => store.UpsertAsync(Record([1f, 0f], dimension: 4, modelId: "unknown-model")));
         Assert.Equal(4, ex.Expected);
@@ -75,7 +75,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task Search_EmptyVectorAndZeroTopK_ThrowArgumentBeforeDb()
     {
         var factory = new ThrowingFactory();
-        var store = new SqliteEmbeddingStore(factory, Options);
+        var store = new EmbeddingStoreService(factory, storeOptions: Options);
         await Assert.ThrowsAsync<ArgumentException>(() => store.SearchAsync(new EmbeddingQuery
         {
             Namespace = "router", Vector = [], TopK = 5,
@@ -90,7 +90,7 @@ public sealed class EmbeddingStoreValidationTests
     [Fact]
     public async Task Search_WrongDimensionForModelFilter_ThrowsMismatch()
     {
-        var store = new SqliteEmbeddingStore(new ThrowingFactory(), Options);
+        var store = new EmbeddingStoreService(new ThrowingFactory(), storeOptions: Options);
         EmbeddingDimensionMismatchException ex = await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(
             () => store.SearchAsync(new EmbeddingQuery
             {
@@ -104,7 +104,7 @@ public sealed class EmbeddingStoreValidationTests
     public async Task UpsertMany_OneBadRecord_ThrowsBeforeDb()
     {
         var factory = new ThrowingFactory();
-        var store = new SqliteEmbeddingStore(factory, Options);
+        var store = new EmbeddingStoreService(factory, storeOptions: Options);
         await Assert.ThrowsAsync<EmbeddingDimensionMismatchException>(() => store.UpsertManyAsync(
             [Record([1f, 0f, 0f]), Record([1f, 0f])]));
         Assert.Equal(0, factory.CallCount);

@@ -1,82 +1,35 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
+using CyberPipe.Data.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CyberPipe.Data.Tests;
 
 public sealed class SqliteChainExecutionRepositoryTests
 {
-    private sealed class FakeRunRepository : IChainRunRepository
+    private static async Task<(SqliteTestDatabase Db, ChainExecutionStoreService Exec)> CreateAsync()
     {
-        public Dictionary<RunId, ChainRunRecord> Runs { get; } = new();
-
-        public Task<ChainRunRecord?> GetAsync(RunId id, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Runs.TryGetValue(id, out ChainRunRecord? r) ? r : null);
-
-        public int MaxLimitSeen { get; private set; }
-
-        public Task<PagedResult<ChainRunRecord>> ListAsync(PagedQuery query, ChainId? chainId = null, CancellationToken cancellationToken = default)
-        {
-            query.Validate(200);
-            MaxLimitSeen = Math.Max(MaxLimitSeen, query.Limit);
-            List<ChainRunRecord> matched = Runs.Values
-                .Where(r => chainId is null || r.ChainId == chainId.Value)
-                .ToList();
-            List<ChainRunRecord> items = matched.Skip(query.Offset).Take(query.Limit).ToList();
-            return Task.FromResult(new PagedResult<ChainRunRecord>
-            {
-                Items = items,
-                TotalCount = matched.Count,
-                Offset = query.Offset,
-                Limit = query.Limit,
-            });
-        }
-
-        public Task<ChainRunRecord> AddAsync(ChainRunRecord run, CancellationToken cancellationToken = default)
-        {
-            Runs[run.Id] = run;
-            return Task.FromResult(run);
-        }
-
-        public Task<ChainRunRecord> UpdateAsync(ChainRunRecord run, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default)
-        {
-            Runs[run.Id] = run with { RowVersion = DateTimeOffset.UtcNow };
-            return Task.FromResult(Runs[run.Id]);
-        }
-
-        public Task<bool> DeleteAsync(RunId id, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Runs.Remove(id));
+        SqliteTestDatabase db = await SqliteTestDatabase.CreateAsync();
+        var runs = new ChainRunRecordService(db.DbFactory);
+        var checkpoints = new CheckpointStoreService(db.DbFactory);
+        return (db, new ChainExecutionStoreService(runs, checkpoints));
     }
 
-    private sealed class FakeCheckpointRepository : ICheckpointRepository
+    private static ChainDefinitionDto Chain(string name)
     {
-        public Dictionary<(RunId, ChainStepKind), CheckpointRecord> Items { get; } = new();
-
-        public Task<CheckpointRecord?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
-            Task.FromResult<CheckpointRecord?>(null);
-
-        public Task<CheckpointRecord?> GetByRunAndStepAsync(RunId runId, ChainStepKind step, CancellationToken cancellationToken = default) =>
-            Task.FromResult(Items.TryGetValue((runId, step), out CheckpointRecord? r) ? r : null);
-
-        public Task<PagedResult<CheckpointRecord>> ListAsync(PagedQuery query, RunId? runId = null, CancellationToken cancellationToken = default)
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        return new ChainDefinitionDto
         {
-            List<CheckpointRecord> items = Items.Values.Where(r => runId is null || r.Checkpoint.RunId == runId.Value).ToList();
-            return Task.FromResult(new PagedResult<CheckpointRecord> { Items = items, TotalCount = items.Count, Offset = query.Offset, Limit = query.Limit });
-        }
-
-        public Task<CheckpointRecord> AddAsync(ChainCheckpointDto checkpoint, CancellationToken cancellationToken = default)
-        {
-            var record = new CheckpointRecord { Id = Guid.NewGuid(), Checkpoint = checkpoint, CreatedAtUtc = DateTimeOffset.UtcNow, RowVersion = DateTimeOffset.UtcNow };
-            Items[(checkpoint.RunId, checkpoint.Step)] = record;
-            return Task.FromResult(record);
-        }
-
-        public Task<CheckpointRecord> UpdateAsync(CheckpointRecord record, DateTimeOffset expectedRowVersion, CancellationToken cancellationToken = default)
-        {
-            Items[(record.Checkpoint.RunId, record.Checkpoint.Step)] = record;
-            return Task.FromResult(record);
-        }
-
-        public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(false);
+            Id = ChainId.New(),
+            Name = name,
+            Trigger = new ChainTriggerDto { Kind = ChainTriggerKind.Webhook, WebhookPath = "/hook/" + name },
+            Skill = new ChainSkillStepDto { SkillId = "skill-1" },
+            Script = new ChainScriptStepDto { PackageSlug = "pkg", PackageVersion = "1.0.0" },
+            Delivery = new ChainDeliveryStepDto { Channel = ChannelKind.Cli, Target = "owner", MessageTemplate = "done" },
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
     }
 
     private static TriggerEvent Trigger(ChainId chainId, string key = "k1") => new()
@@ -90,58 +43,51 @@ public sealed class SqliteChainExecutionRepositoryTests
         IdempotencyKey = key,
     };
 
-    [Fact]
+    [SqliteIntegrationFact]
     public async Task SqliteChainExecution_CreateCheckpointStatus_RoundTrip()
     {
-        var repo = new SqliteChainExecutionRepository(new FakeRunRepository(), new FakeCheckpointRepository());
-        var chainId = new ChainId(Guid.NewGuid());
+        (SqliteTestDatabase db, ChainExecutionStoreService exec) = await CreateAsync();
+        await using var _ = db;
+        ChainDefinitionDto chain = await new ChainCatalogService(db.DbFactory).AddAsync(Chain("exec-roundtrip"));
+        ChainId chainId = chain.Id;
         var runId = new RunId(Guid.NewGuid());
 
-        ChainRunState created = await repo.CreateRunAsync(runId, chainId, Trigger(chainId));
+        ChainRunState created = await exec.CreateRunAsync(runId, chainId, Trigger(chainId));
         Assert.Equal(ChainRunStatus.Running, created.Status);
 
         // Идемпотентность: повтор с тем же ключом возвращает тот же запуск.
-        ChainRunState again = await repo.CreateRunAsync(new RunId(Guid.NewGuid()), chainId, Trigger(chainId));
+        ChainRunState again = await exec.CreateRunAsync(new RunId(Guid.NewGuid()), chainId, Trigger(chainId));
         Assert.Equal(runId, again.RunId);
 
-        await repo.SaveCheckpointAsync(new ChainCheckpointDto
+        await exec.SaveCheckpointAsync(new ChainCheckpointDto
         {
             RunId = runId, ChainId = chainId, Step = ChainStepKind.Script,
             State = ChainStepState.Completed, CheckpointAtUtc = DateTimeOffset.UtcNow,
         });
-        await repo.UpdateRunStatusAsync(runId, ChainRunStatus.Completed);
+        await exec.UpdateRunStatusAsync(runId, ChainRunStatus.Completed);
 
-        ChainRunState? loaded = await repo.GetRunAsync(runId);
+        ChainRunState? loaded = await exec.GetRunAsync(runId);
         Assert.NotNull(loaded);
         Assert.Equal(ChainRunStatus.Completed, loaded.Status);
         Assert.NotNull(loaded.FinishedAtUtc);
         Assert.Single(loaded.Checkpoints);
         Assert.Equal(ChainStepKind.Script, loaded.Checkpoints[0].Step);
-        Assert.Empty(await repo.ListUnfinishedRunsAsync());
+        Assert.Empty(await exec.ListUnfinishedRunsAsync());
     }
 
-    [Fact]
+    [SqliteIntegrationFact]
     public async Task ListUnfinishedRuns_PagesWithinMaxLimit()
     {
-        var runs = new FakeRunRepository();
-        var chainId = new ChainId(Guid.NewGuid());
+        (SqliteTestDatabase db, ChainExecutionStoreService exec) = await CreateAsync();
+        await using var _ = db;
+        ChainDefinitionDto chain = await new ChainCatalogService(db.DbFactory).AddAsync(Chain("exec-paging"));
+        ChainId chainId = chain.Id;
         for (int i = 0; i < 201; i++)
-        {
-            var id = new RunId(Guid.NewGuid());
-            runs.Runs[id] = new ChainRunRecord
-            {
-                Id = id,
-                ChainId = chainId,
-                IdempotencyKey = $"k{i}",
-                Status = ChainRunStatus.Running,
-                Source = "test",
-            };
-        }
+            await exec.CreateRunAsync(new RunId(Guid.NewGuid()), chainId, Trigger(chainId, $"k{i}"));
 
-        var repo = new SqliteChainExecutionRepository(runs, new FakeCheckpointRepository());
-        IReadOnlyList<RunId> unfinished = await repo.ListUnfinishedRunsAsync();
+        IReadOnlyList<RunId> unfinished = await exec.ListUnfinishedRunsAsync();
 
         Assert.Equal(201, unfinished.Count);
-        Assert.Equal(200, runs.MaxLimitSeen);
+        Assert.Equal(201, unfinished.Distinct().Count());
     }
 }

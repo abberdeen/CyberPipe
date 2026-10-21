@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Logging.Telemetry;
 
 namespace CyberPipe.Chains.Execution;
@@ -15,11 +16,11 @@ namespace CyberPipe.Chains.Execution;
 /// </summary>
 public sealed class ChainExecutor : IChainExecutor
 {
-    private readonly IChainExecutionRepository _repository;
-    private readonly IChainDefinitionRepository _chainDefinitions;
+    private readonly ChainExecutionStoreService _repository;
+    private readonly ChainCatalogService _chainDefinitions;
     private readonly ISkillInvoker _skillInvoker;
     private readonly IScriptRunnerRegistry _scriptRunners;
-    private readonly IPackageRegistryRepository _packageRegistry;
+    private readonly NetrunnerPackageStoreService _packageRegistry;
     private readonly IDeliveryPort _deliveryPort;
     private readonly IHitlApprovalGate? _hitlGate;
     private readonly IDelayedResumeScheduler? _resumeScheduler;
@@ -30,11 +31,11 @@ public sealed class ChainExecutor : IChainExecutor
     /// Создаёт экземпляр исполнителя цепочек.
     /// </summary>
     public ChainExecutor(
-        IChainExecutionRepository repository,
-        IChainDefinitionRepository chainDefinitions,
+        ChainExecutionStoreService repository,
+        ChainCatalogService chainDefinitions,
         ISkillInvoker skillInvoker,
         IScriptRunnerRegistry scriptRunners,
-        IPackageRegistryRepository packageRegistry,
+        NetrunnerPackageStoreService packageRegistry,
         IDeliveryPort deliveryPort,
         IHitlApprovalGate? hitlGate = null,
         IDelayedResumeScheduler? resumeScheduler = null,

@@ -2,28 +2,48 @@ using System.Text.Json;
 using CyberPipe.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>SQLite реестр Netrunner-пакетов (TASK-042) на EF Core: регистрации переживают рестарт.</summary>
-public sealed class SqlitePackageRegistryRepository : RepositoryBase, IPackageRegistryRepository
+/// <summary>
+/// Реестр Netrunner-пакетов (таблица netrunner_packages) на EF Core:
+/// регистрации переживают рестарт. Все чтения — LINQ с AsNoTracking,
+/// сырых SQL-строк нет.
+/// </summary>
+public sealed class NetrunnerPackageStoreService
 {
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
+
     /// <summary>Создаёт реестр пакетов поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
-    public SqlitePackageRegistryRepository(
+    public NetrunnerPackageStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<NetrunnerPackageStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
     }
 
-    /// <inheritdoc />
+    /// <summary>Возвращает регистрацию пакета; отсутствие — null.</summary>
+    /// <param name="slug">Слаг пакета.</param>
+    /// <param name="version">Версия пакета.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Регистрация или null.</returns>
     public Task<PackageRegistrationRecord?> GetPackageAsync(string slug, string version, CancellationToken cancellationToken = default) =>
         ExecuteAsync<PackageRegistrationRecord?>("packages.get", async (db, token) =>
         {
@@ -34,7 +54,16 @@ public sealed class SqlitePackageRegistryRepository : RepositoryBase, IPackageRe
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Регистрирует пакет. Идемпотентность: повтор с тем же хешем манифеста возвращает
+    /// существующую регистрацию; тот же slug+version с другим хешем — исключение.
+    /// </summary>
+    /// <param name="manifest">Манифест пакета.</param>
+    /// <param name="packageDir">Каталог пакета.</param>
+    /// <param name="manifestHash">Хеш манифеста.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Регистрация пакета.</returns>
+    /// <exception cref="PackageRegistrationException">Версия уже зарегистрирована с другим хешем.</exception>
     public Task<PackageRegistrationRecord> RegisterPackageAsync(NetrunnerManifestDto manifest, string packageDir, string manifestHash, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(manifest);
@@ -64,7 +93,7 @@ public sealed class SqlitePackageRegistryRepository : RepositoryBase, IPackageRe
                 RegisteredAt = now,
             };
             db.Packages.Add(entity);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             PackageRegistrationRecord record = Map(entity);
             return record;
         }, cancellationToken);
@@ -80,4 +109,10 @@ public sealed class SqlitePackageRegistryRepository : RepositoryBase, IPackageRe
             ?? throw new InvalidOperationException("Stored package manifest is corrupt."),
         RegisteredAtUtc = entity.RegisteredAt,
     };
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }

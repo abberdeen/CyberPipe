@@ -1,4 +1,5 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains;
 
@@ -9,7 +10,7 @@ namespace CyberPipe.Chains;
 /// </summary>
 public sealed class ChainDefinitionLoader : IChainDefinitionLoader
 {
-    private readonly IChainDefinitionRepository _repository;
+    private readonly ChainCatalogService _repository;
     private readonly IChainDefinitionValidator _validator;
 
     /// <summary>
@@ -17,7 +18,7 @@ public sealed class ChainDefinitionLoader : IChainDefinitionLoader
     /// </summary>
     /// <param name="repository">Репозиторий цепочек.</param>
     /// <param name="validator">Валидатор линейных цепочек.</param>
-    public ChainDefinitionLoader(IChainDefinitionRepository repository, IChainDefinitionValidator validator)
+    public ChainDefinitionLoader(ChainCatalogService repository, IChainDefinitionValidator validator)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));

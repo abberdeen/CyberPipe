@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains.Hitl;
 
@@ -9,14 +10,14 @@ namespace CyberPipe.Chains.Hitl;
 /// </summary>
 public sealed class HitlApprovalService : IHitlApprovalService
 {
-    private readonly IHitlApprovalRepository _repository;
+    private readonly HitlApprovalStoreService _repository;
     private readonly IReadOnlyList<IHitlCardSender> _cardSenders;
     private readonly IOwnerGuard _ownerGuard;
     private readonly IChainExecutor _executor;
     private readonly ISchemaValidator? _schemaValidator;
-    private readonly IChainDefinitionRepository? _chainDefinitions;
-    private readonly IPackageRegistryRepository? _packages;
-    private readonly IChainExecutionRepository? _executions;
+    private readonly ChainCatalogService? _chainDefinitions;
+    private readonly NetrunnerPackageStoreService? _packages;
+    private readonly ChainExecutionStoreService? _executions;
 
     /// <summary>
     /// Событие разрешения решения (для оповещения гейтов в том же процессе).
@@ -27,14 +28,14 @@ public sealed class HitlApprovalService : IHitlApprovalService
     /// Инициализирует сервис HITL-подтверждений.
     /// </summary>
     public HitlApprovalService(
-        IHitlApprovalRepository repository,
+        HitlApprovalStoreService repository,
         IEnumerable<IHitlCardSender> cardSenders,
         IOwnerGuard ownerGuard,
         IChainExecutor executor,
         ISchemaValidator? schemaValidator = null,
-        IChainDefinitionRepository? chainDefinitions = null,
-        IPackageRegistryRepository? packages = null,
-        IChainExecutionRepository? executions = null)
+        ChainCatalogService? chainDefinitions = null,
+        NetrunnerPackageStoreService? packages = null,
+        ChainExecutionStoreService? executions = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _cardSenders = cardSenders?.ToList() ?? throw new ArgumentNullException(nameof(cardSenders));

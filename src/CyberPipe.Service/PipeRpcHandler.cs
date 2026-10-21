@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace CyberPipe.Service;
@@ -49,24 +50,24 @@ public static class PipeRpcHandler
                 }
                 case ServicePipeCommands.ChainList:
                 {
-                    IReadOnlyList<ChainDefinitionDto> list = await services.GetRequiredService<IChainDefinitionRepository>().ListEnabledAsync().ConfigureAwait(false);
+                    IReadOnlyList<ChainDefinitionDto> list = await services.GetRequiredService<ChainCatalogService>().ListEnabledAsync().ConfigureAwait(false);
                     return JsonSerializer.Serialize(list);
                 }
                 case ServicePipeCommands.ChainGet:
                 {
                     GuidPipeRequest req = Deserialize<GuidPipeRequest>(payload);
-                    ChainDefinitionDto? def = await services.GetRequiredService<IChainDefinitionRepository>().GetByIdAsync(new ChainId(req.Id)).ConfigureAwait(false);
+                    ChainDefinitionDto? def = await services.GetRequiredService<ChainCatalogService>().GetByIdAsync(new ChainId(req.Id)).ConfigureAwait(false);
                     return JsonSerializer.Serialize(def);
                 }
                 case ServicePipeCommands.ChainRunsGet:
                 {
                     GuidPipeRequest req = Deserialize<GuidPipeRequest>(payload);
-                    ChainRunState? state = await services.GetRequiredService<IChainExecutionRepository>().GetRunAsync(new RunId(req.Id)).ConfigureAwait(false);
+                    ChainRunState? state = await services.GetRequiredService<ChainExecutionStoreService>().GetRunAsync(new RunId(req.Id)).ConfigureAwait(false);
                     return JsonSerializer.Serialize(state);
                 }
                 case ServicePipeCommands.ChainRunsUnfinished:
                 {
-                    IReadOnlyList<RunId> runs = await services.GetRequiredService<IChainExecutionRepository>().ListUnfinishedRunsAsync().ConfigureAwait(false);
+                    IReadOnlyList<RunId> runs = await services.GetRequiredService<ChainExecutionStoreService>().ListUnfinishedRunsAsync().ConfigureAwait(false);
                     return JsonSerializer.Serialize(runs.Select(r => r.Value).ToList());
                 }
                 case ServicePipeCommands.ChainRun:

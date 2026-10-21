@@ -79,6 +79,10 @@ public sealed class ProjectGraphTests
         // TASK-021 exception: Desktop is a composition root for its own process and
         // hosts the real service-control client (Named Pipe + SCM), so it may also
         // reference CyberPipe.ServiceControl — still never Data (see below).
+        // Repository-to-services migration exception: feature projects that own
+        // chain/embedding behavior consume concrete CyberPipe.Data services
+        // directly (no new repository interfaces); the Data reference is allowed
+        // for Chains, Router and Skills only.
         Dictionary<string, string[]> graph = LoadGraph();
         foreach (string name in FeatureProjects)
         {
@@ -91,6 +95,7 @@ public sealed class ProjectGraphTests
             Assert.True(
                 graph[name].All(r =>
                     r is "CyberPipe.Contracts" or "CyberPipe.Logging"
+                    || (name is "CyberPipe.Chains" or "CyberPipe.Router" or "CyberPipe.Skills" && r is "CyberPipe.Data")
                     || (name == "CyberPipe.Desktop" && r is "CyberPipe.ServiceControl" or "CyberPipe.Skills" or "CyberPipe.Models")),
                 $"{name} references unexpected projects: {string.Join(", ", graph[name])}");
         }

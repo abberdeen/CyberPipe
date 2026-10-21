@@ -8,6 +8,7 @@ using CyberPipe.Chains.Runners;
 using CyberPipe.Chains.Scheduling;
 using CyberPipe.Chains.Triggers;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Quartz;
 using Quartz.Impl;
 using Xunit;
@@ -96,15 +97,15 @@ public sealed class ChainScenarioTests
         }
     }
 
-    private sealed class Fixture
+    private sealed class Fixture : IAsyncDisposable
     {
         public ChainId ChainId { get; } = new(Guid.NewGuid());
 
-        public InMemoryChainDefinitionRepository Definitions { get; } = new();
+        public ChainCatalogService Definitions { get; }
 
-        public InMemoryChainExecutionRepository Executions { get; } = new();
+        public ChainExecutionStoreService Executions { get; }
 
-        public InMemoryHitlApprovalRepository HitlRepo { get; } = new();
+        public NetrunnerPackageStoreService Packages { get; }
 
         public InMemoryIdempotencyStore Idempotency { get; } = new();
 
@@ -118,11 +119,33 @@ public sealed class ChainScenarioTests
 
         public ChainExecutor Executor { get; }
 
-        public Fixture()
+        private readonly TestDatabase _db;
+
+        private Fixture(TestDatabase db)
         {
+            _db = db;
+            Definitions = db.Catalog;
+            Executions = db.Executions;
+            Packages = db.Packages;
             Runners.RegisterRunner(Scripts);
-            Executor = new ChainExecutor(Executions, Definitions, Skills, Runners, new StubPackageRepo(), Delivery);
+            Executor = new ChainExecutor(Executions, Definitions, Skills, Runners, Packages, Delivery);
         }
+
+        public static async Task<Fixture> CreateAsync()
+        {
+            var db = await TestDatabase.CreateAsync();
+            try
+            {
+                return new Fixture(db);
+            }
+            catch
+            {
+                await db.DisposeAsync();
+                throw;
+            }
+        }
+
+        public async ValueTask DisposeAsync() => await _db.DisposeAsync();
 
         public ChainDefinitionDto BuildDefinition(ChainTriggerDto trigger, bool requiresHitl = false)
         {
@@ -159,21 +182,12 @@ public sealed class ChainScenarioTests
             ChainValidationResult validation = validator.Validate(definition);
             Assert.True(validation.IsValid, string.Join("; ", validation.Errors.Select(e => e.Message)));
             await Definitions.UpsertAsync(definition);
-        }
-    }
-
-    private sealed class StubPackageRepo : IPackageRegistryRepository
-    {
-        public Task<PackageRegistrationRecord?> GetPackageAsync(string slug, string version, CancellationToken cancellationToken = default) =>
-            Task.FromResult<PackageRegistrationRecord?>(new PackageRegistrationRecord
-            {
-                Slug = slug,
-                Version = version,
-                Manifest = new NetrunnerManifestDto
+            await Packages.RegisterPackageAsync(
+                new NetrunnerManifestDto
                 {
-                    Slug = slug,
+                    Slug = definition.Script.PackageSlug,
                     Name = "stub",
-                    Version = version,
+                    Version = definition.Script.PackageVersion,
                     Description = "stub",
                     Runtime = new NetrunnerRuntimeDto
                     {
@@ -193,19 +207,15 @@ public sealed class ChainScenarioTests
                     Permissions = new NetrunnerPermissionsDto { FilesystemScope = "IsolatedRunWorkspaceOnly" },
                     Integrity = new NetrunnerIntegrityDto(),
                 },
-                PackageDir = Path.GetTempPath(),
-                ManifestHash = "stub",
-                RegisteredAtUtc = DateTimeOffset.UtcNow,
-            });
-
-        public Task<PackageRegistrationRecord> RegisterPackageAsync(NetrunnerManifestDto manifest, string packageDir, string manifestHash, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+                Path.GetTempPath(),
+                "stub");
+        }
     }
 
     [Fact]
     public async Task WebhookTrigger_RunsAllStepsOnceAndDelivers()
     {
-        var fixture = new Fixture();
+        await using var fixture = await Fixture.CreateAsync();
         ChainDefinitionDto definition = fixture.BuildDefinition(new ChainTriggerDto
         {
             Kind = ChainTriggerKind.Webhook,
@@ -238,7 +248,7 @@ public sealed class ChainScenarioTests
     [Fact]
     public async Task FunctionCallTrigger_RunsAllStepsOnce()
     {
-        var fixture = new Fixture();
+        await using var fixture = await Fixture.CreateAsync();
         ChainDefinitionDto definition = fixture.BuildDefinition(new ChainTriggerDto
         {
             Kind = ChainTriggerKind.FunctionCall,
@@ -259,7 +269,7 @@ public sealed class ChainScenarioTests
     [Fact]
     public async Task ChatTrigger_RunsChainFromMessage()
     {
-        var fixture = new Fixture();
+        await using var fixture = await Fixture.CreateAsync();
         ChainDefinitionDto definition = fixture.BuildDefinition(new ChainTriggerDto
         {
             Kind = ChainTriggerKind.Chat,
@@ -297,7 +307,7 @@ public sealed class ChainScenarioTests
     [Fact]
     public async Task CronTrigger_FiresThroughRealScheduler()
     {
-        var fixture = new Fixture();
+        await using var fixture = await Fixture.CreateAsync();
         ChainDefinitionDto definition = fixture.BuildDefinition(new ChainTriggerDto
         {
             Kind = ChainTriggerKind.Cron,
@@ -330,7 +340,7 @@ public sealed class ChainScenarioTests
     [Fact]
     public async Task RestartAfterInterruption_ResumesWithoutRerunningCompletedSteps()
     {
-        var fixture = new Fixture();
+        await using var fixture = await Fixture.CreateAsync();
         fixture.Scripts.ShouldDefer = true;
         ChainDefinitionDto definition = fixture.BuildDefinition(new ChainTriggerDto
         {
@@ -360,7 +370,7 @@ public sealed class ChainScenarioTests
         fixture.Scripts.ShouldDefer = false;
         var restarted = new ChainExecutor(
             fixture.Executions, fixture.Definitions, fixture.Skills, fixture.Runners,
-            new StubPackageRepo(), fixture.Delivery);
+            fixture.Packages, fixture.Delivery);
         var recovery = new ChainRecoveryService(fixture.Executions, restarted);
 
         int recovered = await recovery.RecoverAsync();

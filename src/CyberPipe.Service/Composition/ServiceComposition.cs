@@ -1,6 +1,7 @@
 using CyberPipe.Chains;
 using CyberPipe.Chains.Execution;
 using CyberPipe.Chains.Runners;
+using CyberPipe.Chains.Scheduling;
 using CyberPipe.Channels.Telegram;
 using CyberPipe.Channels.Telegram.Adapter;
 using CyberPipe.Contracts;
@@ -206,7 +207,7 @@ public static class ServiceComposition
         typeof(IDatabaseHealthProbe),
         typeof(ISchemaMigrator),
         typeof(IDatabaseBootstrapper),
-        typeof(IEmbeddingStore),
+        typeof(EmbeddingStoreService),
         typeof(IEmbeddingProvider),
         typeof(ITokenBudgetGovernor),
         typeof(IBudgetStore),
@@ -402,8 +403,8 @@ public sealed class ServiceStartupCoordinator
                 // но ScheduleChainAsync никто не вызывал — расписания не работали.
                 if (databaseOk)
                 {
-                    IChainSchedulerService chainScheduler = _services.GetRequiredService<IChainSchedulerService>();
-                    IChainDefinitionRepository chainRepo = _services.GetRequiredService<IChainDefinitionRepository>();
+                    QuartzChainSchedulerService chainScheduler = _services.GetRequiredService<QuartzChainSchedulerService>();
+                    ChainCatalogService chainRepo = _services.GetRequiredService<ChainCatalogService>();
                     await chainScheduler.SyncWithRepositoryAsync(chainRepo, linked.Token).ConfigureAwait(false);
                 }
 

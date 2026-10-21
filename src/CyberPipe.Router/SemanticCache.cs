@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Microsoft.Extensions.Logging;
 
 namespace CyberPipe.Router;
@@ -13,7 +14,7 @@ namespace CyberPipe.Router;
 /// </summary>
 public sealed class SemanticCache : ISemanticCache
 {
-    private readonly IEmbeddingStore _store;
+    private readonly EmbeddingStoreService _store;
     private readonly CyberPipeOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SemanticCache>? _logger;
@@ -22,7 +23,7 @@ public sealed class SemanticCache : ISemanticCache
     private long _misses;
 
     public SemanticCache(
-        IEmbeddingStore store,
+        EmbeddingStoreService store,
         CyberPipeOptions? options = null,
         TimeProvider? timeProvider = null,
         ILogger<SemanticCache>? logger = null)

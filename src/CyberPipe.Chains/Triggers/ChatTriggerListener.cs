@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains.Triggers;
 
@@ -8,7 +9,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class ChatTriggerListener : IMessageHandler<IncomingMessage>, IDisposable
 {
-    private readonly IChainDefinitionRepository _repository;
+    private readonly ChainCatalogService _repository;
     private readonly IChainExecutor _executor;
     private readonly IIdempotencyStore _idempotencyStore;
     private readonly IDisposable _subscription;
@@ -18,7 +19,7 @@ public sealed class ChatTriggerListener : IMessageHandler<IncomingMessage>, IDis
     /// Инициализирует слушатель сообщений чата и оформляет подписку.
     /// </summary>
     public ChatTriggerListener(
-        IChainDefinitionRepository repository,
+        ChainCatalogService repository,
         IChainExecutor executor,
         IInboundMessageSource messageSource,
         IIdempotencyStore idempotencyStore,

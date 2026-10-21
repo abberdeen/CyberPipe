@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains.Triggers;
 
@@ -9,13 +10,13 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class FunctionCallTriggerInvoker : ITriggerInvoker
 {
-    private readonly IChainDefinitionRepository _repository;
+    private readonly ChainCatalogService _repository;
     private readonly IChainExecutor _executor;
 
     /// <summary>
     /// Инициализирует инвокер функций.
     /// </summary>
-    public FunctionCallTriggerInvoker(IChainDefinitionRepository repository, IChainExecutor executor)
+    public FunctionCallTriggerInvoker(ChainCatalogService repository, IChainExecutor executor)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _executor = executor ?? throw new ArgumentNullException(nameof(executor));

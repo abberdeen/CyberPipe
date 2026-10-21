@@ -9,12 +9,14 @@ namespace CyberPipe.Data;
 
 /// <summary>
 /// Модуль регистрации доступа к данным: единственная SQLite (WAL) через EF Core.
-/// Только регистрация — подключений при регистрации нет (фабрики ленивые);
-/// миграции и bootstrap выполняются шагом запуска, а не здесь.
+/// Регистрирует конкретные сервисы данных (без интерфейсов репозиториев и unit-of-work):
+/// каждый метод сервиса сам владеет контекстом; миграции и bootstrap выполняются
+/// шагом запуска, а не здесь. Только регистрация — подключений при регистрации нет
+/// (фабрики ленивые).
 /// </summary>
 public static class DataServiceCollectionExtensions
 {
-    /// <summary>Регистрирует фабрику контекстов, пробу, миграции и репозитории SQLite.</summary>
+    /// <summary>Регистрирует фабрику контекстов, пробу, миграции и сервисы данных SQLite.</summary>
     public static IServiceCollection AddCyberPipeData(this IServiceCollection services, CyberPipeOptions options)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -42,34 +44,29 @@ public static class DataServiceCollectionExtensions
             new SchemaMigrator(sp.GetRequiredService<IDatabaseConnectionFactory>()));
         services.TryAddSingleton<IDatabaseBootstrapper>(sp =>
             new SqliteBootstrapper(sp.GetRequiredService<SqliteOptions>()));
-        services.TryAddSingleton<IUnitOfWorkFactory>(sp =>
-            new UnitOfWorkFactory(
-                sp.GetRequiredService<IDbContextFactory<CyberPipeDbContext>>(),
-                sp.GetService<IEmbeddingStore>()));
 
-        // SQLite-репозитории — авторитетные; вызываются после in-memory TryAdd
-        // модуля цепочек, поэтому здесь Add (побеждает последняя регистрация).
-        services.AddSingleton<ChainRepository>();
-        services.AddSingleton<IChainRepository>(sp => sp.GetRequiredService<ChainRepository>());
-        services.AddSingleton<IChainDefinitionRepository>(sp => sp.GetRequiredService<ChainRepository>());
-        services.AddSingleton<IChainRunRepository, ChainRunRepository>();
-        services.AddSingleton<ICheckpointRepository, CheckpointRepository>();
-        services.AddSingleton<IApprovalRepository, ApprovalRepository>();
-        services.AddSingleton<ITokenBudgetRepository, TokenBudgetRepository>();
-        services.AddSingleton<IKeyValueSettingsRepository, KeyValueSettingsRepository>();
-        services.AddSingleton<IAuditLogRepository, AuditLogRepository>();
-        services.AddSingleton<IHitlApprovalRepository, SqliteHitlApprovalRepository>();
-        // Бюджет губернатора — в SQLite (Data регистрируется раньше Router, его TryAdd InMemory не сработает).
-        services.AddSingleton<IBudgetStore, SqliteBudgetStore>();
-        // FIX-03: запуски цепочек, реестр пакетов и личные данные — в SQLite,
-        // in-memory реализации Chains/Skills остаются fallback-ом standalone-композиций.
-        services.AddSingleton<IChainExecutionRepository, SqliteChainExecutionRepository>();
-        services.AddSingleton<IPackageRegistryRepository, SqlitePackageRegistryRepository>();
-        services.AddSingleton<INoteRepository, SqliteNoteRepository>();
-        services.AddSingleton<IFinanceRepository, SqliteFinanceRepository>();
-        services.AddSingleton<IReminderRepository, SqliteReminderRepository>();
-        services.AddSingleton<IContactRepository, SqliteContactRepository>();
-        services.TryAddSingleton<IEmbeddingStore, SqliteEmbeddingStore>();
+        // Диагностика: счётчики транзакций методов и медленных запросов.
+        services.AddSingleton<UnitOfWorkMetrics>();
+        services.AddSingleton<IUnitOfWorkMetrics>(sp => sp.GetRequiredService<UnitOfWorkMetrics>());
+
+        // Конкретные сервисы данных — единственная регистрация; интерфейсов нет,
+        // потребители берут конкретный класс из DI.
+        services.AddSingleton<ChainCatalogService>();
+        services.AddSingleton<ChainRunRecordService>();
+        services.AddSingleton<CheckpointStoreService>();
+        services.AddSingleton<ApprovalLedgerService>();
+        services.AddSingleton<TokenBudgetLedgerService>();
+        services.AddSingleton<KvSettingsService>();
+        services.AddSingleton<AuditLogService>();
+        services.AddSingleton<ChainExecutionStoreService>();
+        services.AddSingleton<HitlApprovalStoreService>();
+        services.AddSingleton<NetrunnerPackageStoreService>();
+        services.AddSingleton<NoteStoreService>();
+        services.AddSingleton<FinanceLedgerService>();
+        services.AddSingleton<ReminderStoreService>();
+        services.AddSingleton<ContactStoreService>();
+        services.AddSingleton<EmbeddingStoreService>();
+        services.AddSingleton<BudgetLedgerService>();
         services.TryAddSingleton<IDatabaseBootstrapService, SetupDatabaseBootstrapAdapter>();
 
         return services;

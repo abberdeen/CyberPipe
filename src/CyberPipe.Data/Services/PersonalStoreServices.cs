@@ -1,34 +1,49 @@
-using System.Text.Json;
 using CyberPipe.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using CyberPipe.Data.Persistence;
 
 namespace CyberPipe.Data;
 
-/// <summary>SQLite заметки владельца (TASK-051) на EF Core.</summary>
-public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
+/// <summary>Заметки владельца (таблица personal_notes) на EF Core; удаление — мягкое.</summary>
+public sealed class NoteStoreService
 {
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
     private readonly TimeProvider _time;
 
-    /// <summary>Создаёт репозиторий заметок поверх фабрики контекстов.</summary>
+    /// <summary>Создаёт сервис заметок поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
     /// <param name="time">Поставщик времени; null — системное время.</param>
-    public SqliteNoteRepository(
+    public NoteStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<NoteStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null,
         TimeProvider? time = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
         _time = time ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Создаёт заметку.</summary>
+    /// <param name="title">Заголовок.</param>
+    /// <param name="content">Содержимое.</param>
+    /// <param name="tags">Теги; отсутствуют — пустой список.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Созданная заметка.</returns>
     public Task<NoteRecord> CreateAsync(string title, string content, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("notes.create", async (db, token) =>
         {
@@ -43,15 +58,18 @@ public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
                 UpdatedAt = now,
             };
             db.Notes.Add(entity);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает заметку; отсутствие или удаление — null.</summary>
+    /// <param name="noteId">Идентификатор заметки.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Заметка или null.</returns>
     public Task<NoteRecord?> GetAsync(Guid noteId, CancellationToken cancellationToken = default) =>
         ExecuteAsync<NoteRecord?>("notes.get", async (db, token) =>
         {
-            string key = GuidKey(noteId);
+            string key = EfServiceHelper.GuidKey(noteId);
             NoteEntity? entity = await db.Notes
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.Id == key && !e.IsDeleted, token)
@@ -59,11 +77,18 @@ public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Обновляет поля заметки; null-поля оставляют прежние значения.</summary>
+    /// <param name="noteId">Идентификатор заметки.</param>
+    /// <param name="title">Новый заголовок или null.</param>
+    /// <param name="content">Новое содержимое или null.</param>
+    /// <param name="tags">Новые теги или null.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Обновлённая заметка.</returns>
+    /// <exception cref="KeyNotFoundException">Заметка отсутствует или удалена.</exception>
     public Task<NoteRecord> UpdateAsync(Guid noteId, string? title, string? content, IReadOnlyList<string>? tags = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("notes.update", async (db, token) =>
         {
-            string key = GuidKey(noteId);
+            string key = EfServiceHelper.GuidKey(noteId);
             NoteEntity? entity = await db.Notes
                 .FirstOrDefaultAsync(e => e.Id == key && !e.IsDeleted, token)
                 .ConfigureAwait(false)
@@ -74,15 +99,18 @@ public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
             if (tags is not null)
                 entity.Tags = tags.ToList();
             entity.UpdatedAt = now;
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Мягко удаляет заметку.</summary>
+    /// <param name="noteId">Идентификатор заметки.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>true, если заметка существовала и удалена.</returns>
     public Task<bool> DeleteAsync(Guid noteId, CancellationToken cancellationToken = default) =>
         ExecuteAsync("notes.delete", async (db, token) =>
         {
-            string key = GuidKey(noteId);
+            string key = EfServiceHelper.GuidKey(noteId);
             int affected = await db.Notes
                 .Where(e => e.Id == key && !e.IsDeleted)
                 .ExecuteUpdateAsync(s => s
@@ -92,7 +120,12 @@ public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
             return affected > 0;
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Ищет заметки по подстроке заголовка/содержимого с фильтром по тегам.</summary>
+    /// <param name="query">Подстрока поиска; пустая — все заметки.</param>
+    /// <param name="tags">Требуемые теги; отсутствуют — без фильтра.</param>
+    /// <param name="limit">Максимум результатов.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Найденные заметки, сначала недавно обновлённые.</returns>
     public Task<IReadOnlyList<NoteRecord>> SearchAsync(string query, IReadOnlyList<string>? tags = null, int limit = 20, CancellationToken cancellationToken = default) =>
         ExecuteAsync<IReadOnlyList<NoteRecord>>("notes.search", async (db, token) =>
         {
@@ -122,31 +155,55 @@ public sealed class SqliteNoteRepository : RepositoryBase, INoteRepository
         CreatedAtUtc = entity.CreatedAt,
         UpdatedAtUtc = entity.UpdatedAt,
     };
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }
 
-/// <summary>SQLite финансы владельца (TASK-051) на EF Core.</summary>
-public sealed class SqliteFinanceRepository : RepositoryBase, IFinanceRepository
+/// <summary>Финансы владельца (таблица personal_finance) на EF Core.</summary>
+public sealed class FinanceLedgerService
 {
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
     private readonly TimeProvider _time;
 
-    /// <summary>Создаёт репозиторий финансов поверх фабрики контекстов.</summary>
+    /// <summary>Создаёт сервис финансов поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
     /// <param name="time">Поставщик времени; null — системное время.</param>
-    public SqliteFinanceRepository(
+    public FinanceLedgerService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<FinanceLedgerService>? logger = null,
         UnitOfWorkMetrics? metrics = null,
         TimeProvider? time = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
         _time = time ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Добавляет финансовую операцию.</summary>
+    /// <param name="kind">Вид операции (доход/расход).</param>
+    /// <param name="amount">Сумма.</param>
+    /// <param name="currency">Валюта.</param>
+    /// <param name="category">Категория.</param>
+    /// <param name="description">Описание; может отсутствовать.</param>
+    /// <param name="occurredAtUtc">Момент операции; отсутствует — сейчас.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Сохранённая операция.</returns>
     public Task<FinanceTransactionRecord> AddTransactionAsync(FinanceTransactionKind kind, decimal amount, string currency, string category, string? description = null, DateTimeOffset? occurredAtUtc = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("finance.add", async (db, token) =>
         {
@@ -163,18 +220,26 @@ public sealed class SqliteFinanceRepository : RepositoryBase, IFinanceRepository
                 CreatedAt = now,
             };
             db.Finance.Add(entity);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает баланс валюты (доходы минус расходы).</summary>
+    /// <param name="currency">Валюта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Баланс валюты.</returns>
     public async Task<decimal> GetBalanceAsync(string currency, CancellationToken cancellationToken = default)
     {
         IReadOnlyList<FinanceTransactionRecord> all = await ListTransactionsAsync(null, null, currency, int.MaxValue, cancellationToken).ConfigureAwait(false);
         return all.Sum(t => t.Kind == FinanceTransactionKind.Income ? t.Amount : -t.Amount);
     }
 
-    /// <inheritdoc />
+    /// <summary>Строит отчёт по операциям периода с разбивкой по категориям.</summary>
+    /// <param name="fromUtc">Начало периода (UTC).</param>
+    /// <param name="toUtc">Конец периода (UTC).</param>
+    /// <param name="currency">Валюта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Отчёт периода.</returns>
     public async Task<FinanceReportDto> GetReportAsync(DateTimeOffset fromUtc, DateTimeOffset toUtc, string currency, CancellationToken cancellationToken = default)
     {
         IReadOnlyList<FinanceTransactionRecord> items = await ListTransactionsAsync(fromUtc, toUtc, currency, int.MaxValue, cancellationToken).ConfigureAwait(false);
@@ -196,11 +261,17 @@ public sealed class SqliteFinanceRepository : RepositoryBase, IFinanceRepository
         };
     }
 
-    /// <inheritdoc />
+    /// <summary>Возвращает операции с фильтрами по периоду и валюте, сначала новые.</summary>
+    /// <param name="fromUtc">Начало периода; отсутствует — без нижней границы.</param>
+    /// <param name="toUtc">Конец периода; отсутствует — без верхней границы.</param>
+    /// <param name="currency">Валюта; отсутствует — все валюты.</param>
+    /// <param name="limit">Максимум операций.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Операции, сначала новые.</returns>
     public Task<IReadOnlyList<FinanceTransactionRecord>> ListTransactionsAsync(DateTimeOffset? fromUtc = null, DateTimeOffset? toUtc = null, string? currency = null, int limit = 50, CancellationToken cancellationToken = default) =>
         ExecuteAsync<IReadOnlyList<FinanceTransactionRecord>>("finance.list", async (db, token) =>
         {
-            string? currencyFilter = OptionalFilter(currency);
+            string? currencyFilter = EfServiceHelper.OptionalFilter(currency);
             List<FinanceEntity> entities = await db.Finance
                 .AsNoTracking()
                 .Where(e => (fromUtc == null || e.OccurredAt >= fromUtc.Value)
@@ -223,31 +294,52 @@ public sealed class SqliteFinanceRepository : RepositoryBase, IFinanceRepository
         OccurredAtUtc = entity.OccurredAt,
         CreatedAtUtc = entity.CreatedAt,
     };
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }
 
-/// <summary>SQLite напоминания владельца (TASK-051) на EF Core.</summary>
-public sealed class SqliteReminderRepository : RepositoryBase, IReminderRepository
+/// <summary>Напоминания владельца (таблица personal_reminders) на EF Core.</summary>
+public sealed class ReminderStoreService
 {
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
     private readonly TimeProvider _time;
 
-    /// <summary>Создаёт репозиторий напоминаний поверх фабрики контекстов.</summary>
+    /// <summary>Создаёт сервис напоминаний поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
     /// <param name="time">Поставщик времени; null — системное время.</param>
-    public SqliteReminderRepository(
+    public ReminderStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<ReminderStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null,
         TimeProvider? time = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
         _time = time ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Создаёт напоминание в статусе ожидания.</summary>
+    /// <param name="title">Текст напоминания.</param>
+    /// <param name="dueTimeUtc">Срок; может отсутствовать.</param>
+    /// <param name="cronExpression">Cron-выражение повтора; может отсутствовать.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Созданное напоминание.</returns>
     public Task<ReminderItemRecord> CreateAsync(string title, DateTimeOffset? dueTimeUtc, string? cronExpression = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("reminders.create", async (db, token) =>
         {
@@ -262,22 +354,28 @@ public sealed class SqliteReminderRepository : RepositoryBase, IReminderReposito
                 CreatedAt = now,
             };
             db.Reminders.Add(entity);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает напоминание; отсутствие — null.</summary>
+    /// <param name="reminderId">Идентификатор напоминания.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Напоминание или null.</returns>
     public Task<ReminderItemRecord?> GetAsync(Guid reminderId, CancellationToken cancellationToken = default) =>
         ExecuteAsync<ReminderItemRecord?>("reminders.get", async (db, token) =>
         {
-            string key = GuidKey(reminderId);
+            string key = EfServiceHelper.GuidKey(reminderId);
             ReminderEntity? entity = await db.Reminders
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.Id == key, token).ConfigureAwait(false);
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает напоминания с фильтром по статусу, сначала ближайшие по сроку.</summary>
+    /// <param name="status">Статус; отсутствует — все.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Напоминания.</returns>
     public Task<IReadOnlyList<ReminderItemRecord>> ListAsync(ReminderStatus? status = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync<IReadOnlyList<ReminderItemRecord>>("reminders.list", async (db, token) =>
         {
@@ -291,18 +389,24 @@ public sealed class SqliteReminderRepository : RepositoryBase, IReminderReposito
             return entities.Select(Map).ToList();
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Завершает ожидающее напоминание.</summary>
+    /// <param name="reminderId">Идентификатор напоминания.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>true, если напоминание было ожидающим и завершено.</returns>
     public Task<bool> CompleteAsync(Guid reminderId, CancellationToken cancellationToken = default) =>
         SetStatusAsync(reminderId, ReminderStatus.Completed, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Отменяет ожидающее напоминание.</summary>
+    /// <param name="reminderId">Идентификатор напоминания.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>true, если напоминание было ожидающим и отменено.</returns>
     public Task<bool> CancelAsync(Guid reminderId, CancellationToken cancellationToken = default) =>
         SetStatusAsync(reminderId, ReminderStatus.Cancelled, cancellationToken);
 
     private Task<bool> SetStatusAsync(Guid id, ReminderStatus status, CancellationToken cancellationToken) =>
         ExecuteAsync("reminders.set_status", async (db, token) =>
         {
-            string key = GuidKey(id);
+            string key = EfServiceHelper.GuidKey(id);
             ReminderEntity? entity = await db.Reminders
                 .FirstOrDefaultAsync(e => e.Id == key && e.Status == (int)ReminderStatus.Pending, token)
                 .ConfigureAwait(false);
@@ -312,7 +416,7 @@ public sealed class SqliteReminderRepository : RepositoryBase, IReminderReposito
             entity.Status = (int)status;
             if (status == ReminderStatus.Completed)
                 entity.CompletedAt = now;
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return true;
         }, cancellationToken);
 
@@ -326,38 +430,60 @@ public sealed class SqliteReminderRepository : RepositoryBase, IReminderReposito
         CreatedAtUtc = entity.CreatedAt,
         CompletedAtUtc = entity.CompletedAt,
     };
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }
 
-/// <summary>SQLite контакты/CRM владельца (TASK-051) на EF Core.</summary>
-public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
+/// <summary>Контакты и история взаимодействий владельца (CRM) на EF Core.</summary>
+public sealed class ContactStoreService
 {
+    private readonly IDbContextFactory<CyberPipeDbContext> _dbFactory;
+    private readonly RepositoryOptions _options;
+    private readonly ILogger _logger;
+    private readonly UnitOfWorkMetrics _metrics;
     private readonly TimeProvider _time;
 
-    /// <summary>Создаёт репозиторий контактов поверх фабрики контекстов.</summary>
+    /// <summary>Создаёт сервис контактов поверх фабрики контекстов.</summary>
     /// <param name="dbFactory">Фабрика контекстов SQLite (пул).</param>
-    /// <param name="options">Опции репозиториев; null — значения по умолчанию.</param>
+    /// <param name="options">Опции; null — значения по умолчанию.</param>
     /// <param name="logger">Логгер; null — без логирования.</param>
     /// <param name="metrics">Общие счётчики; null — отдельный экземпляр.</param>
     /// <param name="time">Поставщик времени; null — системное время.</param>
-    public SqliteContactRepository(
+    public ContactStoreService(
         IDbContextFactory<CyberPipeDbContext> dbFactory,
         RepositoryOptions? options = null,
-        ILogger? logger = null,
+        ILogger<ContactStoreService>? logger = null,
         UnitOfWorkMetrics? metrics = null,
         TimeProvider? time = null)
-        : base(dbFactory, options, logger, metrics)
     {
+        _dbFactory = dbFactory ?? throw new ArgumentNullException(nameof(dbFactory));
+        _options = options ?? new RepositoryOptions();
+        IReadOnlyList<string> errors = _options.Validate();
+        if (errors.Count > 0)
+            throw new ArgumentException(string.Join(" ", errors), nameof(options));
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
+        _metrics = metrics ?? new UnitOfWorkMetrics();
         _time = time ?? TimeProvider.System;
     }
 
-    /// <inheritdoc />
+    /// <summary>Создаёт контакт или обновляет существующий (по идентификатору или имени).</summary>
+    /// <param name="name">Имя контакта.</param>
+    /// <param name="channels">Каналы связи; null — оставить прежние.</param>
+    /// <param name="notes">Заметки; null — оставить прежние.</param>
+    /// <param name="contactId">Идентификатор; отсутствует — поиск по имени.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Созданный или обновлённый контакт.</returns>
     public Task<ContactRecord> UpsertContactAsync(string name, IReadOnlyDictionary<string, string>? channels = null, string? notes = null, Guid? contactId = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("contacts.upsert", async (db, token) =>
         {
             DateTimeOffset now = _time.GetUtcNow();
             ContactEntity? existing = contactId.HasValue
                 ? await db.Contacts.FirstOrDefaultAsync(
-                    e => e.Id == GuidKey(contactId.Value) && !e.IsDeleted, token).ConfigureAwait(false)
+                    e => e.Id == EfServiceHelper.GuidKey(contactId.Value) && !e.IsDeleted, token).ConfigureAwait(false)
                 : await db.Contacts.FirstOrDefaultAsync(
                     e => e.Name.ToLower() == name.ToLower() && !e.IsDeleted, token).ConfigureAwait(false);
             if (existing is not null)
@@ -367,13 +493,13 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
                     existing.Channels = new Dictionary<string, string>(channels);
                 existing.Notes = notes ?? existing.Notes;
                 existing.UpdatedAt = now;
-                await SaveAsync(db, token).ConfigureAwait(false);
+                await db.SaveChangesAsync(token).ConfigureAwait(false);
                 return Map(existing);
             }
 
             var entity = new ContactEntity
             {
-                Id = GuidKey(contactId ?? Guid.NewGuid()),
+                Id = EfServiceHelper.GuidKey(contactId ?? Guid.NewGuid()),
                 Name = name,
                 Channels = new Dictionary<string, string>(channels ?? new Dictionary<string, string>()),
                 Notes = notes,
@@ -381,11 +507,14 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
                 UpdatedAt = now,
             };
             db.Contacts.Add(entity);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Ищет контакт по точному имени (без учёта регистра); отсутствие — null.</summary>
+    /// <param name="name">Имя контакта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Контакт или null.</returns>
     public Task<ContactRecord?> FindByNameAsync(string name, CancellationToken cancellationToken = default) =>
         ExecuteAsync<ContactRecord?>("contacts.find_by_name", async (db, token) =>
         {
@@ -396,11 +525,14 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает контакт; отсутствие или удаление — null.</summary>
+    /// <param name="contactId">Идентификатор контакта.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Контакт или null.</returns>
     public Task<ContactRecord?> GetAsync(Guid contactId, CancellationToken cancellationToken = default) =>
         ExecuteAsync<ContactRecord?>("contacts.get", async (db, token) =>
         {
-            string key = GuidKey(contactId);
+            string key = EfServiceHelper.GuidKey(contactId);
             ContactEntity? entity = await db.Contacts
                 .AsNoTracking()
                 .FirstOrDefaultAsync(e => e.Id == key && !e.IsDeleted, token)
@@ -408,7 +540,10 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
             return entity is null ? null : Map(entity);
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Ищет контакты по подстроке имени, по имени.</summary>
+    /// <param name="query">Подстрока поиска; пустая — все контакты.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Найденные контакты.</returns>
     public Task<IReadOnlyList<ContactRecord>> SearchAsync(string query, CancellationToken cancellationToken = default) =>
         ExecuteAsync<IReadOnlyList<ContactRecord>>("contacts.search", async (db, token) =>
         {
@@ -421,7 +556,13 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
             return entities.Select(Map).ToList();
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Добавляет запись взаимодействия с контактом.</summary>
+    /// <param name="contactId">Идентификатор контакта.</param>
+    /// <param name="channel">Канал взаимодействия.</param>
+    /// <param name="note">Заметка о взаимодействии.</param>
+    /// <param name="occurredAtUtc">Момент; отсутствует — сейчас.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>Сохранённое взаимодействие.</returns>
     public Task<InteractionRecord> AddInteractionAsync(Guid contactId, string channel, string note, DateTimeOffset? occurredAtUtc = null, CancellationToken cancellationToken = default) =>
         ExecuteAsync("contacts.add_interaction", async (db, token) =>
         {
@@ -429,13 +570,13 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
             var entity = new InteractionEntity
             {
                 Id = Guid.NewGuid().ToString("D"),
-                ContactId = GuidKey(contactId),
+                ContactId = EfServiceHelper.GuidKey(contactId),
                 Channel = channel,
                 Note = note,
                 OccurredAt = at,
             };
             db.Interactions.Add(entity);
-            await SaveAsync(db, token).ConfigureAwait(false);
+            await db.SaveChangesAsync(token).ConfigureAwait(false);
             return new InteractionRecord
             {
                 InteractionId = Guid.Parse(entity.Id),
@@ -446,11 +587,15 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
             };
         }, cancellationToken);
 
-    /// <inheritdoc />
+    /// <summary>Возвращает историю взаимодействий контакта, сначала новые.</summary>
+    /// <param name="contactId">Идентификатор контакта.</param>
+    /// <param name="limit">Максимум записей.</param>
+    /// <param name="cancellationToken">Токен отмены.</param>
+    /// <returns>История взаимодействий.</returns>
     public Task<IReadOnlyList<InteractionRecord>> GetHistoryAsync(Guid contactId, int limit = 50, CancellationToken cancellationToken = default) =>
         ExecuteAsync<IReadOnlyList<InteractionRecord>>("contacts.history", async (db, token) =>
         {
-            string key = GuidKey(contactId);
+            string key = EfServiceHelper.GuidKey(contactId);
             List<InteractionEntity> entities = await db.Interactions
                 .AsNoTracking()
                 .Where(e => e.ContactId == key)
@@ -476,4 +621,10 @@ public sealed class SqliteContactRepository : RepositoryBase, IContactRepository
         CreatedAtUtc = entity.CreatedAt,
         UpdatedAtUtc = entity.UpdatedAt,
     };
+
+    private Task<T> ExecuteAsync<T>(
+        string operation,
+        Func<CyberPipeDbContext, CancellationToken, Task<T>> body,
+        CancellationToken cancellationToken) =>
+        EfServiceHelper.ExecuteAsync(_dbFactory, _options, _logger, _metrics, operation, body, cancellationToken);
 }

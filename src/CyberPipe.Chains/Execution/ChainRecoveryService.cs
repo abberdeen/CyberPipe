@@ -1,4 +1,5 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains.Execution;
 
@@ -10,7 +11,7 @@ namespace CyberPipe.Chains.Execution;
 /// </summary>
 public sealed class ChainRecoveryService
 {
-    private readonly IChainExecutionRepository _repository;
+    private readonly ChainExecutionStoreService _repository;
     private readonly IChainExecutor _executor;
     private readonly CrashRecoveryPolicy _policy;
 
@@ -18,7 +19,7 @@ public sealed class ChainRecoveryService
     /// Создаёт экземпляр сервиса восстановления.
     /// </summary>
     public ChainRecoveryService(
-        IChainExecutionRepository repository,
+        ChainExecutionStoreService repository,
         IChainExecutor executor,
         CrashRecoveryPolicy policy = CrashRecoveryPolicy.ResumeFromCheckpoint)
     {

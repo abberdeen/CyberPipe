@@ -1,4 +1,5 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Router;
 using Xunit;
 
@@ -9,7 +10,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_RepeatedCloseQuery_ReturnsCachedMatched()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var cache = new SemanticCache(store);
 
         float[] seedVector = [1.0f, 0.0f, 0.0f];
@@ -44,7 +45,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_ExceedingMaxEntries_EvictsOldest()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var options = new CyberPipeOptions { Router = new RouterOptions { SemanticCacheMaxEntries = 2 } };
         var cache = new SemanticCache(store, options);
 
@@ -66,7 +67,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_QueryBelowThreshold_ReturnsNullMiss()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var cache = new SemanticCache(store);
 
         await cache.PutAsync([1.0f, 0.0f, 0.0f], new RouteResult
@@ -91,7 +92,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_Policy_DoesNotStore_BudgetDenied_Or_Failed_Or_LowConfidence()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var cache = new SemanticCache(store);
 
         // 1. BudgetDenied
@@ -126,7 +127,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_ExpiredTTL_ReturnsNullMiss_AndEvictsEntry()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var timeProvider = new TestTimeProvider();
         var options = new CyberPipeOptions
         {
@@ -164,7 +165,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_DifferentModelVersion_IsIgnored()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
 
         // Model 1 writes entry
         var options1 = new CyberPipeOptions
@@ -195,7 +196,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_DisabledInConfiguration_AlwaysMisses_AndPutIsNoOp()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var options = new CyberPipeOptions
         {
             Router = new RouterOptions { SemanticCacheEnabled = false }
@@ -222,7 +223,7 @@ public sealed class SemanticCacheTests
     [Fact]
     public async Task SemanticCache_ClearAsync_RemovesAllCacheEntries()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var cache = new SemanticCache(store);
 
         await cache.PutAsync([1.0f, 0.0f, 0.0f], new RouteResult
@@ -265,94 +266,4 @@ public sealed class SemanticCacheTests
         }
     }
 
-    private class InMemoryEmbeddingStore : IEmbeddingStore
-    {
-        protected readonly List<EmbeddingRecord> Records = [];
-
-        public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default)
-        {
-            Records.RemoveAll(r => r.Namespace == record.Namespace && r.SourceRef == record.SourceRef);
-            Records.Add(record);
-            return Task.CompletedTask;
-        }
-
-        public Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default)
-        {
-            foreach (var r in records)
-            {
-                UpsertAsync(r, cancellationToken);
-            }
-            return Task.CompletedTask;
-        }
-
-        public Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default)
-        {
-            var matches = new List<EmbeddingMatch>();
-
-            foreach (EmbeddingRecord r in Records)
-            {
-                if (r.Namespace != query.Namespace) continue;
-                if (!string.IsNullOrEmpty(query.ModelId) && r.ModelId != query.ModelId) continue;
-
-                double score = Cosine(query.Vector, r.Vector);
-                if (score >= query.MinScore)
-                {
-                    matches.Add(new EmbeddingMatch
-                    {
-                        Id = r.Id,
-                        SourceRef = r.SourceRef,
-                        Score = score,
-                        Metadata = r.Metadata
-                    });
-                }
-            }
-
-            return Task.FromResult<IReadOnlyList<EmbeddingMatch>>(
-                matches.OrderByDescending(m => m.Score).Take(query.TopK).ToList());
-        }
-
-        public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default)
-        {
-            int removed = Records.RemoveAll(r => r.Namespace == @namespace && r.SourceRef == sourceRef);
-            return Task.FromResult(removed > 0);
-        }
-
-        public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default)
-        {
-            int removed = Records.RemoveAll(r => r.Namespace == @namespace);
-            return Task.FromResult(removed);
-        }
-
-        public Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default)
-        {
-            long count = Records.Count(r => r.Namespace == @namespace);
-            return Task.FromResult(count);
-        }
-
-        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
-        {
-            var ordered = Records.Where(r => r.Namespace == @namespace)
-                .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
-            int excess = Math.Max(ordered.Count - keepCount, 0);
-            foreach (EmbeddingRecord old in ordered.Take(excess)) Records.Remove(old);
-            return Task.FromResult(excess);
-        }
-
-        private static double Cosine(IReadOnlyList<float> a, IReadOnlyList<float> b)
-        {
-            if (a.Count != b.Count) return 0.0;
-            double dot = 0.0;
-            double normA = 0.0;
-            double normB = 0.0;
-            for (int i = 0; i < a.Count; i++)
-            {
-                dot += a[i] * b[i];
-                normA += a[i] * a[i];
-                normB += b[i] * b[i];
-            }
-
-            double denom = Math.Sqrt(normA) * Math.Sqrt(normB);
-            return denom > 1e-12 ? Math.Clamp(dot / denom, -1.0, 1.0) : 0.0;
-        }
-    }
 }

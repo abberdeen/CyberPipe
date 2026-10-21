@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Skills.Knowledge;
 using CyberPipe.Skills.Knowledge.Registry;
 using CyberPipe.Skills.Knowledge.Services;
@@ -10,14 +11,29 @@ using Xunit;
 
 namespace CyberPipe.Tests.Unit;
 
-public sealed class SkillsKnowledgeTests
+public sealed class SkillsKnowledgeTests : IAsyncLifetime
 {
-    private static (KnowledgeService Service, FakeEmbeddingProvider Embedder, InMemoryEmbeddingStore Store) CreateTestEnvironment(
+    private TestDatabase? _db;
+
+    public async Task InitializeAsync()
+    {
+        _db = await TestDatabase.CreateAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_db is not null)
+        {
+            await _db.DisposeAsync();
+        }
+    }
+
+    private (KnowledgeService Service, FakeEmbeddingProvider Embedder, EmbeddingStoreService Store) CreateTestEnvironment(
         int dimension = 384,
         int chunkSize = 200,
         int chunkOverlap = 50)
     {
-        var store = new InMemoryEmbeddingStore();
+        EmbeddingStoreService store = _db!.Embeddings;
         var embedder = new FakeEmbeddingProvider(dimension);
         var options = new KnowledgeOptions
         {
@@ -186,7 +202,7 @@ public sealed class SkillsKnowledgeTests
     public async Task DimensionMismatch_ThrowsKnowledgeDimensionMismatchException()
     {
         // Service configured for dimension 384, but embedder produces 512
-        var store = new InMemoryEmbeddingStore();
+        EmbeddingStoreService store = _db!.Embeddings;
         var embedder = new FakeEmbeddingProvider(dimension: 512);
         var options = new KnowledgeOptions { ExpectedDimension = 384 };
         var service = new KnowledgeService(store, embedder, options);
@@ -426,89 +442,4 @@ public sealed class SkillsKnowledgeTests
         }
     }
 
-    private sealed class InMemoryEmbeddingStore : IEmbeddingStore
-    {
-        private readonly List<EmbeddingRecord> _records = [];
-
-        public Task UpsertAsync(EmbeddingRecord record, CancellationToken ct = default)
-        {
-            _records.RemoveAll(r => r.Namespace == record.Namespace && r.SourceRef == record.SourceRef);
-            _records.Add(record);
-            return Task.CompletedTask;
-        }
-
-        public Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken ct = default)
-        {
-            foreach (var r in records)
-            {
-                UpsertAsync(r, ct);
-            }
-            return Task.CompletedTask;
-        }
-
-        public Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken ct = default)
-        {
-            var matches = new List<EmbeddingMatch>();
-            foreach (var r in _records)
-            {
-                if (r.Namespace != query.Namespace) continue;
-                if (!string.IsNullOrEmpty(query.ModelId) && r.ModelId != query.ModelId) continue;
-
-                double score = Cosine(query.Vector, r.Vector);
-                if (score >= query.MinScore)
-                {
-                    matches.Add(new EmbeddingMatch
-                    {
-                        Id = r.Id,
-                        SourceRef = r.SourceRef,
-                        Score = score,
-                        Metadata = r.Metadata
-                    });
-                }
-            }
-
-            return Task.FromResult<IReadOnlyList<EmbeddingMatch>>(
-                matches.OrderByDescending(m => m.Score).Take(query.TopK).ToList());
-        }
-
-        public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken ct = default)
-        {
-            int count = _records.RemoveAll(r => r.Namespace == @namespace && r.SourceRef == sourceRef);
-            return Task.FromResult(count > 0);
-        }
-
-        public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken ct = default)
-        {
-            int count = _records.RemoveAll(r => r.Namespace == @namespace);
-            return Task.FromResult(count);
-        }
-
-        public Task<long> CountAsync(string @namespace, CancellationToken ct = default)
-        {
-            return Task.FromResult((long)_records.Count(r => r.Namespace == @namespace));
-        }
-
-        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken ct = default)
-        {
-            var ordered = _records.Where(r => r.Namespace == @namespace)
-                .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
-            int excess = Math.Max(ordered.Count - keepCount, 0);
-            foreach (EmbeddingRecord old in ordered.Take(excess)) _records.Remove(old);
-            return Task.FromResult(excess);
-        }
-
-        private static double Cosine(IReadOnlyList<float> a, IReadOnlyList<float> b)
-        {
-            if (a.Count != b.Count) return 0.0;
-            double dot = 0.0, magA = 0.0, magB = 0.0;
-            for (int i = 0; i < a.Count; i++)
-            {
-                dot += a[i] * b[i];
-                magA += a[i] * a[i];
-                magB += b[i] * b[i];
-            }
-            double denom = Math.Sqrt(magA) * Math.Sqrt(magB);
-            return denom > 0 ? dot / denom : 0.0;
-        }
-    }
 }

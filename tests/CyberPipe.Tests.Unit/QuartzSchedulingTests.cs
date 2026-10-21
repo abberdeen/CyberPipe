@@ -1,6 +1,7 @@
 using CyberPipe.Chains;
 using CyberPipe.Chains.Scheduling;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Quartz;
 using Xunit;
 
@@ -306,7 +307,8 @@ public sealed class QuartzSchedulingTests
     [Fact]
     public async Task SyncWithRepository_SynchronizesDrift_InFavorOfRepository()
     {
-        var repo = new InMemoryChainDefinitionRepository();
+        await using var db = await TestDatabase.CreateAsync();
+        ChainCatalogService repo = db.Catalog;
         var options = new QuartzSchedulerOptions
         {
             InstanceName = "TestScheduler_Sync_" + Guid.NewGuid().ToString("N"),
@@ -336,8 +338,9 @@ public sealed class QuartzSchedulingTests
 
         // Теперь отключаем Active1 и удаляем Active3 из репозитория
         await repo.SetEnabledAsync(activeChain1.Id, false);
-        // Репозиторий in-memory: перезаписываем репозиторий новым, где есть только новая цепочка 4
-        var repo2 = new InMemoryChainDefinitionRepository();
+        // Новое состояние репозитория: отдельная база, где есть только новая цепочка 4
+        await using var db2 = await TestDatabase.CreateAsync();
+        ChainCatalogService repo2 = db2.Catalog;
         var activeChain4 = CreateChain("Active4", isEnabled: true, cron: "0 0 15 * * ?");
         await repo2.UpsertAsync(activeChain4);
 

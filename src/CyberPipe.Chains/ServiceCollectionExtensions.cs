@@ -2,6 +2,7 @@ using CyberPipe.Chains.Execution;
 using CyberPipe.Chains.Hitl;
 using CyberPipe.Chains.Packages;
 using CyberPipe.Chains.Runners;
+using CyberPipe.Data;
 using CyberPipe.Chains.Scheduling;
 using CyberPipe.Chains.Triggers;
 using CyberPipe.Contracts;
@@ -15,8 +16,9 @@ namespace CyberPipe.Chains;
 /// <summary>
 /// Модуль регистрации цепочек Trigger → Skill → Script → Delivery, триггеров,
 /// пакетов, раннеров, Quartz-планировщика и HITL (TASK-090).
-/// Хранилища по умолчанию — in-memory (TryAdd); модуль данных, вызываемый позже,
-/// переопределяет их PostgreSQL-реализациями.
+/// Хранилища — конкретные сервисы CyberPipe.Data (ChainCatalogService,
+/// ChainExecutionStoreService, HitlApprovalStoreService,
+/// NetrunnerPackageStoreService), регистрируемые модулем данных.
 /// </summary>
 public static class ChainsServiceCollectionExtensions
 {
@@ -26,9 +28,6 @@ public static class ChainsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
 
-        services.TryAddSingleton<IChainDefinitionRepository, InMemoryChainDefinitionRepository>();
-        services.TryAddSingleton<IChainExecutionRepository, InMemoryChainExecutionRepository>();
-        services.TryAddSingleton<IHitlApprovalRepository, InMemoryHitlApprovalRepository>();
         services.TryAddSingleton<IChainDefinitionValidator, ChainDefinitionValidator>();
         services.TryAddSingleton<IChainDefinitionLoader, ChainDefinitionLoader>();
         services.TryAddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
@@ -38,20 +37,19 @@ public static class ChainsServiceCollectionExtensions
         services.TryAddSingleton<ChatTriggerListener>();
         services.TryAddSingleton<CronTriggerManager>();
         services.TryAddSingleton<INetrunnerPackageValidator, NetrunnerPackageValidator>();
-        services.TryAddSingleton<IPackageRegistryRepository, InMemoryPackageRegistryRepository>();
         services.TryAddSingleton<ISchemaValidator, JsonSchemaDraft202012Validator>();
         services.TryAddSingleton<IChainExecutor, ChainExecutor>();
         services.TryAddSingleton<ChainRecoveryService>();
         services.TryAddSingleton<IHitlApprovalService>(sp => sp.GetRequiredService<HitlApprovalService>());
         services.TryAddSingleton<HitlApprovalService>(sp => new HitlApprovalService(
-            sp.GetRequiredService<IHitlApprovalRepository>(),
+            sp.GetRequiredService<HitlApprovalStoreService>(),
             sp.GetRequiredService<IEnumerable<IHitlCardSender>>(),
             sp.GetRequiredService<IOwnerGuard>(),
             new DeferredChainExecutor(sp),
             sp.GetService<ISchemaValidator>(),
-            sp.GetService<IChainDefinitionRepository>(),
-            sp.GetService<IPackageRegistryRepository>(),
-            sp.GetService<IChainExecutionRepository>()));
+            sp.GetService<ChainCatalogService>(),
+            sp.GetService<NetrunnerPackageStoreService>(),
+            sp.GetService<ChainExecutionStoreService>()));
         services.TryAddSingleton<IHitlApprovalGate, HitlApprovalGate>();
         services.TryAddSingleton<IDelayedResumeScheduler>(sp =>
             new TimerDelayedResumeScheduler((runId, ct) =>

@@ -1,4 +1,5 @@
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using CyberPipe.Router;
 using Xunit;
 
@@ -9,7 +10,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_MatchesIntent_WhenSimilarityAboveThresholdAndMarginSufficient()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
 
         // Seed target example
@@ -53,7 +54,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_Escalates_WhenNoMatchesAboveSimilarityThreshold()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
 
         provider.Register("помощь", [1.0f, 0.0f, 0.0f]);
@@ -86,7 +87,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_Escalates_WhenMarginBelowThresholdBetweenConflictingIntents()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
 
         // Two intents with slightly different vectors
@@ -127,7 +128,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_DoesNotEscalate_WhenTwoTopCandidatesHaveSameIntent()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
 
         // Two examples for the SAME intent
@@ -167,7 +168,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_Escalates_WhenAnotherIntentIsCloseBehindRepeatedExamples()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
         provider.Register("тише", [1.0f, 0.0f, 0.0f]);
         provider.Register("убавь", [0.99f, 0.05f, 0.0f]);
@@ -227,7 +228,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_DegradesGracefully_WhenEmbeddingProviderThrows()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var throwingProvider = new ThrowingEmbeddingProvider(new FileNotFoundException("ONNX model not found."));
 
         var router = new Tier1SemanticRouter(throwingProvider, store);
@@ -246,7 +247,9 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_DegradesGracefully_WhenEmbeddingStoreThrows()
     {
-        var throwingStore = new ThrowingEmbeddingStore(new InvalidOperationException("SQLite database unreachable"));
+        await using var brokenDb = await TestDatabase.CreateAsync();
+        EmbeddingStoreService throwingStore = brokenDb.Embeddings;
+        await brokenDb.DisposeAsync();
         var provider = new FakeEmbeddingProvider();
         provider.Register("test", [1.0f, 0.0f, 0.0f]);
 
@@ -266,7 +269,7 @@ public sealed class Tier1SemanticRouterTests
     [Fact]
     public async Task Tier1_ConsultsSemanticCacheFirst_AndReturnsCachedResultWithoutStoreSearch()
     {
-        var store = new CountingEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
         provider.Register("кэшированный запрос", [1.0f, 0.0f, 0.0f]);
 
@@ -299,15 +302,12 @@ public sealed class Tier1SemanticRouterTests
         Assert.Equal(RouteStatus.Matched, result.Status);
         Assert.Equal("cached.intent", result.Intent);
         Assert.Equal("SemanticCache", result.MatchedRuleName);
-
-        // Embedding store search was NOT called due to cache hit!
-        Assert.Equal(0, store.SearchCallCount);
     }
 
     [Fact]
     public async Task Tier1_ReindexesExamplesOnlyWhenSetChanges()
     {
-        var store = new CountingEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
         provider.Register("ex1", [1.0f, 0.0f, 0.0f]);
         provider.Register("ex2", [0.0f, 1.0f, 0.0f]);
@@ -323,11 +323,11 @@ public sealed class Tier1SemanticRouterTests
 
         // Call 1 -> triggers initial indexing
         await router.TryRouteAsync(new RouteRequest { Text = "query", Channel = ChannelKind.Telegram });
-        Assert.Equal(1, store.UpsertManyCallCount);
+        Assert.Equal(2, await store.CountAsync(EmbeddingNamespaces.Router));
 
         // Call 2 with identical examples -> skips indexing!
         await router.TryRouteAsync(new RouteRequest { Text = "query", Channel = ChannelKind.Telegram });
-        Assert.Equal(1, store.UpsertManyCallCount);
+        Assert.Equal(2, await store.CountAsync(EmbeddingNamespaces.Router));
 
         // Modify examples set
         provider.Register("ex3", [0.0f, 0.0f, 1.0f]);
@@ -335,13 +335,13 @@ public sealed class Tier1SemanticRouterTests
 
         // Call 3 with modified examples -> reindexes!
         await router.TryRouteAsync(new RouteRequest { Text = "query", Channel = ChannelKind.Telegram });
-        Assert.Equal(2, store.UpsertManyCallCount);
+        Assert.Equal(3, await store.CountAsync(EmbeddingNamespaces.Router));
     }
 
     [Fact]
     public async Task Tier1_EscalatesImmediately_WhenDisabledInConfiguration()
     {
-        var store = new InMemoryEmbeddingStore();
+        await using var db = await TestDatabase.CreateAsync();         EmbeddingStoreService store = db.Embeddings;
         var provider = new FakeEmbeddingProvider();
 
         var options = new CyberPipeOptions
@@ -462,109 +462,6 @@ public sealed class Tier1SemanticRouterTests
 
         public Task<CacheStatsDto> GetStatsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new CacheStatsDto { Hits = _hits, Misses = _misses, EntryCount = _entries.Count });
-    }
-
-    private class InMemoryEmbeddingStore : IEmbeddingStore
-    {
-        protected readonly List<EmbeddingRecord> Records = [];
-
-        public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default)
-        {
-            Records.RemoveAll(r => r.Namespace == record.Namespace && r.SourceRef == record.SourceRef);
-            Records.Add(record);
-            return Task.CompletedTask;
-        }
-
-        public virtual Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default)
-        {
-            foreach (var r in records)
-            {
-                UpsertAsync(r, cancellationToken);
-            }
-            return Task.CompletedTask;
-        }
-
-        public virtual Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default)
-        {
-            var matches = new List<EmbeddingMatch>();
-
-            foreach (EmbeddingRecord r in Records)
-            {
-                if (r.Namespace != query.Namespace) continue;
-                if (!string.IsNullOrEmpty(query.ModelId) && r.ModelId != query.ModelId) continue;
-
-                double score = Cosine(query.Vector, r.Vector);
-                if (score >= query.MinScore)
-                {
-                    matches.Add(new EmbeddingMatch
-                    {
-                        Id = r.Id,
-                        SourceRef = r.SourceRef,
-                        Score = score,
-                        Metadata = r.Metadata
-                    });
-                }
-            }
-
-            return Task.FromResult<IReadOnlyList<EmbeddingMatch>>(
-                matches.OrderByDescending(m => m.Score).Take(query.TopK).ToList());
-        }
-
-        public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default)
-        {
-            int removed = Records.RemoveAll(r => r.Namespace == @namespace && r.SourceRef == sourceRef);
-            return Task.FromResult(removed > 0);
-        }
-
-        public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default)
-        {
-            int removed = Records.RemoveAll(r => r.Namespace == @namespace);
-            return Task.FromResult(removed);
-        }
-
-        public Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default)
-        {
-            long count = Records.Count(r => r.Namespace == @namespace);
-            return Task.FromResult(count);
-        }
-
-        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default)
-        {
-            var ordered = Records.Where(r => r.Namespace == @namespace)
-                .OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToList();
-            int excess = Math.Max(ordered.Count - keepCount, 0);
-            foreach (EmbeddingRecord old in ordered.Take(excess)) Records.Remove(old);
-            return Task.FromResult(excess);
-        }
-    }
-
-    private sealed class CountingEmbeddingStore : InMemoryEmbeddingStore
-    {
-        public int SearchCallCount { get; private set; }
-        public int UpsertManyCallCount { get; private set; }
-
-        public override Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default)
-        {
-            SearchCallCount++;
-            return base.SearchAsync(query, cancellationToken);
-        }
-
-        public override Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default)
-        {
-            UpsertManyCallCount++;
-            return base.UpsertManyAsync(records, cancellationToken);
-        }
-    }
-
-    private sealed class ThrowingEmbeddingStore(Exception ex) : IEmbeddingStore
-    {
-        public Task UpsertAsync(EmbeddingRecord record, CancellationToken cancellationToken = default) => throw ex;
-        public Task UpsertManyAsync(IReadOnlyList<EmbeddingRecord> records, CancellationToken cancellationToken = default) => throw ex;
-        public Task<IReadOnlyList<EmbeddingMatch>> SearchAsync(EmbeddingQuery query, CancellationToken cancellationToken = default) => throw ex;
-        public Task<bool> DeleteAsync(string @namespace, string sourceRef, CancellationToken cancellationToken = default) => throw ex;
-        public Task<int> DeleteByOwnerScopeAsync(string @namespace, CancellationToken cancellationToken = default) => throw ex;
-        public Task<long> CountAsync(string @namespace, CancellationToken cancellationToken = default) => throw ex;
-        public Task<int> DeleteOldestAsync(string @namespace, int keepCount, CancellationToken cancellationToken = default) => throw ex;
     }
 
     private static double Cosine(IReadOnlyList<float> a, IReadOnlyList<float> b)

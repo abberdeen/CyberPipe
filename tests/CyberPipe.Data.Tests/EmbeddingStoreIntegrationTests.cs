@@ -14,7 +14,7 @@ public sealed class EmbeddingStoreIntegrationTests
         public SqliteTestDatabase Database { get; private set; } = null!;
 
         public IDbContextFactory<CyberPipeDbContext> DbFactory => Database.DbFactory;
-        public SqliteEmbeddingStore Embeddings => new(DbFactory, TestOptions);
+        public EmbeddingStoreService Embeddings => new(DbFactory, storeOptions: TestOptions);
 
         public static readonly EmbeddingStoreOptions TestOptions = new()
         {
@@ -38,7 +38,7 @@ public sealed class EmbeddingStoreIntegrationTests
         Metadata = new Dictionary<string, string> { ["src"] = src },
     };
 
-    private static async Task SeedControlSetAsync(SqliteEmbeddingStore store, string ns = "router")
+    private static async Task SeedControlSetAsync(EmbeddingStoreService store, string ns = "router")
     {
         // Контрольный набор (dim=3, нормализованные): сходства с запросом [1,0,0] известны.
         await store.UpsertManyAsync([
@@ -82,7 +82,7 @@ public sealed class EmbeddingStoreIntegrationTests
     public async Task Upsert_RepeatedTriple_UpdatesWithoutDuplicates()
     {
         await using Fixture fx = await CreateAsync();
-        SqliteEmbeddingStore store = fx.Embeddings;
+        EmbeddingStoreService store = fx.Embeddings;
         await store.UpsertAsync(Rec("router", "a", [1f, 0f, 0f]));
         await store.UpsertAsync(Rec("router", "a", [0f, 1f, 0f]));
         Assert.Equal(1, await store.CountAsync("router"));
@@ -98,7 +98,7 @@ public sealed class EmbeddingStoreIntegrationTests
     public async Task Search_IsolatedByNamespaceAndModelFilter()
     {
         await using Fixture fx = await CreateAsync();
-        SqliteEmbeddingStore store = fx.Embeddings;
+        EmbeddingStoreService store = fx.Embeddings;
         await store.UpsertAsync(Rec("router", "shared", [1f, 0f, 0f]));
         await store.UpsertAsync(Rec("knowledge", "shared", [1f, 0f, 0f]));
         await store.UpsertAsync(Rec("router", "other-model-rec", [1f, 0f, 0f], model: "other-model"));
@@ -125,7 +125,7 @@ public sealed class EmbeddingStoreIntegrationTests
     public async Task Delete_AndDeleteByOwnerScope_Work()
     {
         await using Fixture fx = await CreateAsync();
-        SqliteEmbeddingStore store = fx.Embeddings;
+        EmbeddingStoreService store = fx.Embeddings;
         await SeedControlSetAsync(store, "router");
         await SeedControlSetAsync(store, "knowledge");
         Assert.True(await store.DeleteAsync("router", "a"));
@@ -139,7 +139,7 @@ public sealed class EmbeddingStoreIntegrationTests
     public async Task Search_ApproximateStrategy_ReturnsSameOrder()
     {
         await using Fixture fx = await CreateAsync();
-        var store = new SqliteEmbeddingStore(fx.DbFactory, new EmbeddingStoreOptions
+        var store = new EmbeddingStoreService(fx.DbFactory, storeOptions: new EmbeddingStoreOptions
         {
             ModelDimensions = Fixture.TestOptions.ModelDimensions,
             SearchStrategy = EmbeddingSearchStrategy.ApproximateHnsw,

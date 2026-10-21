@@ -2,14 +2,30 @@ using System.Reflection;
 using System.Text.Json;
 using CyberPipe.Chains;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 using Xunit;
 
 namespace CyberPipe.Tests.Unit;
 
-public sealed class ChainDefinitionTests
+public sealed class ChainDefinitionTests : IAsyncLifetime
 {
     private readonly ChainDefinitionValidator _validator = new();
-    private readonly InMemoryChainDefinitionRepository _repository = new();
+    private TestDatabase? _db;
+
+    private ChainCatalogService Repository => _db!.Catalog;
+
+    public async Task InitializeAsync()
+    {
+        _db = await TestDatabase.CreateAsync();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_db is not null)
+        {
+            await _db.DisposeAsync();
+        }
+    }
 
     private static string GetFixturePath(string filename)
     {
@@ -342,19 +358,19 @@ public sealed class ChainDefinitionTests
         Assert.True(validation.IsValid);
 
         // Store both in repository
-        await _repository.UpsertAsync(enabledChain);
-        await _repository.UpsertAsync(disabledChain);
+        await Repository.UpsertAsync(enabledChain);
+        await Repository.UpsertAsync(disabledChain);
 
         // ListEnabled returns only enabled chains
-        IReadOnlyList<ChainDefinitionDto> enabledList = await _repository.ListEnabledAsync();
+        IReadOnlyList<ChainDefinitionDto> enabledList = await Repository.ListEnabledAsync();
         Assert.Contains(enabledList, c => c.Id == enabledChain.Id);
         Assert.DoesNotContain(enabledList, c => c.Id == disabledChain.Id);
 
         // When toggled to enabled, it appears in ListEnabledAsync
-        bool toggled = await _repository.SetEnabledAsync(disabledChain.Id, true);
+        bool toggled = await Repository.SetEnabledAsync(disabledChain.Id, true);
         Assert.True(toggled);
 
-        IReadOnlyList<ChainDefinitionDto> updatedList = await _repository.ListEnabledAsync();
+        IReadOnlyList<ChainDefinitionDto> updatedList = await Repository.ListEnabledAsync();
         Assert.Contains(updatedList, c => c.Id == disabledChain.Id);
     }
 
@@ -367,23 +383,23 @@ public sealed class ChainDefinitionTests
             IsEnabled = true,
         };
 
-        ChainDefinitionDto created = await _repository.UpsertAsync(chain);
+        ChainDefinitionDto created = await Repository.UpsertAsync(chain);
         Assert.Equal(1, created.Version);
 
         // Update name
-        ChainDefinitionDto updated = await _repository.UpsertAsync(created with { Name = "Updated Function Call Chain" });
+        ChainDefinitionDto updated = await Repository.UpsertAsync(created with { Name = "Updated Function Call Chain" });
         Assert.Equal(2, updated.Version);
         Assert.Equal("Updated Function Call Chain", updated.Name);
 
         // Update again
-        ChainDefinitionDto updatedAgain = await _repository.UpsertAsync(updated with { Name = "Updated Again" });
+        ChainDefinitionDto updatedAgain = await Repository.UpsertAsync(updated with { Name = "Updated Again" });
         Assert.Equal(3, updatedAgain.Version);
     }
 
     [Fact]
     public async Task ChainDefinitionLoader_LoadsFromConfigAndRepository()
     {
-        var loader = new ChainDefinitionLoader(_repository, _validator);
+        var loader = new ChainDefinitionLoader(Repository, _validator);
 
         // 1. Load from config string
         string json = ReadFixture("chat-chain.json");
@@ -396,7 +412,7 @@ public sealed class ChainDefinitionTests
         Assert.Equal(fromConfig.Id, fromFile.Id);
 
         // 3. Load from repository
-        await _repository.UpsertAsync(fromConfig);
+        await Repository.UpsertAsync(fromConfig);
         ChainDefinitionDto? fromRepo = await loader.LoadFromRepositoryAsync(fromConfig.Id);
         Assert.NotNull(fromRepo);
         Assert.Equal(fromConfig.Id, fromRepo.Id);

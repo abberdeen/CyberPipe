@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using CyberPipe.Contracts;
+using CyberPipe.Data;
 
 namespace CyberPipe.Chains.Triggers;
 
@@ -9,7 +10,7 @@ namespace CyberPipe.Chains.Triggers;
 /// </summary>
 public sealed class TriggerRegistry : ITriggerRegistry
 {
-    private readonly IChainDefinitionRepository _repository;
+    private readonly ChainCatalogService _repository;
     private readonly CronTriggerManager? _cronManager;
     private readonly ConcurrentDictionary<ChainId, ChainDefinitionDto> _registeredChains = new();
 
@@ -17,7 +18,7 @@ public sealed class TriggerRegistry : ITriggerRegistry
     /// Инициализирует реестр триггеров.
     /// </summary>
     public TriggerRegistry(
-        IChainDefinitionRepository repository,
+        ChainCatalogService repository,
         CronTriggerManager? cronManager = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
