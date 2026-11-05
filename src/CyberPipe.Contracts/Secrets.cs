@@ -9,8 +9,21 @@ public static class SecretKeys
     /// <summary>Токен Telegram-бота.</summary>
     public const string TelegramBotToken = "telegram.botToken";
 
+    /// <summary>Префикс ключей API динамических облачных провайдеров.</summary>
+    public const string ModelProviderPrefix = "provider.";
+
     /// <summary>Все зарегистрированные ключи секретов.</summary>
     public static IReadOnlyList<string> All { get; } = [DatabasePassword, TelegramBotToken];
+
+    /// <summary>
+    /// Ключ секрета API-ключа облачного провайдера: <c>provider.{id}.apiKey</c>.
+    /// Идентификатор приводится к нижнему регистру и обрезается по краям.
+    /// </summary>
+    public static string ForModelProvider(string providerId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerId);
+        return $"provider.{providerId.Trim().ToLowerInvariant()}.apiKey";
+    }
 }
 
 /// <summary>

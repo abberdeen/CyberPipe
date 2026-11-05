@@ -124,6 +124,9 @@ public sealed class ConfigAndSecretsTests : IDisposable
         Assert.Equal("database.password", SecretKeys.DatabasePassword);
         Assert.Equal("telegram.botToken", SecretKeys.TelegramBotToken);
         Assert.Equal(2, SecretKeys.All.Count);
+        Assert.Equal("provider.", SecretKeys.ModelProviderPrefix);
+        Assert.Equal("provider.openai.apiKey", SecretKeys.ForModelProvider(" OpenAI "));
+        Assert.Throws<ArgumentException>(() => SecretKeys.ForModelProvider("  "));
     }
 
     [Fact]

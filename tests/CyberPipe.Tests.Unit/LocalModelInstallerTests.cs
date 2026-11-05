@@ -82,7 +82,17 @@ public sealed class LocalModelInstallerTests
 
         public bool DeleteShouldFail { get; set; }
 
+        public bool PsNotFound { get; set; }
+
+        public bool PsDown { get; set; }
+
+        public string? TagsJsonOverride { get; set; }
+
+        public string? PsJson { get; set; }
+
         public List<string> GenerateRequestBodies { get; } = [];
+
+        public List<string> PullRequestBodies { get; } = [];
 
         public Dictionary<string, byte[]> FileDownloads { get; } = new();
 
@@ -101,12 +111,39 @@ public sealed class LocalModelInstallerTests
 
             if (path == "/api/tags" && request.Method == HttpMethod.Get)
             {
+                if (TagsJsonOverride is not null)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(TagsJsonOverride, Encoding.UTF8, "application/json"),
+                    };
+                }
+
                 var models = InstalledModels.Select(m => new { name = m.Name, size = m.Size }).ToArray();
                 return Json(new { models });
             }
 
+            if (path == "/api/ps" && request.Method == HttpMethod.Get)
+            {
+                if (PsDown)
+                {
+                    throw new HttpRequestException("Connection refused.");
+                }
+
+                if (PsNotFound)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NotFound);
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(PsJson ?? """{"models":[]}""", Encoding.UTF8, "application/json"),
+                };
+            }
+
             if (path == "/api/pull" && request.Method == HttpMethod.Post)
             {
+                PullRequestBodies.Add(await request.Content!.ReadAsStringAsync(ct));
                 if (PullShouldHang)
                 {
                     await Task.Delay(Timeout.Infinite, ct);
@@ -319,6 +356,154 @@ public sealed class LocalModelInstallerTests
 
         Assert.Single(installed);
         Assert.Equal("qwen3:8b", installed[0].ModelId);
+    }
+
+    [Fact]
+    public async Task ListInstalled_ParsesTagDetails()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+        handler.TagsJsonOverride = """
+            {
+              "models": [
+                {
+                  "name": "qwen2.5-coder:7b",
+                  "size": 4700000000,
+                  "modified_at": "2026-03-01T12:30:00Z",
+                  "details": {
+                    "family": "qwen2",
+                    "parameter_size": "7.6B",
+                    "quantization_level": "Q4_K_M"
+                  }
+                }
+              ]
+            }
+            """;
+
+        IReadOnlyList<InstalledLocalModel> installed = await installer.ListInstalledAsync();
+
+        Assert.Single(installed);
+        Assert.Equal("qwen2.5-coder:7b", installed[0].ModelId);
+        Assert.Equal(4_700_000_000, installed[0].SizeBytes);
+        Assert.Equal("qwen2", installed[0].Family);
+        Assert.Equal("7.6B", installed[0].ParameterSize);
+        Assert.Equal("Q4_K_M", installed[0].QuantizationLevel);
+        Assert.Equal(new DateTimeOffset(2026, 3, 1, 12, 30, 0, TimeSpan.Zero), installed[0].ModifiedAtUtc);
+    }
+
+    [Fact]
+    public async Task ListRunning_ReadsMemorySizes()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+        handler.PsJson = """
+            {
+              "models": [
+                {
+                  "name": "qwen3:8b",
+                  "size": 5583457484,
+                  "size_vram": 5153960755,
+                  "expires_at": "2026-04-02T08:15:00Z"
+                }
+              ]
+            }
+            """;
+
+        IReadOnlyList<OllamaRunningModelDto> running = await installer.ListRunningAsync();
+
+        Assert.Single(running);
+        Assert.Equal("qwen3:8b", running[0].ModelId);
+        Assert.Equal(5_583_457_484, running[0].SizeBytes);
+        Assert.Equal(5_153_960_755, running[0].SizeVramBytes);
+        Assert.Equal(new DateTimeOffset(2026, 4, 2, 8, 15, 0, TimeSpan.Zero), running[0].ExpiresAtUtc);
+    }
+
+    [Fact]
+    public async Task ListRunning_WhenApiMissing_ReturnsEmpty()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+        handler.PsNotFound = true;
+
+        IReadOnlyList<OllamaRunningModelDto> missing = await installer.ListRunningAsync();
+
+        handler.PsNotFound = false;
+        handler.PsDown = true;
+        IReadOnlyList<OllamaRunningModelDto> down = await installer.ListRunningAsync();
+
+        Assert.Empty(missing);
+        Assert.Empty(down);
+    }
+
+    [Fact]
+    public async Task Unload_SendsKeepAliveZero()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+
+        Result empty = await installer.UnloadAsync("  ");
+        Result result = await installer.UnloadAsync("qwen3:8b");
+
+        Assert.False(empty.IsSuccess);
+        Assert.Equal("Model.NoRuntimeId", empty.Error!.Code);
+        Assert.True(result.IsSuccess);
+        using JsonDocument body = JsonDocument.Parse(Assert.Single(handler.GenerateRequestBodies));
+        Assert.Equal("qwen3:8b", body.RootElement.GetProperty("model").GetString());
+        Assert.Equal(0, body.RootElement.GetProperty("keep_alive").GetInt32());
+        Assert.False(body.RootElement.GetProperty("stream").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Unload_WhenRuntimeRefuses_ReportsFailure()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+        handler.GenerateShouldFail = true;
+
+        Result result = await installer.UnloadAsync("qwen3:8b");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Model.UnloadFailed", result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task PullByTag_DownloadsModelOutsideCatalog()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+        var progress = new List<ModelInstallProgress>();
+
+        Result<ModelProbeResult> result = await installer.PullByTagAsync(
+            "qwen2.5-coder:7b",
+            new Progress<ModelInstallProgress>(progress.Add));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value!.Succeeded);
+        using JsonDocument pull = JsonDocument.Parse(Assert.Single(handler.PullRequestBodies));
+        Assert.Equal("qwen2.5-coder:7b", pull.RootElement.GetProperty("name").GetString());
+        using JsonDocument probe = JsonDocument.Parse(Assert.Single(handler.GenerateRequestBodies));
+        Assert.Equal("qwen2.5-coder:7b", probe.RootElement.GetProperty("model").GetString());
+        Assert.Equal(8192, probe.RootElement.GetProperty("options").GetProperty("num_ctx").GetInt32());
+        Assert.Contains(progress, item => item.ModelId == "qwen2.5-coder:7b");
+    }
+
+    [Fact]
+    public async Task PullByTag_UsesCatalogDescriptorWhenTagMatches()
+    {
+        (OllamaLocalModelInstaller installer, FakeOllamaHandler handler) = CreateInstaller();
+
+        Result<ModelProbeResult> result = await installer.PullByTagAsync("qwen3:8b");
+
+        Assert.True(result.IsSuccess);
+        using JsonDocument probe = JsonDocument.Parse(Assert.Single(handler.GenerateRequestBodies));
+        Assert.Equal("qwen3:8b", probe.RootElement.GetProperty("model").GetString());
+        Assert.Equal(8192, probe.RootElement.GetProperty("options").GetProperty("num_ctx").GetInt32());
+        Assert.False(probe.RootElement.TryGetProperty("keep_alive", out _));
+    }
+
+    [Fact]
+    public async Task PullByTag_EmptyTag_IsRejected()
+    {
+        (OllamaLocalModelInstaller installer, _) = CreateInstaller();
+
+        Result<ModelProbeResult> result = await installer.PullByTagAsync("   ");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("Model.NoRuntimeId", result.Error!.Code);
     }
 
     [Fact]

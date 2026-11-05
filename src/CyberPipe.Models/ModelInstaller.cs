@@ -246,17 +246,189 @@ public sealed class OllamaLocalModelInstaller : ILocalModelInstaller
                     name.ValueKind == JsonValueKind.String &&
                     !string.IsNullOrWhiteSpace(name.GetString()))
                 {
-                    long? size = entry.TryGetProperty("size", out JsonElement sizeElement) &&
-                        sizeElement.ValueKind == JsonValueKind.Number &&
-                        sizeElement.TryGetInt64(out long bytes)
-                        ? bytes
-                        : null;
-                    result.Add(new InstalledLocalModel { ModelId = name.GetString()!, SizeBytes = size });
+                    long? size = ReadInt64(entry, "size");
+                    string? family = null;
+                    string? parameterSize = null;
+                    string? quantization = null;
+                    if (entry.TryGetProperty("details", out JsonElement details) &&
+                        details.ValueKind == JsonValueKind.Object)
+                    {
+                        family = ReadString(details, "family");
+                        parameterSize = ReadString(details, "parameter_size");
+                        quantization = ReadString(details, "quantization_level");
+                    }
+
+                    result.Add(new InstalledLocalModel
+                    {
+                        ModelId = name.GetString()!,
+                        SizeBytes = size,
+                        Family = family,
+                        ParameterSize = parameterSize,
+                        QuantizationLevel = quantization,
+                        ModifiedAtUtc = ReadDateTimeOffset(entry, "modified_at"),
+                    });
                 }
             }
         }
 
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<OllamaRunningModelDto>> ListRunningAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using HttpResponseMessage response = await _http.GetAsync(Api("/api/ps"), cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.NotFound || !response.IsSuccessStatusCode)
+            {
+                return [];
+            }
+
+            using JsonDocument doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+            var result = new List<OllamaRunningModelDto>();
+            if (!doc.RootElement.TryGetProperty("models", out JsonElement models) ||
+                models.ValueKind != JsonValueKind.Array)
+            {
+                return result;
+            }
+
+            foreach (JsonElement entry in models.EnumerateArray())
+            {
+                string? modelId = ReadString(entry, "name");
+                if (string.IsNullOrWhiteSpace(modelId))
+                {
+                    continue;
+                }
+
+                result.Add(new OllamaRunningModelDto
+                {
+                    ModelId = modelId,
+                    SizeBytes = ReadInt64(entry, "size") ?? 0,
+                    SizeVramBytes = ReadInt64(entry, "size_vram") ?? 0,
+                    ExpiresAtUtc = ReadDateTimeOffset(entry, "expires_at"),
+                });
+            }
+
+            return result;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException)
+        {
+            return [];
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<Result> UnloadAsync(string modelId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+        {
+            return Result.Failure("Model.NoRuntimeId", "Model id is required.");
+        }
+
+        try
+        {
+            using HttpResponseMessage response = await _http.PostAsync(
+                Api("/api/generate"),
+                JsonContent.Create(new
+                {
+                    model = modelId,
+                    prompt = "",
+                    keep_alive = 0,
+                    stream = false,
+                }),
+                cancellationToken).ConfigureAwait(false);
+            return response.IsSuccessStatusCode
+                ? Result.Success()
+                : Result.Failure("Model.UnloadFailed", $"Runtime refused to unload '{modelId}': {(int)response.StatusCode}.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException)
+        {
+            return Result.Failure("Model.UnloadFailed", $"Unload of '{modelId}' failed: {ex.Message}");
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Result.Failure("Model.UnloadFailed", $"Unload of '{modelId}' failed: {ex.Message}");
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<Result<ModelProbeResult>> PullByTagAsync(
+        string modelTag,
+        IProgress<ModelInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelTag))
+        {
+            return Task.FromResult(Result<ModelProbeResult>.Failure("Model.NoRuntimeId", "Model tag is required."));
+        }
+
+        string tag = modelTag.Trim();
+        ModelDescriptorDto? catalogModel = _catalog.LocalModels.FirstOrDefault(model =>
+            string.Equals(model.ModelId, tag, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(model.Id, tag, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(StripLatest(model.ModelId), StripLatest(tag), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(StripLatest(model.Id), StripLatest(tag), StringComparison.OrdinalIgnoreCase));
+
+        ModelDescriptorDto descriptor = catalogModel ?? new ModelDescriptorDto
+        {
+            Id = tag,
+            Name = tag,
+            HostingType = ModelHostingType.Local,
+            RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+            Provider = "Ollama",
+            ModelId = tag,
+            ParamsSummary = tag,
+            DefaultContextTokens = 8192,
+            LicenseOrPricing = "Ollama library",
+            BestFor = tag,
+        };
+
+        return InstallAsync(descriptor, progress, cancellationToken);
+    }
+
+    private static string StripLatest(string value)
+    {
+        const string suffix = ":latest";
+        return value.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? value[..^suffix.Length]
+            : value;
+    }
+
+    private static string? ReadString(JsonElement element, string property)
+    {
+        if (element.TryGetProperty(property, out JsonElement value) &&
+            value.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(value.GetString()))
+        {
+            return value.GetString();
+        }
+
+        return null;
+    }
+
+    private static long? ReadInt64(JsonElement element, string property)
+    {
+        if (element.TryGetProperty(property, out JsonElement value) &&
+            value.ValueKind == JsonValueKind.Number &&
+            value.TryGetInt64(out long number))
+        {
+            return number;
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? ReadDateTimeOffset(JsonElement element, string property)
+    {
+        string? text = ReadString(element, property);
+        return text is not null && DateTimeOffset.TryParse(text, out DateTimeOffset parsed)
+            ? parsed
+            : null;
     }
 
     /// <inheritdoc />

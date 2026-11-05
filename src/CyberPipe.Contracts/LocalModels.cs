@@ -37,6 +37,36 @@ public sealed record InstalledLocalModel
 
     /// <summary>Размер весов в байтах; может отсутствовать.</summary>
     public long? SizeBytes { get; init; }
+
+    /// <summary>Семейство модели из <c>details.family</c> ответа <c>/api/tags</c>.</summary>
+    public string? Family { get; init; }
+
+    /// <summary>Размер параметров из <c>details.parameter_size</c> (например, <c>7B</c>).</summary>
+    public string? ParameterSize { get; init; }
+
+    /// <summary>Уровень квантования из <c>details.quantization_level</c> (например, <c>Q4_K_M</c>).</summary>
+    public string? QuantizationLevel { get; init; }
+
+    /// <summary>Время последнего изменения модели в рантайме.</summary>
+    public DateTimeOffset? ModifiedAtUtc { get; init; }
+}
+
+/// <summary>
+/// Модель, загруженная в RAM/VRAM рантайма Ollama (<c>GET /api/ps</c>).
+/// </summary>
+public sealed record OllamaRunningModelDto
+{
+    /// <summary>Тег модели в рантайме.</summary>
+    public required string ModelId { get; init; }
+
+    /// <summary>Полный размер модели в памяти, байты.</summary>
+    public long SizeBytes { get; init; }
+
+    /// <summary>Часть размера, размещённая в видеопамяти, байты.</summary>
+    public long SizeVramBytes { get; init; }
+
+    /// <summary>Момент, когда рантайм выгрузит модель, если она не используется.</summary>
+    public DateTimeOffset? ExpiresAtUtc { get; init; }
 }
 
 /// <summary>
@@ -136,6 +166,49 @@ public interface ILocalModelInstaller
 {
     /// <summary>Список моделей, установленных в рантайме.</summary>
     Task<IReadOnlyList<InstalledLocalModel>> ListInstalledAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Модели, которые сейчас находятся в памяти рантайма (<c>GET /api/ps</c>).</summary>
+    Task<IReadOnlyList<OllamaRunningModelDto>> ListRunningAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<OllamaRunningModelDto>>([]);
+
+    /// <summary>Выгружает модель из оперативной и видеопамяти (<c>keep_alive: 0</c>).</summary>
+    Task<Result> UnloadAsync(string modelId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Result.Failure(
+            "Model.UnloadFailed",
+            "This installer does not support unloading models from memory."));
+
+    /// <summary>
+    /// Скачивает произвольную модель из библиотеки Ollama по тегу и проверяет её.
+    /// Реализация по умолчанию делегирует в <see cref="InstallAsync"/> с синтетическим дескриптором.
+    /// </summary>
+    Task<Result<ModelProbeResult>> PullByTagAsync(
+        string modelTag,
+        IProgress<ModelInstallProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelTag))
+        {
+            return Task.FromResult(Result<ModelProbeResult>.Failure("Model.NoRuntimeId", "Model tag is required."));
+        }
+
+        string tag = modelTag.Trim();
+        return InstallAsync(
+            new ModelDescriptorDto
+            {
+                Id = tag,
+                Name = tag,
+                HostingType = ModelHostingType.Local,
+                RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+                Provider = "Ollama",
+                ModelId = tag,
+                ParamsSummary = tag,
+                DefaultContextTokens = 8192,
+                LicenseOrPricing = "Ollama library",
+                BestFor = tag,
+            },
+            progress,
+            cancellationToken);
+    }
 
     /// <summary>
     /// Устанавливает модель из каталога: проверка места, скачивание с прогрессом,
