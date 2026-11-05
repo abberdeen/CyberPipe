@@ -8,6 +8,8 @@ namespace CyberPipe.Desktop;
 public partial class MainWindow : Window
 {
     private TelemetryLogsWindow? _logsWindow;
+    private OllamaManagerWindow? _ollamaWindow;
+    private RemoteProvidersWindow? _providersWindow;
 
     public MainWindow()
     {
@@ -28,6 +30,7 @@ public partial class MainWindow : Window
         if (DataContext is MainWindowViewModel vm)
         {
             WireLogsWindow(vm);
+            WireModelWindows(vm);
         }
     }
 
@@ -36,6 +39,46 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = viewModel;
         WireLogsWindow(viewModel);
+        WireModelWindows(viewModel);
+    }
+
+    private void WireModelWindows(MainWindowViewModel vm)
+    {
+        vm.Models.OpenOllamaManagerRequested = manager =>
+        {
+            if (_ollamaWindow is { IsVisible: true })
+            {
+                _ollamaWindow.Activate();
+                return Task.CompletedTask;
+            }
+
+            _ollamaWindow = new OllamaManagerWindow(manager);
+            _ollamaWindow.Closed += (_, _) =>
+            {
+                _ollamaWindow = null;
+                vm.Models.RefreshAvailableModels();
+            };
+            _ollamaWindow.Show(this);
+            return Task.CompletedTask;
+        };
+
+        vm.Models.OpenRemoteProvidersRequested = providers =>
+        {
+            if (_providersWindow is { IsVisible: true })
+            {
+                _providersWindow.Activate();
+                return Task.CompletedTask;
+            }
+
+            _providersWindow = new RemoteProvidersWindow(providers);
+            _providersWindow.Closed += (_, _) =>
+            {
+                _providersWindow = null;
+                vm.Models.RefreshAvailableModels();
+            };
+            _providersWindow.Show(this);
+            return Task.CompletedTask;
+        };
     }
 
     private void WireLogsWindow(MainWindowViewModel? vm)

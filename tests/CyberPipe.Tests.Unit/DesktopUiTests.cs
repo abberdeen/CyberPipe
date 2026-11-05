@@ -787,6 +787,158 @@ public sealed class DesktopUiTests
                 Directory.Delete(tempDir, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task ModelsViewModel_UsesInstalledOllamaModels_RemoteProviders_AndAutosave()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "cyberpipe_models_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        string tempOverrides = Path.Combine(tempDir, "ui-overrides.json");
+        try
+        {
+            var installer = new ListingLocalInstaller();
+            installer.Installed.Add(new InstalledLocalModel { ModelId = "custom-local:7b", SizeBytes = 4_000_000_000 });
+            var manager = new OllamaManagerViewModel([], installer, new ReadyLocalRuntime());
+            await manager.RefreshAsync();
+
+            var remote = new RemoteProviderService(tempOverrides, new MemorySecretStore(), new HttpClient(new HttpClientHandler()));
+            remote.LoadProviders();
+            var catalog = new List<ModelDescriptorDto>
+            {
+                new()
+                {
+                    Id = "qwen2.5:7b",
+                    Name = "Qwen 2.5 7B",
+                    HostingType = ModelHostingType.Local,
+                    RecommendedFor = ModelTaskCategory.LightFastTier2,
+                    Provider = "Ollama",
+                    ModelId = "qwen2.5:7b",
+                    ParamsSummary = "7B",
+                    LicenseOrPricing = "Apache-2.0",
+                    BestFor = "Tier 2",
+                },
+                new()
+                {
+                    Id = "gpt-4o",
+                    Name = "GPT-4o",
+                    HostingType = ModelHostingType.RemoteCloud,
+                    RecommendedFor = ModelTaskCategory.HeavyReasoningTier3,
+                    Provider = "OpenAI",
+                    ModelId = "gpt-4o",
+                    ParamsSummary = "128k",
+                    LicenseOrPricing = "Commercial",
+                    BestFor = "Tier 3",
+                },
+            };
+
+            var vm = new ModelsViewModel(
+                catalog: catalog,
+                uiOverridesPath: tempOverrides,
+                ollamaManager: manager,
+                remoteProviders: remote);
+            await vm.WhenOllamaReady;
+
+            TierModelAssignmentViewModel tier2 = vm.FastAssistantAssignment!;
+            TierModelAssignmentViewModel tier3 = vm.SmartExpertAssignment!;
+            Assert.Contains("Быстрый помощник", tier2.RoleTitle, StringComparison.Ordinal);
+            Assert.Contains("Умный эксперт", tier3.RoleTitle, StringComparison.Ordinal);
+            Assert.True(tier2.IsVisibleInSimpleUi);
+            Assert.Contains("custom-local:7b", tier2.AvailableModels);
+            Assert.DoesNotContain("mistral", tier2.AvailableModels);
+            Assert.DoesNotContain("gemma2:2b", tier2.AvailableModels);
+            Assert.DoesNotContain("qwen2.5:7b", tier2.AvailableModels);
+            Assert.False(vm.HasNoInstalledLocalModels);
+            Assert.True(vm.LocalRuntimes.Single(runtime => runtime.Kind == LocalRuntimeKind.Ollama).IsImplemented);
+            Assert.False(vm.LocalRuntimes.Single(runtime => runtime.Kind == LocalRuntimeKind.LmStudio).IsImplemented);
+            Assert.Contains("Активно провайдеров", vm.RemoteProvidersSummaryText, StringComparison.Ordinal);
+
+            tier2.SelectedModel = "custom-local:7b";
+            string saved = File.ReadAllText(tempOverrides);
+            Assert.Contains("custom-local:7b", saved, StringComparison.Ordinal);
+            Assert.DoesNotContain("sk-", saved, StringComparison.Ordinal);
+
+            tier2.IsRemoteHosting = true;
+            Assert.Contains("gpt-4o-mini", tier2.AvailableModels);
+            Assert.Contains("gpt-4o", tier2.AvailableModels);
+            Assert.DoesNotContain("custom-local:7b", tier2.AvailableModels);
+
+            OllamaManagerViewModel? opened = null;
+            vm.OpenOllamaManagerRequested = modelManager =>
+            {
+                opened = modelManager;
+                return Task.CompletedTask;
+            };
+            await vm.OpenOllamaManagerCommand.ExecuteAsync();
+            Assert.Same(manager, opened);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    private sealed class ListingLocalInstaller : ILocalModelInstaller
+    {
+        public List<InstalledLocalModel> Installed { get; } = [];
+
+        public Task<IReadOnlyList<InstalledLocalModel>> ListInstalledAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<InstalledLocalModel>>(Installed.ToList());
+
+        public Task<Result<ModelProbeResult>> InstallAsync(
+            ModelDescriptorDto model,
+            IProgress<ModelInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<ModelProbeResult>.Success(new ModelProbeResult { Succeeded = true }));
+
+        public Task<Result> RemoveAsync(string modelId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result.Success());
+
+        public Task<Result<ModelProbeResult>> VerifyAsync(ModelDescriptorDto model, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<ModelProbeResult>.Success(new ModelProbeResult { Succeeded = true }));
+
+        public Task<Result<EmbeddingInstallResult>> EnsureEmbeddingAsync(
+            IProgress<ModelInstallProgress>? progress = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(Result<EmbeddingInstallResult>.Success(new EmbeddingInstallResult
+            {
+                AlreadyInstalled = true,
+                InstallPath = "emb",
+                VectorDimensions = 384,
+            }));
+    }
+
+    private sealed class ReadyLocalRuntime : ILocalRuntimeInstaller
+    {
+        public Task<LocalRuntimeInfo> GetStatusAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new LocalRuntimeInfo
+            {
+                State = LocalRuntimeState.Ready,
+                Version = "0.6.2",
+                ApiBaseUrl = "http://localhost:11434",
+            });
+
+        public Task<Result<LocalRuntimeInfo>> EnsureInstalledAsync(
+            IProgress<string>? progress = null,
+            CancellationToken cancellationToken = default) =>
+            GetStatusAsync(cancellationToken).ContinueWith(
+                task => Result<LocalRuntimeInfo>.Success(task.Result),
+                cancellationToken,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+    }
+
+    private sealed class MemorySecretStore : ISecretStore
+    {
+        public bool IsPlatformStore => false;
+
+        public Task SetAsync(string key, SecretValue value, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SecretValue?> GetAsync(string key, CancellationToken cancellationToken = default) =>
+            Task.FromResult<SecretValue?>(null);
+
+        public Task<bool> DeleteAsync(string key, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
 }
 
 // ----------------- Fakes for Unit Tests -----------------

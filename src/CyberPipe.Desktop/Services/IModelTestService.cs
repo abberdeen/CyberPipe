@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CyberPipe.Contracts;
@@ -40,13 +41,18 @@ public sealed class ModelTestService : IModelTestService
 {
     private readonly HttpClient _http;
     private readonly string _ollamaBaseUrl;
+    private readonly IRemoteProviderService? _remoteProviders;
 
-    public ModelTestService(HttpClient? httpClient = null, string? ollamaBaseUrl = null)
+    public ModelTestService(
+        HttpClient? httpClient = null,
+        string? ollamaBaseUrl = null,
+        IRemoteProviderService? remoteProviders = null)
     {
         _http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
         _ollamaBaseUrl = string.IsNullOrWhiteSpace(ollamaBaseUrl)
             ? "http://localhost:11434"
             : ollamaBaseUrl.TrimEnd('/');
+        _remoteProviders = remoteProviders;
     }
 
     public async Task<ModelTestResponse> TestModelAsync(
@@ -109,9 +115,12 @@ public sealed class ModelTestService : IModelTestService
 
         try
         {
-            string runtimeModelId = hostingType == ModelHostingType.RemoteCloud
-                ? trimmedModelId
-                : await ResolveInstalledTagAsync(trimmedModelId, cancellationToken).ConfigureAwait(false);
+            if (hostingType == ModelHostingType.RemoteCloud)
+            {
+                return await TestRemoteCloudAsync(trimmedModelId, prompt, provider, sw, cancellationToken).ConfigureAwait(false);
+            }
+
+            string runtimeModelId = await ResolveInstalledTagAsync(trimmedModelId, cancellationToken).ConfigureAwait(false);
 
             using var response = await _http.PostAsync(
                 $"{_ollamaBaseUrl}/api/chat",
@@ -130,18 +139,6 @@ public sealed class ModelTestService : IModelTestService
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                if (hostingType == ModelHostingType.RemoteCloud)
-                {
-                    return new ModelTestResponse
-                    {
-                        Success = false,
-                        ErrorMessage = $"Модель '{trimmedModelId}' является удалённой облачной моделью ({provider ?? "Cloud"}). " +
-                                       "Для прямого тестирования требуется настроенный облачный ключ доступа или шлюз. " +
-                                       "Для локального тестирования выберите модель со значком Ollama.",
-                        LatencyMs = sw.ElapsedMilliseconds,
-                    };
-                }
-
                 return new ModelTestResponse
                 {
                     Success = false,
@@ -224,20 +221,9 @@ public sealed class ModelTestService : IModelTestService
                 ModelUsed = modelUsed ?? runtimeModelId,
             };
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
             sw.Stop();
-            if (hostingType == ModelHostingType.RemoteCloud)
-            {
-                return new ModelTestResponse
-                {
-                    Success = false,
-                    ErrorMessage = $"Модель '{trimmedModelId}' является удалённой облачной моделью ({provider ?? "Cloud"}). " +
-                                   $"Локальный шлюз недоступен ({ex.Message}). Для прямого вызова требуется настроенный API-ключ.",
-                    LatencyMs = sw.ElapsedMilliseconds,
-                };
-            }
-
             return new ModelTestResponse
             {
                 Success = false,
@@ -267,6 +253,310 @@ public sealed class ModelTestService : IModelTestService
             };
         }
     }
+
+    private async Task<ModelTestResponse> TestRemoteCloudAsync(
+        string modelId,
+        string prompt,
+        string? provider,
+        Stopwatch watch,
+        CancellationToken cancellationToken)
+    {
+        if (_remoteProviders is null)
+        {
+            watch.Stop();
+            return new ModelTestResponse
+            {
+                Success = false,
+                ErrorMessage = $"Модель '{modelId}' является удалённой облачной моделью ({provider ?? "Cloud"}). " +
+                               "Откройте «Управление облачными провайдерами» и укажите ключ доступа.",
+                LatencyMs = watch.ElapsedMilliseconds,
+            };
+        }
+
+        IReadOnlyList<RemoteProviderProfileDto> providers = _remoteProviders.LoadProviders();
+        RemoteProviderProfileDto? profile = null;
+        if (!string.IsNullOrWhiteSpace(provider))
+        {
+            profile = providers.FirstOrDefault(item =>
+                string.Equals(item.Id, provider, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, provider, StringComparison.OrdinalIgnoreCase));
+        }
+
+        profile ??= providers.FirstOrDefault(item =>
+            item.IsEnabled && item.Models.Any(model => string.Equals(model.ModelId, modelId, StringComparison.OrdinalIgnoreCase)));
+        profile ??= providers.FirstOrDefault(item =>
+            item.Models.Any(model => string.Equals(model.ModelId, modelId, StringComparison.OrdinalIgnoreCase)));
+
+        if (profile is null)
+        {
+            watch.Stop();
+            return new ModelTestResponse
+            {
+                Success = false,
+                ErrorMessage = $"Не найден облачный провайдер для модели '{modelId}'. Откройте «Управление облачными провайдерами» и добавьте провайдера.",
+                LatencyMs = watch.ElapsedMilliseconds,
+            };
+        }
+
+        SecretValue? secret = await _remoteProviders.GetApiKeyAsync(profile.Id, cancellationToken).ConfigureAwait(false);
+        string? apiKey = secret?.Reveal();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            watch.Stop();
+            return new ModelTestResponse
+            {
+                Success = false,
+                ErrorMessage = $"Для модели '{modelId}' ({profile.Name}) не настроен API-ключ. Откройте «Управление облачными провайдерами» и укажите ключ доступа.",
+                LatencyMs = watch.ElapsedMilliseconds,
+            };
+        }
+
+        try
+        {
+            using HttpRequestMessage request = CreateRemoteRequest(profile, modelId, prompt, apiKey);
+            using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            watch.Stop();
+            string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            {
+                return new ModelTestResponse
+                {
+                    Success = false,
+                    ErrorMessage = "Ошибка авторизации (HTTP 401/403): проверьте правильность API-ключа.",
+                    LatencyMs = watch.ElapsedMilliseconds,
+                };
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return new ModelTestResponse
+                {
+                    Success = false,
+                    ErrorMessage = $"Ошибка вызова модели: {TryExtractErrorMessage(body) ?? $"HTTP {(int)response.StatusCode}"}",
+                    LatencyMs = watch.ElapsedMilliseconds,
+                };
+            }
+
+            return ParseRemoteResponse(profile.Protocol, body, modelId, watch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException)
+        {
+            watch.Stop();
+            return new ModelTestResponse
+            {
+                Success = false,
+                ErrorMessage = $"Не удалось вызвать {profile.Name}: {ex.Message}",
+                LatencyMs = watch.ElapsedMilliseconds,
+            };
+        }
+    }
+
+    private static HttpRequestMessage CreateRemoteRequest(
+        RemoteProviderProfileDto profile,
+        string modelId,
+        string prompt,
+        string apiKey)
+    {
+        string baseUrl = profile.BaseUrl.TrimEnd('/');
+        HttpRequestMessage request;
+        if (profile.Protocol == RemoteProviderProtocol.Anthropic)
+        {
+            request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/messages")
+            {
+                Content = JsonContent.Create(new
+                {
+                    model = modelId,
+                    max_tokens = 512,
+                    messages = new[] { new { role = "user", content = prompt } },
+                }),
+            };
+            request.Headers.TryAddWithoutValidation("x-api-key", apiKey);
+            request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+            return request;
+        }
+
+        if (profile.Protocol == RemoteProviderProtocol.GoogleGemini)
+        {
+            string url = $"{baseUrl}/models/{Uri.EscapeDataString(modelId)}:generateContent?key={Uri.EscapeDataString(apiKey)}";
+            return new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = JsonContent.Create(new
+                {
+                    contents = new[] { new { parts = new[] { new { text = prompt } } } },
+                }),
+            };
+        }
+
+        request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions")
+        {
+            Content = JsonContent.Create(new
+            {
+                model = modelId,
+                max_tokens = 512,
+                messages = new[] { new { role = "user", content = prompt } },
+            }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        return request;
+    }
+
+    private static ModelTestResponse ParseRemoteResponse(
+        RemoteProviderProtocol protocol,
+        string json,
+        string modelId,
+        long latencyMs)
+    {
+        using JsonDocument doc = JsonDocument.Parse(json);
+        JsonElement root = doc.RootElement;
+        string text = protocol switch
+        {
+            RemoteProviderProtocol.Anthropic => ReadAnthropicText(root),
+            RemoteProviderProtocol.GoogleGemini => ReadGeminiText(root),
+            _ => ReadOpenAiText(root),
+        };
+        (int? input, int? output) = protocol switch
+        {
+            RemoteProviderProtocol.GoogleGemini => ReadGeminiUsage(root),
+            _ => ReadChatUsage(root),
+        };
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return new ModelTestResponse
+            {
+                Success = false,
+                ErrorMessage = TryExtractErrorMessage(json) ?? "Провайдер вернул ответ без текста.",
+                LatencyMs = latencyMs,
+                ModelUsed = modelId,
+            };
+        }
+
+        return new ModelTestResponse
+        {
+            Success = true,
+            ResponseText = text,
+            LatencyMs = latencyMs,
+            InputTokens = input,
+            OutputTokens = output,
+            ModelUsed = modelId,
+        };
+    }
+
+    private static string ReadOpenAiText(JsonElement root)
+    {
+        if (!root.TryGetProperty("choices", out JsonElement choices) || choices.ValueKind != JsonValueKind.Array)
+        {
+            return string.Empty;
+        }
+
+        foreach (JsonElement choice in choices.EnumerateArray())
+        {
+            if (choice.TryGetProperty("message", out JsonElement message) &&
+                message.TryGetProperty("content", out JsonElement content) &&
+                content.ValueKind == JsonValueKind.String)
+            {
+                return content.GetString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ReadAnthropicText(JsonElement root)
+    {
+        if (!root.TryGetProperty("content", out JsonElement content))
+        {
+            return string.Empty;
+        }
+
+        if (content.ValueKind == JsonValueKind.String)
+        {
+            return content.GetString() ?? string.Empty;
+        }
+
+        if (content.ValueKind != JsonValueKind.Array)
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        foreach (JsonElement block in content.EnumerateArray())
+        {
+            if (block.TryGetProperty("text", out JsonElement text) && text.ValueKind == JsonValueKind.String)
+            {
+                string? value = text.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    parts.Add(value);
+                }
+            }
+        }
+
+        return string.Join(string.Empty, parts);
+    }
+
+    private static string ReadGeminiText(JsonElement root)
+    {
+        if (!root.TryGetProperty("candidates", out JsonElement candidates) || candidates.ValueKind != JsonValueKind.Array)
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        foreach (JsonElement candidate in candidates.EnumerateArray())
+        {
+            if (!candidate.TryGetProperty("content", out JsonElement content) ||
+                !content.TryGetProperty("parts", out JsonElement contentParts) ||
+                contentParts.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (JsonElement part in contentParts.EnumerateArray())
+            {
+                if (part.TryGetProperty("text", out JsonElement text) && text.ValueKind == JsonValueKind.String)
+                {
+                    string? value = text.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        parts.Add(value);
+                    }
+                }
+            }
+        }
+
+        return string.Join(string.Empty, parts);
+    }
+
+    private static (int? Input, int? Output) ReadChatUsage(JsonElement root)
+    {
+        if (!root.TryGetProperty("usage", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object)
+        {
+            return (null, null);
+        }
+
+        return (ReadInt(usage, "prompt_tokens") ?? ReadInt(usage, "input_tokens"),
+            ReadInt(usage, "completion_tokens") ?? ReadInt(usage, "output_tokens"));
+    }
+
+    private static (int? Input, int? Output) ReadGeminiUsage(JsonElement root)
+    {
+        if (!root.TryGetProperty("usageMetadata", out JsonElement usage) || usage.ValueKind != JsonValueKind.Object)
+        {
+            return (null, null);
+        }
+
+        return (ReadInt(usage, "promptTokenCount"), ReadInt(usage, "candidatesTokenCount"));
+    }
+
+    private static int? ReadInt(JsonElement element, string property) =>
+        element.TryGetProperty(property, out JsonElement value) && value.TryGetInt32(out int number)
+            ? number
+            : null;
 
     /// <summary>
     /// Каталог хранит id вроде <c>qwen3-0.6b</c>, а <c>ollama list</c> показывает тег <c>qwen3:0.6b</c>.

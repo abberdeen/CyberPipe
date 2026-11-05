@@ -20,9 +20,30 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
     public string Description { get; init; } = string.Empty;
     public bool IsEditable => Tier != IntentTier.Tier0;
     public bool HasHostingSelector => Tier == IntentTier.Tier2 || Tier == IntentTier.Tier3;
+    public bool IsVisibleInSimpleUi => Tier is IntentTier.Tier2 or IntentTier.Tier3;
     public RelayCommand? TestCommand { get; set; }
 
+    public string RoleTitle => Tier switch
+    {
+        IntentTier.Tier2 => "⚡ Быстрый помощник (Tier 2)",
+        IntentTier.Tier3 => "🧠 Умный эксперт (Tier 3)",
+        _ => TierName,
+    };
+
+    public string RoleSubtitle => Tier switch
+    {
+        IntentTier.Tier2 => "Мгновенно отвечает на повседневные вопросы, разбирает команды, ставит таймеры и заметки",
+        IntentTier.Tier3 => "Решает сложные задачи: пишет код, анализирует документы, строит цепочки и глубоко рассуждает",
+        _ => Description,
+    };
+
+    public string SelectionHint => HostingType == ModelHostingType.RemoteCloud
+        ? $"Облако • {SelectedModel}"
+        : $"На этом ПК (Ollama) • {SelectedModel}";
+
     public Action<TierModelAssignmentViewModel>? OnHostingTypeChanged { get; set; }
+
+    public Action? AutoSaveRequested { get; set; }
 
     public string ModelId
     {
@@ -50,6 +71,7 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
                 OnPropertyChanged(nameof(IsRemoteHosting));
                 OnPropertyChanged(nameof(IsLocalHosting));
                 OnPropertyChanged(nameof(HostingTypeText));
+                OnPropertyChanged(nameof(SelectionHint));
                 OnHostingTypeChanged?.Invoke(this);
             }
         }
@@ -102,6 +124,9 @@ public sealed class TierModelAssignmentViewModel : ViewModelBase
                     _modelId = value;
                     OnPropertyChanged(nameof(ModelId));
                 }
+
+                OnPropertyChanged(nameof(SelectionHint));
+                AutoSaveRequested?.Invoke();
             }
         }
     }
@@ -128,9 +153,15 @@ public sealed class ModelsViewModel : ViewModelBase
     private readonly string _uiOverridesPath;
     private readonly IModelTestService _modelTestService;
     private readonly IClipboardService _clipboardService;
+    private readonly IRemoteProviderService? _remoteProviders;
 
     private string _installerNotice;
     private string _statusMessage = string.Empty;
+    private bool _tiersReady;
+    private bool _hasNoInstalledLocalModels;
+    private string _ollamaSummaryText = "⚪ Ollama не запущена";
+    private string _remoteProvidersSummaryText = "⚪ Облачные провайдеры не настроены";
+    private string _hardwareSummaryText = "💻 Паспорт ПК появится после проверки Ollama.";
 
     public ModelsViewModel(
         IEnumerable<TierModelAssignment>? assignments = null,
@@ -142,7 +173,9 @@ public sealed class ModelsViewModel : ViewModelBase
         CyberPipeOptions? options = null,
         string? uiOverridesPath = null,
         IModelTestService? modelTestService = null,
-        IClipboardService? clipboardService = null)
+        IClipboardService? clipboardService = null,
+        OllamaManagerViewModel? ollamaManager = null,
+        IRemoteProviderService? remoteProviders = null)
     {
         _notifications = notifications;
         _localization = localization ?? LocalizationManager.Instance;
@@ -150,8 +183,14 @@ public sealed class ModelsViewModel : ViewModelBase
         _modelCatalog = modelCatalog;
         Installer = installer;
         _uiOverridesPath = uiOverridesPath ?? CyberPipeConfigurationLoader.GetDefaultUiOverridesPath();
-        _modelTestService = modelTestService ?? new ModelTestService();
+        _modelTestService = modelTestService ?? new ModelTestService(remoteProviders: remoteProviders);
         _clipboardService = clipboardService ?? AvaloniaClipboardService.Default;
+        _remoteProviders = remoteProviders;
+        OllamaManager = ollamaManager;
+        if (remoteProviders is not null)
+        {
+            RemoteProviders = new RemoteProvidersViewModel(remoteProviders);
+        }
 
         LaunchInstallerCommand = new RelayCommand(LaunchInstaller);
         SaveTierAssignmentsCommand = new RelayCommand(SaveTierAssignments);
@@ -213,11 +252,77 @@ public sealed class ModelsViewModel : ViewModelBase
             }
         }
 
+        OpenOllamaManagerCommand = new AsyncRelayCommand(OpenOllamaManagerAsync);
+        OpenRemoteProvidersCommand = new AsyncRelayCommand(OpenRemoteProvidersAsync);
+
         // Initialize assignments
         InitializeTierAssignments(assignments, options);
+        WireManagerCallbacks();
+        EnsureLocalRuntimes();
+        UpdateSourceSummaries();
+        WhenOllamaReady = OllamaManager is null ? Task.CompletedTask : RefreshWhenOllamaReadyAsync();
     }
 
+    public Task WhenOllamaReady { get; }
+
     public LocalModelInstallerViewModel? Installer { get; }
+
+    public OllamaManagerViewModel? OllamaManager { get; }
+
+    public RemoteProvidersViewModel? RemoteProviders { get; }
+
+    public ObservableCollection<LocalRuntimeDescriptorDto> LocalRuntimes { get; } = [];
+
+    public TierModelAssignmentViewModel? FastAssistantAssignment =>
+        Assignments.FirstOrDefault(assignment => assignment.Tier == IntentTier.Tier2);
+
+    public TierModelAssignmentViewModel? SmartExpertAssignment =>
+        Assignments.FirstOrDefault(assignment => assignment.Tier == IntentTier.Tier3);
+
+    public bool HasNoInstalledLocalModels
+    {
+        get => _hasNoInstalledLocalModels;
+        private set
+        {
+            if (SetProperty(ref _hasNoInstalledLocalModels, value))
+            {
+                OnPropertyChanged(nameof(ShowFastLocalDownloadHint));
+                OnPropertyChanged(nameof(ShowExpertLocalDownloadHint));
+            }
+        }
+    }
+
+    public bool ShowFastLocalDownloadHint =>
+        HasNoInstalledLocalModels && FastAssistantAssignment?.IsLocalHosting == true;
+
+    public bool ShowExpertLocalDownloadHint =>
+        HasNoInstalledLocalModels && SmartExpertAssignment?.IsLocalHosting == true;
+
+    public string OllamaSummaryText
+    {
+        get => _ollamaSummaryText;
+        private set => SetProperty(ref _ollamaSummaryText, value);
+    }
+
+    public string RemoteProvidersSummaryText
+    {
+        get => _remoteProvidersSummaryText;
+        private set => SetProperty(ref _remoteProvidersSummaryText, value);
+    }
+
+    public string HardwareSummaryText
+    {
+        get => _hardwareSummaryText;
+        private set => SetProperty(ref _hardwareSummaryText, value);
+    }
+
+    public AsyncRelayCommand OpenOllamaManagerCommand { get; }
+
+    public AsyncRelayCommand OpenRemoteProvidersCommand { get; }
+
+    public Func<OllamaManagerViewModel, Task>? OpenOllamaManagerRequested { get; set; }
+
+    public Func<RemoteProvidersViewModel, Task>? OpenRemoteProvidersRequested { get; set; }
 
     public bool HasInstaller => Installer != null;
 
@@ -360,102 +465,150 @@ public sealed class ModelsViewModel : ViewModelBase
         t1Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t1Vm));
         Assignments.Add(t1Vm);
 
-        // Tier 2
+        // Tier 2 — быстрый помощник
         var t2Vm = new TierModelAssignmentViewModel
         {
             Tier = IntentTier.Tier2,
-            TierName = "Tier 2 (Small LLM)",
-            Description = "Быстрая LLM (локальная или облачная)",
+            TierName = "⚡ Быстрый помощник (Tier 2)",
+            Description = "Мгновенно отвечает на повседневные вопросы, разбирает команды, ставит таймеры и заметки",
             ModelId = tier2Model,
             SelectedModel = tier2Model,
             HostingType = tier2Hosting,
             OnHostingTypeChanged = HandleTierHostingTypeChanged,
         };
+        t2Vm.AutoSaveRequested = RequestAutoSave;
         var t2Candidates = GetCandidatesForHosting(tier2Hosting, IntentTier.Tier2);
         if (!t2Candidates.Contains(tier2Model)) t2Candidates.Insert(0, tier2Model);
         foreach (string c in t2Candidates) t2Vm.AvailableModels.Add(c);
         t2Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t2Vm));
         Assignments.Add(t2Vm);
 
-        // Tier 3
+        // Tier 3 — умный эксперт
         var t3Vm = new TierModelAssignmentViewModel
         {
             Tier = IntentTier.Tier3,
-            TierName = "Tier 3 (Large LLM)",
-            Description = "Мощная рассуждающая LLM (облачная или локальная)",
+            TierName = "🧠 Умный эксперт (Tier 3)",
+            Description = "Решает сложные задачи: пишет код, анализирует документы, строит цепочки и глубоко рассуждает",
             ModelId = tier3Model,
             SelectedModel = tier3Model,
             HostingType = tier3Hosting,
             OnHostingTypeChanged = HandleTierHostingTypeChanged,
         };
+        t3Vm.AutoSaveRequested = RequestAutoSave;
         var t3Candidates = GetCandidatesForHosting(tier3Hosting, IntentTier.Tier3);
         if (!t3Candidates.Contains(tier3Model)) t3Candidates.Insert(0, tier3Model);
         foreach (string c in t3Candidates) t3Vm.AvailableModels.Add(c);
         t3Vm.TestCommand = new RelayCommand(() => OpenTestForTier(t3Vm));
         Assignments.Add(t3Vm);
+        _tiersReady = true;
+        OnPropertyChanged(nameof(FastAssistantAssignment));
+        OnPropertyChanged(nameof(SmartExpertAssignment));
+    }
+
+    private void RequestAutoSave()
+    {
+        if (_tiersReady)
+        {
+            SaveTierAssignments();
+        }
     }
 
     public List<string> GetCandidatesForHosting(ModelHostingType hosting, IntentTier tier)
     {
-        var candidates = new List<string>();
         ModelTaskCategory targetCategory = tier == IntentTier.Tier3
             ? ModelTaskCategory.HeavyReasoningTier3
             : ModelTaskCategory.LightFastTier2;
-
-        // First add catalog models that match both hosting and tier recommendation
-        foreach (ModelDescriptorDto item in Catalog)
-        {
-            if (item.RecommendedFor == ModelTaskCategory.EmbeddingTier1 ||
-                string.Equals(item.Provider, "ONNX", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (item.HostingType == hosting && item.RecommendedFor == targetCategory && !candidates.Contains(item.Id))
-            {
-                candidates.Add(item.Id);
-            }
-        }
-
-        // Then add other catalog models matching hosting
-        foreach (ModelDescriptorDto item in Catalog)
-        {
-            if (item.RecommendedFor == ModelTaskCategory.EmbeddingTier1 ||
-                string.Equals(item.Provider, "ONNX", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (item.HostingType == hosting && !candidates.Contains(item.Id))
-            {
-                candidates.Add(item.Id);
-            }
-        }
+        var preferred = new List<string>();
+        var others = new List<string>();
 
         if (hosting == ModelHostingType.Local)
         {
-            string[] defaults = tier == IntentTier.Tier3
-                ? ["qwen2.5:7b", "llama3.1:8b", "qwen2.5:3b", "llama3.2:3b", "mistral"]
-                : ["qwen2.5:3b", "llama3.2:3b", "qwen2.5:7b", "gemma2:2b", "mistral"];
-            foreach (string d in defaults)
+            List<string> installed = CollectInstalledLocalIds();
+            if (installed.Count > 0)
             {
-                if (!candidates.Contains(d))
-                    candidates.Add(d);
+                foreach (string id in installed)
+                {
+                    AddRanked(preferred, others, id, FindCatalogModel(id)?.RecommendedFor == targetCategory);
+                }
+            }
+            else
+            {
+                foreach (ModelDescriptorDto item in Catalog)
+                {
+                    if (item.HostingType != ModelHostingType.Local || !IsChatCatalogModel(item))
+                    {
+                        continue;
+                    }
+
+                    AddRanked(preferred, others, CatalogId(item), item.RecommendedFor == targetCategory);
+                }
             }
         }
-        else // RemoteCloud
+        else
         {
-            string[] defaults = tier == IntentTier.Tier2
-                ? ["gpt-4o-mini", "claude-3-haiku", "gemini-1.5-flash", "gpt-4o", "claude-3-5-sonnet"]
-                : ["claude-3-5-sonnet", "gpt-4o", "gpt-4o-mini", "claude-3-haiku", "gemini-1.5-pro"];
-            foreach (string d in defaults)
+            if (_remoteProviders is not null)
             {
-                if (!candidates.Contains(d))
-                    candidates.Add(d);
+                foreach (RemoteProviderProfileDto provider in _remoteProviders.LoadProviders().Where(provider => provider.IsEnabled))
+                {
+                    foreach (RemoteModelEntryDto model in provider.Models.Where(model => model.IsEnabled))
+                    {
+                        AddRanked(preferred, others, model.ModelId, model.RecommendedFor == targetCategory);
+                    }
+                }
+            }
+
+            foreach (ModelDescriptorDto item in Catalog)
+            {
+                if (item.HostingType != ModelHostingType.RemoteCloud || !IsChatCatalogModel(item))
+                {
+                    continue;
+                }
+
+                string id = CatalogId(item);
+                if (preferred.Contains(id) || others.Contains(id))
+                {
+                    continue;
+                }
+
+                AddRanked(preferred, others, id, item.RecommendedFor == targetCategory);
             }
         }
 
-        return candidates;
+        preferred.AddRange(others);
+        return preferred;
+    }
+
+    public void RefreshAvailableModels()
+    {
+        bool wasReady = _tiersReady;
+        _tiersReady = false;
+        try
+        {
+            foreach (TierModelAssignmentViewModel tier in Assignments.Where(assignment =>
+                         assignment.Tier is IntentTier.Tier2 or IntentTier.Tier3))
+            {
+                ModelHostingType hosting = tier.HostingType ??
+                    (tier.Tier == IntentTier.Tier2 ? ModelHostingType.Local : ModelHostingType.RemoteCloud);
+                List<string> candidates = GetCandidatesForHosting(hosting, tier.Tier);
+                string current = string.IsNullOrWhiteSpace(tier.SelectedModel) ? tier.ModelId : tier.SelectedModel;
+                if (!string.IsNullOrWhiteSpace(current) && !candidates.Contains(current))
+                {
+                    candidates.Insert(0, current);
+                }
+
+                tier.AvailableModels.Clear();
+                foreach (string candidate in candidates)
+                {
+                    tier.AvailableModels.Add(candidate);
+                }
+            }
+
+            UpdateSourceSummaries();
+        }
+        finally
+        {
+            _tiersReady = wasReady;
+        }
     }
 
     private void HandleTierHostingTypeChanged(TierModelAssignmentViewModel vm)
@@ -490,6 +643,8 @@ public sealed class ModelsViewModel : ViewModelBase
             vm.SelectedModel = fallback;
         }
 
+        OnPropertyChanged(nameof(ShowFastLocalDownloadHint));
+        OnPropertyChanged(nameof(ShowExpertLocalDownloadHint));
         SaveTierAssignments();
     }
 
@@ -685,6 +840,195 @@ public sealed class ModelsViewModel : ViewModelBase
     {
         ModelDescriptorDto? descriptor = Catalog.FirstOrDefault(m => string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase));
         return descriptor?.HostingType ?? fallback;
+    }
+
+    private void WireManagerCallbacks()
+    {
+        if (OllamaManager is not null)
+        {
+            OllamaManager.OnAssignModelToTier = (tier, modelId) =>
+                AssignModelToTier(tier, modelId, ModelHostingType.Local);
+            OllamaManager.OnInstalledModelsChanged = RefreshAvailableModels;
+            OllamaManager.OnTestModelRequested = (modelId, name) =>
+                OpenTestForModelId(modelId, ModelHostingType.Local, "Ollama", name);
+        }
+
+        if (RemoteProviders is not null)
+        {
+            RemoteProviders.OnProvidersUpdated = RefreshAvailableModels;
+            RemoteProviders.OnAssignRemoteModelToTier = (tier, modelId, providerName) =>
+                AssignModelToTier(tier, modelId, ModelHostingType.RemoteCloud);
+            RemoteProviders.OnTestRemoteModelRequested = (modelId, providerName, displayName) =>
+                OpenTestForModelId(modelId, ModelHostingType.RemoteCloud, providerName, displayName);
+        }
+    }
+
+    private async Task RefreshWhenOllamaReadyAsync()
+    {
+        try
+        {
+            if (OllamaManager is not null)
+            {
+                await OllamaManager.RefreshAsync().ConfigureAwait(true);
+            }
+
+            RefreshAvailableModels();
+        }
+        catch (Exception)
+        {
+            // Паспорт Ollama не должен ронять экран моделей.
+        }
+    }
+
+    private async Task OpenOllamaManagerAsync()
+    {
+        if (OllamaManager is null || OpenOllamaManagerRequested is null)
+        {
+            _notifications?.ShowNotification(
+                "Ollama",
+                "Менеджер Ollama недоступен.",
+                NotificationSeverity.Warning);
+            return;
+        }
+
+        await OpenOllamaManagerRequested(OllamaManager).ConfigureAwait(true);
+        RefreshAvailableModels();
+    }
+
+    private async Task OpenRemoteProvidersAsync()
+    {
+        if (RemoteProviders is null || OpenRemoteProvidersRequested is null)
+        {
+            _notifications?.ShowNotification(
+                "Облачные провайдеры",
+                "Окно облачных провайдеров недоступно.",
+                NotificationSeverity.Warning);
+            return;
+        }
+
+        await OpenRemoteProvidersRequested(RemoteProviders).ConfigureAwait(true);
+        RefreshAvailableModels();
+    }
+
+    private void EnsureLocalRuntimes()
+    {
+        if (LocalRuntimes.Count > 0)
+        {
+            return;
+        }
+
+        LocalRuntimes.Add(new LocalRuntimeDescriptorDto
+        {
+            Id = "ollama",
+            Name = "Ollama",
+            Kind = LocalRuntimeKind.Ollama,
+            ApiBaseUrl = OllamaManager?.ApiBaseUrl ?? "http://localhost:11434",
+            SupportsModelPull = true,
+            SupportsMemoryUnload = true,
+            IsImplemented = true,
+        });
+        LocalRuntimes.Add(new LocalRuntimeDescriptorDto
+        {
+            Id = "lm-studio",
+            Name = "LM Studio (Скоро)",
+            Kind = LocalRuntimeKind.LmStudio,
+            ApiBaseUrl = "http://localhost:1234",
+            SupportsModelPull = false,
+            SupportsMemoryUnload = false,
+            IsImplemented = false,
+        });
+    }
+
+    private void UpdateSourceSummaries()
+    {
+        List<string> installed = CollectInstalledLocalIds();
+        HasNoInstalledLocalModels = installed.Count == 0;
+        bool ready = OllamaManager?.IsRuntimeReady == true;
+        OllamaSummaryText = ready
+            ? $"🟢 Ollama готова • Установлено моделей: {installed.Count}"
+            : installed.Count > 0
+                ? $"⚪ Ollama не запущена • Установлено моделей: {installed.Count}"
+                : "⚪ Ollama не запущена";
+
+        if (_remoteProviders is null)
+        {
+            int cloudCount = Catalog.Count(model => model.HostingType == ModelHostingType.RemoteCloud && IsChatCatalogModel(model));
+            RemoteProvidersSummaryText = cloudCount > 0
+                ? $"Каталог облачных моделей: {cloudCount}. Подключите API-ключ в окне провайдеров."
+                : "⚪ Облачные провайдеры не настроены";
+        }
+        else
+        {
+            List<RemoteProviderProfileDto> active = _remoteProviders.LoadProviders().Where(provider => provider.IsEnabled).ToList();
+            int models = active.Sum(provider => provider.Models.Count(model => model.IsEnabled));
+            RemoteProvidersSummaryText = active.Count == 0
+                ? "⚪ Облачные провайдеры не настроены"
+                : $"🟢 Активно провайдеров: {active.Count} (доступно {models} моделей)";
+        }
+
+        if (!string.IsNullOrWhiteSpace(OllamaManager?.HardwareSummaryText))
+        {
+            HardwareSummaryText = OllamaManager.HardwareSummaryText;
+        }
+    }
+
+    private List<string> CollectInstalledLocalIds()
+    {
+        var ids = new List<string>();
+        if (OllamaManager is not null)
+        {
+            foreach (InstalledOllamaModelItemViewModel model in OllamaManager.InstalledModels)
+            {
+                AddDistinct(ids, model.ModelId);
+            }
+        }
+
+        if (Installer is not null)
+        {
+            foreach (LocalModelItemViewModel item in Installer.Items.Where(item => item.IsInstalled))
+            {
+                AddDistinct(ids, string.IsNullOrWhiteSpace(item.Model.ModelId) ? item.Model.Id : item.Model.ModelId);
+            }
+        }
+
+        return ids;
+    }
+
+    private ModelDescriptorDto? FindCatalogModel(string id) =>
+        Catalog.FirstOrDefault(model =>
+            string.Equals(model.Id, id, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(model.ModelId, id, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsChatCatalogModel(ModelDescriptorDto item) =>
+        item.RecommendedFor != ModelTaskCategory.EmbeddingTier1 &&
+        !string.Equals(item.Provider, "ONNX", StringComparison.OrdinalIgnoreCase);
+
+    private static string CatalogId(ModelDescriptorDto item) =>
+        string.IsNullOrWhiteSpace(item.Id) ? item.ModelId : item.Id;
+
+    private static void AddRanked(List<string> preferred, List<string> others, string id, bool matchesTier)
+    {
+        if (preferred.Contains(id) || others.Contains(id))
+        {
+            return;
+        }
+
+        if (matchesTier)
+        {
+            preferred.Add(id);
+        }
+        else
+        {
+            others.Add(id);
+        }
+    }
+
+    private static void AddDistinct(List<string> ids, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value) && !ids.Contains(value))
+        {
+            ids.Add(value);
+        }
     }
 
     public void LaunchInstaller()

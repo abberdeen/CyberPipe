@@ -2,7 +2,7 @@
 
 > **Родительский план:** [models-ui-simplification-and-providers.md](../models-ui-simplification-and-providers.md)  
 > **Зависимости:** [TASK-ENH-01](TASK-ENH-01-contracts-and-ollama-runtime-api.md)  
-> **Статус:** `Todo`
+> **Статус:** `Done`
 
 ---
 

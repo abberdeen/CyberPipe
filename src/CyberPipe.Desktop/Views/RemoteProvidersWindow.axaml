@@ -1,0 +1,123 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:CyberPipe.Desktop.ViewModels"
+        x:Class="CyberPipe.Desktop.Views.RemoteProvidersWindow"
+        x:DataType="vm:RemoteProvidersViewModel"
+        Title="Облачные провайдеры"
+        Width="940"
+        Height="660"
+        MinWidth="780"
+        MinHeight="520"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid Margin="16" RowDefinitions="*,Auto" ColumnDefinitions="260,*">
+    <Border Grid.Row="0"
+            Grid.Column="0"
+            Margin="0,0,12,0"
+            Padding="12"
+            CornerRadius="8"
+            Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,10">
+          <TextBlock Text="Провайдеры" FontWeight="Bold" FontSize="16" />
+          <Button Content="+ Добавить провайдер" Command="{Binding AddPresetCommand}" CommandParameter="custom" HorizontalAlignment="Stretch" />
+          <WrapPanel Orientation="Horizontal">
+            <Button Content="+ OpenRouter" Command="{Binding AddPresetCommand}" CommandParameter="openrouter" Margin="0,0,6,6" />
+            <Button Content="+ Groq" Command="{Binding AddPresetCommand}" CommandParameter="groq" Margin="0,0,6,6" />
+            <Button Content="+ Свой OpenAI URL" Command="{Binding AddPresetCommand}" CommandParameter="custom" Margin="0,0,6,6" />
+          </WrapPanel>
+        </StackPanel>
+        <ListBox ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedProvider}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:RemoteProviderItemViewModel">
+              <StackPanel Spacing="2" Margin="0,4">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding ProtocolLabel}" FontSize="11" Opacity="0.7" />
+                <TextBlock Text="{Binding KeyBadgeText}" FontSize="11" />
+                <CheckBox Content="Включён" IsChecked="{Binding IsEnabled}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <ContentControl Grid.Row="0" Grid.Column="1" Content="{Binding SelectedProvider}">
+      <ContentControl.ContentTemplate>
+        <DataTemplate x:DataType="vm:RemoteProviderItemViewModel">
+          <ScrollViewer>
+            <StackPanel Spacing="10">
+              <TextBlock Text="Настройки провайдера" FontWeight="Bold" FontSize="16" />
+              <TextBlock Text="Название" />
+              <TextBox Text="{Binding Name}" />
+              <TextBlock Text="Тип протокола" />
+              <ComboBox SelectedIndex="{Binding ProtocolIndex}">
+                <ComboBoxItem Content="OpenAI-совместимый" />
+                <ComboBoxItem Content="Anthropic" />
+                <ComboBoxItem Content="Google Gemini" />
+              </ComboBox>
+              <TextBlock Text="Базовый URL API" />
+              <TextBox Text="{Binding BaseUrl}" PlaceholderText="https://api.example.com/v1" />
+              <CheckBox Content="Провайдер включён" IsChecked="{Binding IsEnabled}" />
+
+              <TextBlock Text="API-ключ" FontWeight="SemiBold" />
+              <TextBox Text="{Binding ApiKeyInput}" PasswordChar="•" PlaceholderText="Вставьте ключ — он не попадёт в файл настроек" />
+              <TextBlock Text="{Binding KeyStatusText}" FontSize="12" Opacity="0.8" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="💾 Сохранить ключ и настройки" Command="{Binding SaveCommand}" Classes="accent" />
+                <Button Content="🗑 Удалить ключ" Command="{Binding DeleteKeyCommand}" />
+                <Button Content="Удалить провайдер" Command="{Binding RemoveProviderCommand}" />
+              </StackPanel>
+
+              <Button Content="🔄 Проверить связь и загрузить модели" Command="{Binding ProbeCommand}" HorizontalAlignment="Left" />
+              <TextBlock Text="{Binding ProbeStatusText}" TextWrapping="Wrap" />
+
+              <TextBlock Text="Модели провайдера" FontWeight="SemiBold" />
+              <TextBox Text="{Binding ModelFilterText}" PlaceholderText="Поиск по моделям" />
+              <ItemsControl ItemsSource="{Binding FilteredModels}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:RemoteProviderModelItemViewModel">
+                    <Border Margin="0,0,0,8" Padding="10" CornerRadius="6" Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                      <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                          <CheckBox Grid.Column="0" IsChecked="{Binding IsEnabled}" Content="Показывать в списке выбора" VerticalAlignment="Center" />
+                          <StackPanel Grid.Column="1" Margin="8,0">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding ModelId}" FontFamily="Consolas,Menlo,monospace" FontSize="12" Opacity="0.75" />
+                          </StackPanel>
+                          <Button Grid.Column="2" Content="✖" Command="{Binding RemoveCommand}" />
+                        </Grid>
+                        <ToggleSwitch IsChecked="{Binding IsFastRecommendation}"
+                                      OnContent="Быстрый помощник Tier 2"
+                                      OffContent="Умный эксперт Tier 3" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Button Content="⚡ Назначить Быстрым" Command="{Binding AssignFastCommand}" />
+                          <Button Content="🧠 Назначить Экспертом" Command="{Binding AssignExpertCommand}" />
+                          <Button Content="💬 Тест" Command="{Binding TestCommand}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <TextBlock Text="Добавить модель вручную" FontWeight="SemiBold" />
+              <Grid ColumnDefinitions="*,*,Auto">
+                <TextBox Grid.Column="0" Text="{Binding NewModelId}" PlaceholderText="ModelId" Margin="0,0,8,0" />
+                <TextBox Grid.Column="1" Text="{Binding NewModelDisplayName}" PlaceholderText="Отображаемое имя" Margin="0,0,8,0" />
+                <Button Grid.Column="2" Content="+ Добавить модель" Command="{Binding AddModelCommand}" />
+              </Grid>
+            </StackPanel>
+          </ScrollViewer>
+        </DataTemplate>
+      </ContentControl.ContentTemplate>
+    </ContentControl>
+
+    <Button Grid.Row="1"
+            Grid.Column="1"
+            Content="Закрыть"
+            Command="{Binding CloseCommand}"
+            HorizontalAlignment="Right"
+            Margin="0,12,0,0" />
+  </Grid>
+</Window>

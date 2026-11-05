@@ -35,14 +35,28 @@ public static class DesktopModelScreen
         }
 
         LocalModelInstallerViewModel? localInstallerVm = null;
+        OllamaManagerViewModel? ollamaManager = null;
+        IRemoteProviderService? remoteProviders = null;
+        string overridesPath = CyberPipeConfigurationLoader.GetDefaultUiOverridesPath();
         if (catalog is not null && localModelInstaller is not null && localRuntimeInstaller is not null)
         {
+            IReadOnlyList<ModelDescriptorDto> localModels = catalog.Find(hostingType: ModelHostingType.Local);
             localInstallerVm = new LocalModelInstallerViewModel(
-                catalog.Find(hostingType: ModelHostingType.Local),
+                localModels,
                 localModelInstaller,
                 localRuntimeInstaller,
                 hardwareAdvisor,
                 notifications);
+            ollamaManager = new OllamaManagerViewModel(
+                localModels,
+                localModelInstaller,
+                localRuntimeInstaller,
+                hardwareAdvisor,
+                notifications);
+            remoteProviders = new RemoteProviderService(
+                overridesPath,
+                httpClient: new HttpClient { Timeout = TimeSpan.FromSeconds(30) },
+                cloudCatalog: catalog.CloudModels);
         }
 
         return new ModelsViewModel(
@@ -51,7 +65,10 @@ public static class DesktopModelScreen
             notifications: notifications,
             installer: localInstallerVm,
             modelCatalog: catalog,
-            options: Program.Options);
+            options: Program.Options,
+            uiOverridesPath: overridesPath,
+            ollamaManager: ollamaManager,
+            remoteProviders: remoteProviders);
     }
 
     private static bool TryResolveCatalogPaths(out string localPath, out string cloudPath, out string embeddingPath)

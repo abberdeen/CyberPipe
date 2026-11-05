@@ -2,7 +2,7 @@
 
 > **Родительский план:** [models-ui-simplification-and-providers.md](../models-ui-simplification-and-providers.md)  
 > **Зависимости:** [TASK-ENH-02](TASK-ENH-02-ollama-manager-window.md), [TASK-ENH-03](TASK-ENH-03-remote-providers-window-and-client.md)  
-> **Статус:** `Todo`
+> **Статус:** `Done`
 
 ---
 

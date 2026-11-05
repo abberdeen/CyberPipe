@@ -2,7 +2,7 @@
 
 > **Родительский план:** [models-ui-simplification-and-providers.md](../models-ui-simplification-and-providers.md)  
 > **Зависимости:** Нет (первая задача цепочки)  
-> **Статус:** `Todo`
+> **Статус:** `Done`
 
 ---
 
